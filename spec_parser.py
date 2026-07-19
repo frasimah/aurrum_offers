@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import base64
 import io
 import os
 import re
@@ -124,11 +125,47 @@ def _normalize_term(s: str) -> str:
     return s[:1].upper() + s[1:] if s else s
 
 
-def _extract_photos(path: str, out_dir: str) -> dict[int, str]:
-    """Картинки -> {номер строки листа: имя файла}. Привязка берётся из drawing."""
+# В печати колонка фото — 40 мм, поэтому 900 px хватает с большим запасом.
+# Ужимаем осознанно: документ отдаётся одним ответом, а на serverless он
+# ограничен по размеру.
+MAX_PHOTO_PX = 900
+JPEG_QUALITY = 82
+
+
+def _to_data_uri(raw: bytes, ext: str) -> str:
+    """Картинка -> data-URI. Крупные ужимаем, чтобы документ не распухал."""
+    mime = "image/png" if ext.lower() == ".png" else "image/jpeg"
+    try:
+        from PIL import Image
+
+        im = Image.open(io.BytesIO(raw))
+        if max(im.size) > MAX_PHOTO_PX:
+            im.thumbnail((MAX_PHOTO_PX, MAX_PHOTO_PX), Image.LANCZOS)
+        if im.mode in ("RGBA", "LA", "P"):
+            im = im.convert("RGBA")
+            flat = Image.new("RGB", im.size, (255, 255, 255))
+            flat.paste(im, mask=im.split()[-1])  # прозрачность -> белый фон
+            im = flat
+        elif im.mode != "RGB":
+            im = im.convert("RGB")
+        buf = io.BytesIO()
+        im.save(buf, "JPEG", quality=JPEG_QUALITY, optimize=True)
+        raw, mime = buf.getvalue(), "image/jpeg"
+    except Exception:
+        pass  # Pillow нет или формат экзотический — отдаём как есть
+
+    return f"data:{mime};base64," + base64.b64encode(raw).decode("ascii")
+
+
+def _extract_photos(data: bytes) -> dict[int, str]:
+    """Картинки -> {номер строки листа: data-URI}. Привязка берётся из drawing.
+
+    Ничего не пишем на диск: документ должен быть самодостаточным, а на
+    serverless-хостинге постоянного диска между запросами и нет.
+    """
     photos: dict[int, str] = {}
     try:
-        with zipfile.ZipFile(path) as z:
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
             names = z.namelist()
             drawings = [n for n in names if re.match(r"xl/drawings/drawing\d+\.xml$", n)]
             for d in drawings:
@@ -147,22 +184,21 @@ def _extract_photos(path: str, out_dir: str) -> dict[int, str]:
                     if not target or target not in names:
                         continue
                     ext = os.path.splitext(target)[1] or ".png"
-                    fname = f"photo-{row}{ext}"
-                    with io.open(os.path.join(out_dir, fname), "wb") as fh:
-                        fh.write(z.read(target))
-                    photos[row] = fname
+                    photos[row] = _to_data_uri(z.read(target), ext)
     except (zipfile.BadZipFile, ET.ParseError, KeyError):
         pass  # книга без картинок — не повод падать
     return photos
 
 
-def parse(path: str, photo_dir: str) -> Spec:
-    wb = openpyxl.load_workbook(path, data_only=True)
+def parse(data: bytes) -> Spec:
+    """Книга приходит байтами: временные файлы не нужны ни локально,
+    ни на serverless, где диск между запросами не сохраняется."""
+    wb = openpyxl.load_workbook(io.BytesIO(data), data_only=True)
     ws = wb[wb.sheetnames[0]]
     g = lambda c: ws[c].value  # noqa: E731
 
     spec = Spec()
-    photos = _extract_photos(path, photo_dir)
+    photos = _extract_photos(data)
     hidden_rows = {k for k, d in ws.row_dimensions.items() if d.hidden}
 
     # --- Шапка: "Спецификация №2867/3 к Договору 2867"

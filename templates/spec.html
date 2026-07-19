@@ -88,7 +88,7 @@
           <td class="c-sum">{{ item.total | money }}</td>
           <td class="c-photo">
             {% if item.photo %}
-            <img src="{{ url_for('photo', job=job, name=item.photo) }}" alt="">
+            <img src="{{ item.photo }}" alt="">
             <div class="photo-note">Фото из проекта</div>
             {% endif %}
           </td>
