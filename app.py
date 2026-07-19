@@ -22,8 +22,14 @@ import spec_parser
 ALLOWED = {".xlsx", ".xlsm"}
 MAX_MB = 25
 
-# Общий пароль на вход. Задаётся переменной окружения — в репозитории его нет.
-PASSWORD = os.environ.get("AURRUM_PASSWORD", "")
+# Общий пароль на вход.
+#
+# ВРЕМЕННЫЙ РЕЖИМ: дефолт «123», чтобы приложение работало на Vercel без
+# настройки переменных. Пароль такого вида подбирается автоматическими
+# сканерами за минуты, поэтому перед реальной работой задайте
+# AURRUM_PASSWORD в Project Settings -> Environment Variables:
+# переменная перекрывает дефолт, править код не нужно.
+PASSWORD = os.environ.get("AURRUM_PASSWORD") or "123"
 
 # Защита от перебора: N неудачных попыток с одного адреса — пауза.
 MAX_FAILS = 5
@@ -36,9 +42,10 @@ PUBLIC_ENDPOINTS = {"login", "static"}
 app = Flask(__name__)
 app.config.update(
     MAX_CONTENT_LENGTH=MAX_MB * 1024 * 1024,
-    # Без AURRUM_SECRET_KEY сессии переживут только текущий процесс —
-    # для локального запуска нормально, на сервере ключ стоит задать.
-    SECRET_KEY=os.environ.get("AURRUM_SECRET_KEY") or secrets.token_hex(32),
+    # На нескольких инстансах Vercel случайный ключ на каждом процессе означал
+    # бы постоянный разлогин, поэтому во временном режиме держим фиксированный
+    # дефолт. AURRUM_SECRET_KEY его перекрывает — задайте на проде.
+    SECRET_KEY=os.environ.get("AURRUM_SECRET_KEY") or "aurrum-temp-session-key",
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=bool(os.environ.get("AURRUM_HTTPS")),
