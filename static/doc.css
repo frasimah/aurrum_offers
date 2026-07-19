@@ -50,6 +50,12 @@ table {
   background: var(--fg);
 }
 
+.toolbar__right {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
 .toolbar__print {
   padding: 9px 18px;
   border: 1px solid var(--fg);

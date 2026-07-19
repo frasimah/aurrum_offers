@@ -122,6 +122,18 @@
       font-size: 12.5px;
       line-height: 1.55;
     }
+
+    .logout {
+      display: inline-block;
+      margin-top: 10px;
+      color: #949598;
+      transition: 0.3s;
+    }
+
+    .logout:hover {
+      color: #fff;
+      background: #2d2d2d;
+    }
   </style>
 </head>
 
@@ -147,6 +159,7 @@
     <p class="note">
       В документ попадают только те строки, которые видны в книге. Скрытые
       строки и служебные колонки (внутренние расчёты) не выгружаются.
+      <a class="logout" href="{{ url_for('logout') }}">Выйти</a>
     </p>
   </div>
 

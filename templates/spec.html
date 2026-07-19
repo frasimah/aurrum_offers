@@ -16,7 +16,10 @@
   <!-- Панель управления: на печать не идёт -->
   <div class="toolbar no-print">
     <a class="toolbar__back" href="{{ url_for('index') }}">← Новый файл</a>
-    <button class="toolbar__print" onclick="window.print()">Печать / Сохранить в PDF</button>
+    <span class="toolbar__right">
+      <a class="toolbar__back" href="{{ url_for('logout') }}">Выйти</a>
+      <button class="toolbar__print" onclick="window.print()">Печать / Сохранить в PDF</button>
+    </span>
   </div>
 
   {% if spec.warnings %}

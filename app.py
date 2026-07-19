@@ -6,13 +6,18 @@ AURRUM — конвертер спецификаций: Excel на входе, �
 
 from __future__ import annotations
 
+import hmac
 import os
+import secrets
 import shutil
 import time
 import uuid
+from collections import defaultdict
+from datetime import timedelta
+
 from markupsafe import Markup, escape
 
-from flask import (Flask, abort, render_template, request,
+from flask import (Flask, abort, redirect, render_template, request, session,
                    send_from_directory, url_for)
 from werkzeug.utils import secure_filename
 
@@ -24,10 +29,89 @@ ALLOWED = {".xlsx", ".xlsm"}
 MAX_MB = 25
 JOB_TTL = 6 * 3600  # разобранные файлы живут 6 часов
 
+# Общий пароль на вход. Задаётся переменной окружения — в репозитории его нет.
+PASSWORD = os.environ.get("AURRUM_PASSWORD", "")
+
+# Защита от перебора: N неудачных попыток с одного адреса — пауза.
+MAX_FAILS = 5
+LOCK_SECONDS = 300
+_fails: dict[str, list[float]] = defaultdict(list)
+
+# Роуты, доступные без пароля
+PUBLIC_ENDPOINTS = {"login", "static"}
+
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = MAX_MB * 1024 * 1024
+app.config.update(
+    MAX_CONTENT_LENGTH=MAX_MB * 1024 * 1024,
+    # Без AURRUM_SECRET_KEY сессии переживут только текущий процесс —
+    # для локального запуска нормально, на сервере ключ стоит задать.
+    SECRET_KEY=os.environ.get("AURRUM_SECRET_KEY") or secrets.token_hex(32),
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=bool(os.environ.get("AURRUM_HTTPS")),
+    PERMANENT_SESSION_LIFETIME=timedelta(days=7),
+)
 
 os.makedirs(JOBS_DIR, exist_ok=True)
+
+
+# --- Доступ по паролю ---------------------------------------------------
+
+def _client_ip() -> str:
+    fwd = request.headers.get("X-Forwarded-For", "")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.remote_addr or "?"
+
+
+def _locked(ip: str) -> bool:
+    now = time.time()
+    _fails[ip] = [t for t in _fails[ip] if now - t < LOCK_SECONDS]
+    return len(_fails[ip]) >= MAX_FAILS
+
+
+@app.before_request
+def require_password():
+    if request.endpoint in PUBLIC_ENDPOINTS or session.get("authorized"):
+        return None
+    return redirect(url_for("login", next=request.full_path.rstrip("?")))
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if not PASSWORD:
+        return render_template(
+            "login.html",
+            error="На сервере не задан пароль: переменная окружения AURRUM_PASSWORD.",
+        ), 503
+
+    ip = _client_ip()
+    if _locked(ip):
+        return render_template(
+            "login.html", error="Слишком много попыток. Повторите через 5 минут."
+        ), 429
+
+    if request.method == "POST":
+        if hmac.compare_digest(request.form.get("password", ""), PASSWORD):
+            session.clear()
+            session.permanent = True
+            session["authorized"] = True
+            _fails.pop(ip, None)
+            nxt = request.args.get("next", "")
+            # только внутренние адреса: "//host" браузер считает внешним
+            if nxt.startswith("/") and not nxt.startswith("//"):
+                return redirect(nxt)
+            return redirect(url_for("index"))
+        _fails[ip].append(time.time())
+        return render_template("login.html", error="Неверный пароль."), 401
+
+    return render_template("login.html")
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
 
 
 # --- Фильтры шаблонов ---------------------------------------------------
