@@ -1,0 +1,390 @@
+/* Печатный документ спецификации AURRUM.
+   Фирменный стиль: Inter, #2d2d2d, серые подписи #949598, волосяные линейки #eee. */
+
+:root {
+  --fg: #2d2d2d;
+  --muted: #949598;
+  --hair: #eeeeee;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #f2f2f2;
+  color: var(--fg);
+  font-family: Inter, sans-serif;
+  font-weight: 400;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+/* — Панель управления (только экран) — */
+.toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 24px;
+  background: #fff;
+  border-bottom: 1px solid var(--hair);
+}
+
+.toolbar__back {
+  color: var(--fg);
+  font-size: 14px;
+  text-decoration: none;
+  transition: 0.3s;
+}
+
+.toolbar__back:hover {
+  color: #fff;
+  background: var(--fg);
+}
+
+.toolbar__print {
+  padding: 9px 18px;
+  border: 1px solid var(--fg);
+  background: #fff;
+  color: var(--fg);
+  font-family: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  transition: 0.3s;
+}
+
+.toolbar__print:hover {
+  color: #fff;
+  background: var(--fg);
+}
+
+.warnings {
+  max-width: 210mm;
+  margin: 16px auto 0;
+  padding: 12px 16px;
+  border: 1px solid #e6b800;
+  background: #fffbe6;
+  font-size: 13px;
+}
+
+.warnings p {
+  margin: 0 0 4px;
+}
+
+/* — Лист — */
+.sheet {
+  width: 210mm;
+  min-height: 297mm;
+  margin: 16px auto;
+  padding: 14mm;
+  background: #fff;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
+}
+
+/* — Колонтитулы — */
+.page-head td {
+  padding: 0 0 3mm;
+  border-bottom: 0.5pt solid var(--hair);
+  vertical-align: bottom;
+}
+
+.page-head .logo img {
+  display: block;
+  width: 34mm;
+}
+
+.page-head .meta {
+  text-align: right;
+  font-size: 7pt;
+  color: var(--muted);
+}
+
+.page-foot {
+  margin-top: 12mm;
+  font-size: 6.5pt;
+  color: var(--muted);
+}
+
+.page-foot td {
+  padding-top: 2.5mm;
+  border-top: 0.5pt solid var(--hair);
+}
+
+.page-foot .num {
+  text-align: right;
+}
+
+/* — Шапка документа — */
+.doc-title {
+  padding: 8mm 0 1.5mm;
+  font-size: 13pt;
+  font-weight: 500;
+}
+
+.doc-date {
+  padding: 0 0 2mm;
+  font-size: 8pt;
+  color: var(--muted);
+  text-align: right;
+  vertical-align: bottom;
+}
+
+.doc-meta {
+  margin-top: 4mm;
+}
+
+.doc-meta td {
+  width: 33.33%;
+  padding-right: 6mm;
+  vertical-align: top;
+}
+
+.doc-meta .label {
+  display: block;
+  padding-bottom: 0.8mm;
+  font-size: 6.5pt;
+  color: var(--muted);
+}
+
+.doc-meta .value {
+  font-size: 9pt;
+}
+
+/* — Секция — */
+.section {
+  margin-top: 8mm;
+  padding-bottom: 1.5mm;
+  border-bottom: 0.5pt solid var(--hair);
+}
+
+.section .name {
+  font-size: 9pt;
+  font-weight: 500;
+}
+
+.section .origin {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.section .aside {
+  text-align: right;
+}
+
+.section .badge {
+  padding: 0.6mm 1.6mm;
+  border: 0.5pt solid var(--fg);
+  font-size: 7pt;
+}
+
+/* — Позиции — */
+.items {
+  margin-top: 4mm;
+}
+
+.items th {
+  padding: 0 2mm 2mm 0;
+  border-bottom: 0.5pt solid var(--fg);
+  font-size: 6.5pt;
+  font-weight: 400;
+  color: var(--muted);
+  text-align: left;
+}
+
+.items td {
+  padding: 3mm 2mm 3mm 0;
+  border-bottom: 0.5pt solid var(--hair);
+  vertical-align: top;
+  font-size: 7pt;
+}
+
+.items tr {
+  page-break-inside: avoid;
+}
+
+.items .c-n {
+  width: 7mm;
+  color: var(--muted);
+}
+
+.items .c-brand {
+  width: 22mm;
+  font-weight: 500;
+}
+
+.items .c-desc {
+  width: 62mm;
+}
+
+.items .c-qty {
+  width: 9mm;
+  text-align: right;
+}
+
+.items .c-price {
+  width: 18mm;
+  text-align: right;
+}
+
+.items .c-sum {
+  width: 20mm;
+  text-align: right;
+}
+
+.items .c-photo {
+  width: 40mm;
+  padding-right: 0;
+}
+
+.items .c-photo img {
+  display: block;
+  width: 40mm;
+}
+
+.items .desc-title {
+  padding-bottom: 1mm;
+  font-weight: 500;
+}
+
+.items .photo-note {
+  padding-top: 1.2mm;
+  font-size: 6pt;
+  color: var(--muted);
+}
+
+/* — Итоги — */
+.totals-wrap {
+  margin-top: 6mm;
+  page-break-inside: avoid;
+}
+
+.totals {
+  width: 92mm;
+  margin-left: auto;
+}
+
+.totals td {
+  padding: 1.6mm 0;
+  border-bottom: 0.5pt solid var(--hair);
+  font-size: 7pt;
+}
+
+.totals .t-label {
+  padding-right: 6mm;
+}
+
+.totals .t-value {
+  width: 28mm;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.totals .grand td {
+  padding-top: 2.5mm;
+  border-top: 0.5pt solid var(--fg);
+  border-bottom: none;
+  font-size: 9.5pt;
+  font-weight: 500;
+}
+
+/* — Условия — */
+.terms {
+  margin-top: 9mm;
+  page-break-inside: avoid;
+}
+
+.terms .head {
+  padding-bottom: 2mm;
+  border-bottom: 0.5pt solid var(--hair);
+  font-size: 6.5pt;
+  color: var(--muted);
+}
+
+.terms-list {
+  margin-top: 2.5mm;
+}
+
+.terms-list td {
+  padding: 1.1mm 0;
+  vertical-align: top;
+}
+
+.terms-list .num {
+  width: 6mm;
+  font-size: 6.5pt;
+  color: var(--muted);
+}
+
+.terms-list .txt {
+  font-size: 7pt;
+}
+
+.terms-note {
+  margin-top: 3mm;
+  padding-top: 2mm;
+  border-top: 0.5pt solid var(--hair);
+  font-size: 6.5pt;
+  color: var(--muted);
+}
+
+/* — Подписи — */
+.signs {
+  margin-top: 12mm;
+  page-break-inside: avoid;
+}
+
+.signs td {
+  width: 50%;
+  padding-right: 12mm;
+  vertical-align: bottom;
+}
+
+.signs .role {
+  padding-bottom: 9mm;
+  font-size: 7pt;
+  color: var(--muted);
+}
+
+.signs .rule {
+  padding-top: 1.5mm;
+  border-top: 0.5pt solid var(--fg);
+  font-size: 6.5pt;
+  color: var(--muted);
+}
+
+/* — Печать — */
+@page {
+  size: A4 portrait;
+  margin: 14mm;
+}
+
+@media print {
+  body {
+    background: #fff;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .sheet {
+    width: auto;
+    min-height: 0;
+    margin: 0;
+    padding: 0;
+    box-shadow: none;
+  }
+
+  .page-head {
+    /* повторять шапку на каждой странице */
+    display: table-header-group;
+  }
+}

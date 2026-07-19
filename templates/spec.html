@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Спецификация {{ spec.number }}{% if spec.contract %} — договор {{ spec.contract }}{% endif %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='doc.css') }}">
+</head>
+
+<body>
+
+  <!-- Панель управления: на печать не идёт -->
+  <div class="toolbar no-print">
+    <a class="toolbar__back" href="{{ url_for('index') }}">← Новый файл</a>
+    <button class="toolbar__print" onclick="window.print()">Печать / Сохранить в PDF</button>
+  </div>
+
+  {% if spec.warnings %}
+  <div class="warnings no-print">
+    {% for w in spec.warnings %}<p>{{ w }}</p>{% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="sheet">
+
+    <table class="page-head">
+      <tr>
+        <td class="logo"><img src="{{ url_for('static', filename='aurrum-logo.svg') }}" alt="AURRUM"></td>
+        <td class="meta">Спецификация №{{ spec.number }}{% if spec.contract %} к Договору {{ spec.contract }}{% endif %}
+        </td>
+      </tr>
+    </table>
+
+    <table>
+      <tr>
+        <td class="doc-title">Спецификация №{{ spec.number }}{% if spec.contract %} к Договору {{ spec.contract }}{%
+          endif %}</td>
+        <td class="doc-date">{{ spec.date }}</td>
+      </tr>
+    </table>
+
+    <table class="doc-meta">
+      <tr>
+        <td><span class="label">Покупатель</span><span class="value">{{ spec.buyer or '—' }}</span></td>
+        <td><span class="label">Договор</span><span class="value">{{ spec.contract or '—' }}</span></td>
+        <td><span class="label">Дата</span><span class="value">{{ spec.date or '—' }}</span></td>
+      </tr>
+    </table>
+
+    <table class="section">
+      <tr>
+        <td class="name">{{ spec.section_title }}{% if spec.origin %} <span class="origin">{{ spec.origin }}</span>{%
+          endif %}</td>
+        <td class="aside">{% if spec.badge %}<span class="badge">{{ spec.badge }}</span>{% endif %}</td>
+      </tr>
+    </table>
+
+    <table class="items">
+      <thead>
+        <tr>
+          <th class="c-n">№</th>
+          <th class="c-brand">Производитель</th>
+          <th class="c-desc">Описание</th>
+          <th class="c-qty">К-во</th>
+          <th class="c-price">Цена, Евро</th>
+          <th class="c-sum">Сумма, Евро</th>
+          <th class="c-photo">Фото / Схема</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in spec.items %}
+        <tr>
+          <td class="c-n">{{ item.n }}</td>
+          <td class="c-brand">{{ item.brand }}</td>
+          <td class="c-desc">
+            <div class="desc-title">{{ item.title }}</div>
+            {% if item.body %}<div class="desc-body">{{ item.body | nl2br }}</div>{% endif %}
+          </td>
+          <td class="c-qty">{{ item.qty }}</td>
+          <td class="c-price">{{ item.price | money }}</td>
+          <td class="c-sum">{{ item.total | money }}</td>
+          <td class="c-photo">
+            {% if item.photo %}
+            <img src="{{ url_for('photo', job=job, name=item.photo) }}" alt="">
+            <div class="photo-note">Фото из проекта</div>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <div class="totals-wrap">
+      <table class="totals">
+        {% for row in spec.totals %}
+        <tr class="{% if row.grand %}grand{% endif %}">
+          <td class="t-label">{{ row.label }}</td>
+          <td class="t-value">{{ row.value | money }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+    </div>
+
+    {% if spec.terms %}
+    <div class="terms">
+      <div class="head">Условия</div>
+      <table class="terms-list">
+        {% for t in spec.terms %}
+        <tr>
+          <td class="num">{{ loop.index }}</td>
+          <td class="txt">{{ t }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+      {% if spec.terms_note %}<div class="terms-note">* {{ spec.terms_note }}</div>{% endif %}
+    </div>
+    {% endif %}
+
+    <table class="signs">
+      <tr>
+        <td>
+          <div class="role">Поставщик</div>
+          <div class="rule">подпись / расшифровка</div>
+        </td>
+        <td>
+          <div class="role">Покупатель</div>
+          <div class="rule">подпись / расшифровка</div>
+        </td>
+      </tr>
+    </table>
+
+    <table class="page-foot">
+      <tr>
+        <td>AURRUM</td>
+        <td class="num">{{ spec.date }}</td>
+      </tr>
+    </table>
+
+  </div>
+</body>
+
+</html>

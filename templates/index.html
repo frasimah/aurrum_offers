@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AURRUM — конвертер спецификаций</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: #fff;
+      color: #2d2d2d;
+      font-family: Inter, sans-serif;
+    }
+
+    .box {
+      width: 100%;
+      max-width: 520px;
+    }
+
+    .logo {
+      width: 150px;
+      margin-bottom: 40px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 24px;
+      font-weight: 400;
+    }
+
+    .lead {
+      margin: 0 0 32px;
+      color: #949598;
+      font-size: 15px;
+      line-height: 1.5;
+    }
+
+    .drop {
+      display: block;
+      padding: 40px 24px;
+      border: 1px dashed #c9c9c9;
+      text-align: center;
+      cursor: pointer;
+      transition: 0.3s;
+    }
+
+    .drop:hover,
+    .drop.over {
+      border-color: #2d2d2d;
+      background: #fafafa;
+    }
+
+    .drop__title {
+      font-size: 15px;
+    }
+
+    .drop__hint {
+      margin-top: 6px;
+      font-size: 13px;
+      color: #949598;
+    }
+
+    .drop__file {
+      margin-top: 10px;
+      font-size: 13px;
+      font-weight: 500;
+      word-break: break-all;
+    }
+
+    input[type=file] {
+      display: none;
+    }
+
+    button {
+      width: 100%;
+      margin-top: 20px;
+      padding: 13px;
+      border: 1px solid #2d2d2d;
+      background: #2d2d2d;
+      color: #fff;
+      font-family: inherit;
+      font-size: 15px;
+      cursor: pointer;
+      transition: 0.3s;
+    }
+
+    button:hover:not(:disabled) {
+      background: #fff;
+      color: #2d2d2d;
+    }
+
+    button:disabled {
+      border-color: #d5d5d5;
+      background: #d5d5d5;
+      cursor: default;
+    }
+
+    .error {
+      margin-bottom: 20px;
+      padding: 12px 14px;
+      border: 1px solid #d64545;
+      color: #d64545;
+      font-size: 14px;
+    }
+
+    .note {
+      margin-top: 24px;
+      color: #949598;
+      font-size: 12.5px;
+      line-height: 1.55;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="box">
+    <img class="logo" src="{{ url_for('static', filename='aurrum-logo.svg') }}" alt="AURRUM">
+
+    <h1>Спецификация из Excel</h1>
+    <p class="lead">Загрузите файл спецификации — получите готовый документ для печати.</p>
+
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+    <form method="post" action="{{ url_for('convert') }}" enctype="multipart/form-data" id="form">
+      <label class="drop" id="drop">
+        <input type="file" name="file" accept=".xlsx,.xlsm" id="file" required>
+        <div class="drop__title">Перетащите файл или нажмите, чтобы выбрать</div>
+        <div class="drop__hint">.xlsx или .xlsm</div>
+        <div class="drop__file" id="name"></div>
+      </label>
+      <button type="submit" id="submit" disabled>Сформировать документ</button>
+    </form>
+
+    <p class="note">
+      В документ попадают только те строки, которые видны в книге. Скрытые
+      строки и служебные колонки (внутренние расчёты) не выгружаются.
+    </p>
+  </div>
+
+  <script>
+    const drop = document.getElementById('drop');
+    const file = document.getElementById('file');
+    const name = document.getElementById('name');
+    const submit = document.getElementById('submit');
+
+    function show() {
+      if (file.files.length) {
+        name.textContent = file.files[0].name;
+        submit.disabled = false;
+      }
+    }
+    file.addEventListener('change', show);
+
+    ['dragenter', 'dragover'].forEach(e =>
+      drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.add('over'); }));
+    ['dragleave', 'drop'].forEach(e =>
+      drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.remove('over'); }));
+    drop.addEventListener('drop', ev => { file.files = ev.dataTransfer.files; show(); });
+
+    document.getElementById('form').addEventListener('submit', () => {
+      submit.disabled = true;
+      submit.textContent = 'Обрабатываю…';
+    });
+  </script>
+</body>
+
+</html>
