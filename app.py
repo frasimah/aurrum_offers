@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import hmac
 import os
-import secrets
 import time
 from collections import defaultdict
 from datetime import timedelta
@@ -77,12 +76,6 @@ def require_password():
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
-    if not PASSWORD:
-        return render_template(
-            "login.html",
-            error="На сервере не задан пароль: переменная окружения AURRUM_PASSWORD.",
-        ), 503
-
     ip = _client_ip()
     if _locked(ip):
         return render_template(
@@ -135,6 +128,13 @@ def nl2br(v) -> Markup:
 @app.route("/")
 def index():
     return render_template("index.html", error=request.args.get("error"))
+
+
+@app.route("/calc")
+def calc():
+    # Внутренний калькулятор цены: вся математика выполняется в браузере,
+    # на сервер данные расчёта не отправляются.
+    return render_template("calc.html")
 
 
 @app.route("/convert", methods=["POST"])
