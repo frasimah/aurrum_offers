@@ -26,14 +26,14 @@
             "description": "Collection or section the product belongs to, as printed, e.g. 'night / beds'. Null if absent."
           },
           "type_ru": {
-            "type": ["string", "null"],
+            "type": "string",
             "enum": [
               "Кресло", "Диван", "Кровать", "Торшер", "Люстра", "Бра",
               "Настольная лампа", "Стол", "Стул", "Банкетка", "Пуф",
               "Тумбочка прикроватная", "Комод", "Шкаф", "Стеллаж", "Ковёр",
-              "Зеркало", "Мебель для кухни", "Другое", null
+              "Зеркало", "Мебель для кухни", "Другое"
             ],
-            "description": "Item type, chosen ONLY from this list. This is the single field you may translate. Mapping hints: BED/LETTO -> Кровать, ARMCHAIR/POLTRONA -> Кресло, SOFA/DIVANO -> Диван, FLOOR LAMP -> Торшер, CEILING/SUSPENSION -> Люстра, WALL LAMP -> Бра, TABLE LAMP -> Настольная лампа, BEDSIDE TABLE/COMODINO -> Тумбочка прикроватная, CHEST OF DRAWERS -> Комод, BENCH -> Банкетка, POUF -> Пуф, MIRROR -> Зеркало, RUG/CARPET -> Ковёр. If nothing fits, use 'Другое'. If the document does not say what the item is, use null — do not guess from the photo."
+            "description": "Item type, chosen ONLY from this list: Кресло, Диван, Кровать, Торшер, Люстра, Бра, Настольная лампа, Стол, Стул, Банкетка, Пуф, Тумбочка прикроватная, Комод, Шкаф, Стеллаж, Ковёр, Зеркало, Мебель для кухни, Другое. This is the single field you may translate. Mapping hints: BED/LETTO -> Кровать, ARMCHAIR/POLTRONA -> Кресло, SOFA/DIVANO -> Диван, FLOOR LAMP -> Торшер, CEILING/SUSPENSION -> Люстра, WALL LAMP -> Бра, TABLE LAMP -> Настольная лампа, BEDSIDE TABLE/COMODINO -> Тумбочка прикроватная, CHEST OF DRAWERS -> Комод, BENCH -> Банкетка, POUF -> Пуф, MIRROR -> Зеркало, RUG/CARPET -> Ковёр. If nothing fits, or if the document does not say what the item is, use 'Другое' — never guess the type from a photo or drawing."
           },
           "variants": {
             "type": "array",
@@ -70,8 +70,8 @@
             }
           },
           "finishes": {
-            "type": ["array", "null"],
-            "description": "Available finishes/materials, one entry each. Only what the document actually lists — an empty array is correct when it lists none.",
+            "type": "array",
+            "description": "Available finishes/materials, one entry each. Only what the document actually lists — return an empty array when it lists none. Note: this must stay a plain array; declaring it nullable breaks LlamaExtract schema validation.",
             "items": {
               "type": "object",
               "required": ["role_ru", "material"],
