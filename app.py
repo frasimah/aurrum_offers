@@ -8,14 +8,17 @@ from __future__ import annotations
 
 import hmac
 import os
+import re
 import time
 from collections import defaultdict
 from datetime import timedelta
 
+import httpx
 from markupsafe import Markup, escape
 
 from dotenv import load_dotenv
-from flask import (Flask, redirect, render_template, request, session, url_for)
+from flask import (Flask, Response, redirect, render_template, request,
+                   session, url_for)
 
 # Ключи и пароли живут в .env (в git не попадает; образец — .env.example).
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
@@ -194,6 +197,40 @@ def parse_doc():
         "chars": len(markdown),
         "markdown": markdown[:20000],
     }
+
+
+@app.route("/photo")
+def photo():
+    """Отдаёт картинку с сайта бренда как файл.
+
+    Через прокси, а не напрямую: атрибут download браузер игнорирует на
+    чужом домене — ссылка просто открывается в соседней вкладке, и фото
+    приходится сохранять руками по одному.
+    """
+    url = (request.args.get("url") or "").strip()
+    if not url.startswith(("http://", "https://")):
+        return "Нужна ссылка на изображение.", 400
+
+    try:
+        # Без User-Agent часть CDN отдаёт 403 — притворяемся браузером.
+        got = httpx.get(url, timeout=30, follow_redirects=True, headers={
+            "User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                           "AppleWebKit/537.36 (KHTML, like Gecko) "
+                           "Chrome/131.0.0.0 Safari/537.36"),
+            "Accept": "image/avif,image/webp,image/*,*/*;q=0.8",
+        })
+        got.raise_for_status()
+    except Exception as exc:  # noqa: BLE001 — причину показываем пользователю
+        return f"Не удалось скачать: {exc}", 502
+
+    mime = got.headers.get("content-type", "").split(";")[0].strip()
+    if not mime.startswith("image/"):
+        return "По ссылке не изображение.", 400
+
+    name = re.sub(r"[^\w.\-]", "_", url.split("?")[0].rsplit("/", 1)[-1]) or "photo.jpg"
+    return Response(got.content, mimetype=mime, headers={
+        "Content-Disposition": f'attachment; filename="{name}"',
+    })
 
 
 @app.route("/convert", methods=["POST"])

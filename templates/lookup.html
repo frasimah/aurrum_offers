@@ -215,18 +215,91 @@
       gap: 8px;
     }
 
-    .photos a {
-      display: block;
+    .ph {
+      position: relative;
       width: 108px;
       height: 108px;
       border: 1px solid #eee;
-      overflow: hidden;
     }
 
-    .photos img {
+    /* Отмеченное видно с одного взгляда: рамка темнеет, отброшенное блёкнет */
+    .ph:has(input:checked) {
+      border-color: #2d2d2d;
+    }
+
+    .ph:not(:has(input:checked)) img {
+      opacity: 0.35;
+    }
+
+    .ph label {
+      display: block;
+      margin: 0;
+      height: 100%;
+      cursor: pointer;
+    }
+
+    .ph img {
+      display: block;
       width: 100%;
       height: 100%;
       object-fit: cover;
+    }
+
+    /* Общее правило полей растянуло бы галочку на всю плитку */
+    .ph input {
+      position: absolute;
+      top: 7px;
+      left: 7px;
+      width: 18px;
+      height: 18px;
+      padding: 0;
+      border: 1px solid #c9c9c9;
+      background: #fff;
+      cursor: pointer;
+    }
+
+    .ph input:checked {
+      border-color: #2d2d2d;
+      background: #2d2d2d;
+    }
+
+    .ph input:checked::after {
+      content: '';
+      position: absolute;
+      left: 5px;
+      top: 2px;
+      width: 5px;
+      height: 9px;
+      border: solid #fff;
+      border-width: 0 1.5px 1.5px 0;
+      transform: rotate(45deg);
+    }
+
+    .ph__open {
+      position: absolute;
+      top: 0;
+      right: 0;
+      padding: 3px 6px;
+      background: rgba(255, 255, 255, 0.9);
+      color: #2d2d2d;
+      font-size: 12px;
+      text-decoration: none;
+      line-height: 1;
+    }
+
+    /* Общее правило полей вернуло бы скрытому input'у display:block */
+    input[type=file] {
+      display: none;
+    }
+
+    .ph__tag {
+      position: absolute;
+      left: 0;
+      bottom: 0;
+      padding: 2px 5px;
+      background: rgba(45, 45, 45, 0.85);
+      color: #fff;
+      font-size: 10px;
     }
 
     .doc-row {
@@ -391,18 +464,26 @@
       </div>
     </div>
 
-    {% if product.photo_urls %}
     <div class="card">
-      <h2>Фото <span class="badge">{{ product.photo_urls | length }}</span></h2>
-      <div class="photos">
+      <h2>Фото <span class="badge" id="photo_count">0</span></h2>
+      <div class="photos" id="photos">
         {% for src in product.photo_urls %}
-        <a href="{{ src }}" target="_blank" rel="noopener" title="{{ src }}"><img src="{{ src }}" alt=""
-            loading="lazy"></a>
+        <div class="ph" data-src="{{ src }}">
+          <label><input type="checkbox" checked><img src="{{ src }}" alt="" loading="lazy"></label>
+          <a class="ph__open" href="{{ src }}" target="_blank" rel="noopener" title="Открыть оригинал">↗</a>
+        </div>
         {% endfor %}
       </div>
-      <div class="hint">Клик открывает оригинал — сохраните нужные через «Сохранить изображение».</div>
+      <div class="actions">
+        <button type="button" class="ghost" id="pick">Добавить с диска</button>
+        <input type="file" id="file" accept="image/*" multiple hidden>
+        <button type="button" class="ghost" id="dl">Скачать отмеченные</button>
+      </div>
+      <div class="hint">
+        Отмеченные фото идут дальше. Снимки из салона добавьте с диска — они остаются только в этой вкладке,
+        на сервер не уходят.
+      </div>
     </div>
-    {% endif %}
 
     {% if product.doc_urls %}
     <div class="card">
@@ -492,6 +573,62 @@
         btn.textContent = label;
       });
     });
+
+    // Отбор фото. Снимки из салона живут только в этой вкладке: на Vercel
+    // нет диска, а карточка целиком и так не переживает перезагрузку.
+    const photos = document.getElementById('photos');
+    const count = document.getElementById('photo_count');
+
+    function recount() {
+      count.textContent = photos.querySelectorAll('input:checked').length
+        + ' из ' + photos.querySelectorAll('.ph').length;
+    }
+    if (photos) {
+      recount();
+      photos.addEventListener('change', recount);
+
+      document.getElementById('pick').addEventListener('click', () =>
+        document.getElementById('file').click());
+
+      document.getElementById('file').addEventListener('change', (e) => {
+        for (const f of e.target.files) {
+          const tile = document.createElement('div');
+          tile.className = 'ph';
+          tile.dataset.local = '1';
+          const url = URL.createObjectURL(f);
+          tile.innerHTML = '<label><input type="checkbox" checked><img alt=""></label>'
+            + '<a class="ph__open" target="_blank" rel="noopener" title="Открыть оригинал">↗</a>'
+            + '<span class="ph__tag">салон</span>';
+          tile.querySelector('img').src = url;
+          tile.querySelector('a').href = url;
+          photos.appendChild(tile);
+        }
+        e.target.value = '';
+        recount();
+      });
+
+      const dl = document.getElementById('dl');
+      dl.addEventListener('click', async () => {
+        const tiles = [...photos.querySelectorAll('.ph')]
+          .filter(t => t.querySelector('input').checked && !t.dataset.local);
+        if (!tiles.length) {
+          dl.textContent = 'Нечего скачивать';
+          setTimeout(() => (dl.textContent = 'Скачать отмеченные'), 1500);
+          return;
+        }
+        dl.disabled = true;
+        for (const t of tiles) {
+          const a = document.createElement('a');
+          a.href = '{{ url_for("photo") }}?url=' + encodeURIComponent(t.dataset.src);
+          a.download = '';
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          await new Promise(r => setTimeout(r, 400));
+        }
+        dl.disabled = false;
+      });
+    }
 
     const copy = document.getElementById('copy');
     if (copy) {
