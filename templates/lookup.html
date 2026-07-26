@@ -229,12 +229,53 @@
       object-fit: cover;
     }
 
-    .docs a {
-      display: block;
+    .doc-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 0;
+      border-top: 1px solid #f0f0f0;
+    }
+
+    .doc-row a {
+      flex: 1;
       font-size: 12.5px;
       color: #2d2d2d;
-      margin-bottom: 4px;
       word-break: break-all;
+    }
+
+    .doc-row button {
+      height: 30px;
+      padding: 0 14px;
+      font-size: 13px;
+    }
+
+    .cand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 9px 0;
+      border-top: 1px solid #f0f0f0;
+    }
+
+    .cand__dims {
+      min-width: 150px;
+      font-weight: 500;
+    }
+
+    .cand__ctx {
+      flex: 1;
+      font-size: 11.5px;
+      color: #949598;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .cand button {
+      height: 30px;
+      padding: 0 14px;
+      font-size: 13px;
     }
 
     .badge {
@@ -366,12 +407,20 @@
     {% if product.doc_urls %}
     <div class="card">
       <h2>Документы</h2>
-      <div class="docs">
-        {% for d in product.doc_urls %}
-        <a href="{{ d }}" target="_blank" rel="noopener">{% if d == product.spec_pdf_url %}Техлист (использован для
-          габаритов) — {% endif %}{{ d }}</a>
-        {% endfor %}
+      <div class="hint" style="margin-bottom:12px">
+        «Распарсить» вытащит из PDF таблицу размеров — там, где Firecrawl теряет структуру.
+        У изделия бывает несколько исполнений, поэтому предлагается выбор.
       </div>
+      {% for d in product.doc_urls %}
+      <div class="doc-row">
+        <a href="{{ d }}" target="_blank" rel="noopener">{% if d == product.spec_pdf_url %}<span
+            class="badge">техлист</span> {% endif %}{{ d }}</a>
+        {% if d.lower().split('?')[0].endswith('.pdf') %}
+        <button type="button" class="ghost parse" data-url="{{ d }}">Распарсить</button>
+        {% endif %}
+      </div>
+      {% endfor %}
+      <div id="parse_result"></div>
     </div>
     {% endif %}
     {% endif %}
@@ -382,6 +431,66 @@
       const b = document.getElementById('go');
       b.disabled = true;
       b.textContent = 'Ищу…';
+    });
+
+    // Разбор техлиста: показываем найденные исполнения и даём подставить
+    // выбранное в поля карточки. Молча ничего не заменяем.
+    const out = document.getElementById('parse_result');
+
+    function fill(c) {
+      const set = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };
+      set('f_d', c.width_cm);
+      set('f_g', c.depth_cm);
+      set('f_v', c.height_cm);
+      set('f_vol', c.volume_m3);
+      set('f_dims_raw', c.value);
+      const desc = document.getElementById('f_desc');
+      if (desc) {
+        const lines = desc.value.split('\n');
+        if (lines.length > 2) { lines[2] = c.value; desc.value = lines.join('\n'); }
+      }
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    document.querySelectorAll('.parse').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const label = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Разбираю…';
+        out.innerHTML = '<div class="hint" style="margin-top:12px">LlamaParse читает документ, это занимает до минуты…</div>';
+        try {
+          const r = await fetch('{{ url_for("parse_doc") }}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: btn.dataset.url }),
+          });
+          const data = await r.json();
+          if (!r.ok) throw new Error(data.error || 'не удалось разобрать документ');
+
+          if (!data.candidates.length) {
+            out.innerHTML = '<div class="warn" style="margin-top:12px">Размеров в документе не нашлось. '
+              + 'Разобрано ' + data.chars + ' символов — проверьте документ вручную.</div>';
+          } else {
+            out.innerHTML = '<div class="hint" style="margin-top:14px">Найденные исполнения — '
+              + 'выберите нужное, поля подставятся в карточку:</div>'
+              + data.candidates.map((c, i) =>
+                '<div class="cand">'
+                + '<span class="cand__dims">' + c.value + '</span>'
+                + '<span class="cand__ctx">' + (c.context || '') + '</span>'
+                + '<button type="button" class="ghost" data-i="' + i + '">Подставить</button>'
+                + '</div>').join('');
+            out.querySelectorAll('button[data-i]').forEach(b =>
+              b.addEventListener('click', () => {
+                fill(data.candidates[b.dataset.i]);
+                b.textContent = 'Подставлено';
+              }));
+          }
+        } catch (e) {
+          out.innerHTML = '<div class="warn" style="margin-top:12px">' + e.message + '</div>';
+        }
+        btn.disabled = false;
+        btn.textContent = label;
+      });
     });
 
     const copy = document.getElementById('copy');

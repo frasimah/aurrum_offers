@@ -174,7 +174,8 @@ def volume_m3(w: float | None, d: float | None, h: float | None) -> float | None
     if not (w and d and h):
         return None
     raw = w * d * h * PACKING_FACTOR / 1_000_000
-    return math.ceil(raw / VOLUME_STEP) * VOLUME_STEP
+    # round снимает артефакт float: 6.800000000000001 -> 6.8
+    return round(math.ceil(raw / VOLUME_STEP) * VOLUME_STEP, 2)
 
 
 def to_excel_description(p: Product) -> str:

@@ -20,7 +20,8 @@ from flask import (Flask, redirect, render_template, request, session, url_for)
 # Ключи и пароли живут в .env (в git не попадает; образец — .env.example).
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
-import product_lookup  # noqa: E402 — после load_dotenv, читает переменные окружения
+import doc_parser  # noqa: E402
+import product_lookup  # noqa: E402 — после load_dotenv, читают переменные окружения
 import spec_parser  # noqa: E402
 
 ALLOWED = {".xlsx", ".xlsm"}
@@ -159,6 +160,40 @@ def lookup():
         description=product_lookup.to_excel_description(product),
         types=product_lookup.TYPES_RU,
     )
+
+
+@app.route("/parse-doc", methods=["POST"])
+def parse_doc():
+    """Разбор техлиста через LlamaParse — по кнопке у документа.
+
+    Отдаём кандидатов в габариты, а не одно значение: у изделия бывает
+    несколько исполнений, и выбрать должен менеджер.
+    """
+    url = (request.get_json(silent=True) or {}).get("url", "").strip()
+    if not url.startswith(("http://", "https://")):
+        return {"error": "Нужна ссылка на документ."}, 400
+
+    try:
+        markdown = doc_parser.parse_pdf(url)
+    except Exception as exc:  # noqa: BLE001 — причину показываем пользователю
+        return {"error": str(exc)}, 502
+
+    candidates = []
+    for cand in doc_parser.find_dim_candidates(markdown):
+        w, d, h, _sure = product_lookup.parse_dims(cand["value"])
+        candidates.append({
+            **cand,
+            "width_cm": w,
+            "depth_cm": d,
+            "height_cm": h,
+            "volume_m3": product_lookup.volume_m3(w, d, h),
+        })
+
+    return {
+        "candidates": candidates,
+        "chars": len(markdown),
+        "markdown": markdown[:20000],
+    }
 
 
 @app.route("/convert", methods=["POST"])
