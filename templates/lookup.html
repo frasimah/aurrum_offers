@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AURRUM — позиция по ссылке</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: #f7f7f7;
+      color: #2d2d2d;
+      font-family: Inter, sans-serif;
+      font-size: 14px;
+    }
+
+    .bar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 24px;
+      background: #fff;
+      border-bottom: 1px solid #eee;
+    }
+
+    .bar a {
+      color: #2d2d2d;
+      text-decoration: none;
+      transition: 0.3s;
+    }
+
+    .bar a:hover {
+      color: #fff;
+      background: #2d2d2d;
+    }
+
+    .bar .title {
+      font-weight: 500;
+    }
+
+    .wrap {
+      max-width: 1000px;
+      margin: 24px auto;
+      padding: 0 24px;
+    }
+
+    .card {
+      background: #fff;
+      border: 1px solid #eee;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+
+    .card h2 {
+      margin: 0 0 16px;
+      font-size: 15px;
+      font-weight: 500;
+    }
+
+    form.ask {
+      display: flex;
+      gap: 10px;
+    }
+
+    label {
+      display: block;
+      margin: 12px 0 4px;
+      font-size: 12px;
+      color: #949598;
+    }
+
+    input,
+    select,
+    textarea {
+      width: 100%;
+      padding: 9px 11px;
+      border: 1px solid #c9c9c9;
+      background: #fff;
+      color: #2d2d2d;
+      font-family: inherit;
+      font-size: 14px;
+    }
+
+    textarea {
+      min-height: 150px;
+      resize: vertical;
+      line-height: 1.5;
+    }
+
+    input:focus,
+    select:focus,
+    textarea:focus {
+      outline: none;
+      border-color: #2d2d2d;
+    }
+
+    button {
+      padding: 9px 20px;
+      border: 1px solid #2d2d2d;
+      background: #2d2d2d;
+      color: #fff;
+      font-family: inherit;
+      font-size: 14px;
+      white-space: nowrap;
+      cursor: pointer;
+      transition: 0.3s;
+    }
+
+    button:hover:not(:disabled) {
+      background: #fff;
+      color: #2d2d2d;
+    }
+
+    button:disabled {
+      border-color: #d5d5d5;
+      background: #d5d5d5;
+      cursor: default;
+    }
+
+    button.ghost {
+      background: #fff;
+      color: #2d2d2d;
+    }
+
+    button.ghost:hover {
+      background: #2d2d2d;
+      color: #fff;
+    }
+
+    .grid3 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 10px;
+    }
+
+    .grid2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    @media (max-width: 800px) {
+      .grid2 {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .hint {
+      margin-top: 4px;
+      font-size: 11px;
+      color: #949598;
+    }
+
+    .error {
+      padding: 12px 14px;
+      border: 1px solid #d64545;
+      background: #fff;
+      color: #d64545;
+      font-size: 13px;
+      line-height: 1.5;
+      margin-bottom: 20px;
+    }
+
+    .warn {
+      padding: 10px 12px;
+      border: 1px solid #e6b800;
+      background: #fffbe6;
+      font-size: 12.5px;
+      line-height: 1.5;
+      margin-bottom: 10px;
+    }
+
+    .src {
+      font-size: 12px;
+      color: #949598;
+      word-break: break-all;
+    }
+
+    .src a {
+      color: #949598;
+    }
+
+    .photos {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .photos a {
+      display: block;
+      width: 108px;
+      height: 108px;
+      border: 1px solid #eee;
+      overflow: hidden;
+    }
+
+    .photos img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .docs a {
+      display: block;
+      font-size: 12.5px;
+      color: #2d2d2d;
+      margin-bottom: 4px;
+      word-break: break-all;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 1px 6px;
+      border: 1px solid #949598;
+      font-size: 11px;
+      color: #949598;
+      margin-left: 6px;
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 12px;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="bar">
+    <a href="{{ url_for('index') }}">← Конвертер</a>
+    <span class="title">Позиция по ссылке</span>
+    <a href="{{ url_for('logout') }}">Выйти</a>
+  </div>
+
+  <div class="wrap">
+
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+    <div class="card">
+      <form class="ask" method="post" id="form">
+        <input type="url" name="url" id="url" value="{{ url or '' }}"
+          placeholder="https://www.venicem.com/product/circle-floor/" autofocus required>
+        <button type="submit" id="go">Найти</button>
+      </form>
+      <div class="hint">
+        Ссылка на страницу товара на сайте бренда. Габариты и объём берутся из техлиста (spec sheet), если он есть.
+      </div>
+    </div>
+
+    {% if product %}
+    {% for w in product.warnings %}<div class="warn">{{ w }}</div>{% endfor %}
+
+    <div class="card">
+      <h2>Карточка</h2>
+      <div class="src">Источник: <a href="{{ product.source_url }}" target="_blank"
+          rel="noopener">{{ product.source_url }}</a></div>
+
+      <div class="grid2" style="margin-top:16px">
+        <div>
+          <label for="f_brand">Производитель</label>
+          <input id="f_brand" value="{{ product.brand }}">
+
+          <label for="f_model">Модель</label>
+          <input id="f_model" value="{{ product.model }}">
+
+          <label for="f_type">Тип</label>
+          <select id="f_type">
+            {% for t in types %}
+            <option value="{{ t }}" {% if t==product.type_ru %}selected{% endif %}>{{ t }}</option>
+            {% endfor %}
+          </select>
+
+          <label for="f_dims_raw">Размеры (строкой, как в источнике)</label>
+          <input id="f_dims_raw" value="{{ product.dims_raw }}">
+
+          <label>Габариты, см — Д / Г / В</label>
+          <div class="grid3">
+            <input id="f_d" value="{{ product.width_cm or '' }}">
+            <input id="f_g" value="{{ product.depth_cm or '' }}">
+            <input id="f_v" value="{{ product.height_cm or '' }}">
+          </div>
+          <div class="hint">
+            {% if product.dims_confident %}Оси разобраны по пометке высоты в источнике.{% else %}Оси расставлены
+            предположительно — сверьте со строкой размеров.{% endif %}
+          </div>
+
+          <label for="f_vol">Объём, м³</label>
+          <input id="f_vol" value="{{ product.volume_m3 or '' }}">
+          <div class="hint">
+            {% if product.volume_source == 'производитель' %}Указан производителем в техлисте.{% elif
+            product.volume_source %}Расчёт по габаритам: Д×Г×В×1,5 с округлением вверх до 0,1.{% else %}Не определён.{%
+            endif %}
+          </div>
+
+          <label for="f_note">Примечание</label>
+          <input id="f_note" value="{{ product.tech_note }}">
+        </div>
+
+        <div>
+          <label>Описание — для колонки «Описание»</label>
+          <textarea id="f_desc">{{ description }}</textarea>
+          <div class="actions">
+            <button type="button" class="ghost" id="copy">Скопировать описание</button>
+          </div>
+
+          {% if product.package_note %}
+          <label>Упаковка</label>
+          <div class="hint" style="font-size:12.5px">{{ product.package_note }}</div>
+          {% endif %}
+
+          {% if product.finishes %}
+          <label>Отделки</label>
+          {% for f in product.finishes %}
+          <div class="hint" style="font-size:12.5px;color:#2d2d2d">
+            {{ f.role_ru }} — {{ f.material }}{% if f.code %}<span class="badge">{{ f.code }}</span>{% endif %}
+          </div>
+          {% endfor %}
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    {% if product.photo_urls %}
+    <div class="card">
+      <h2>Фото <span class="badge">{{ product.photo_urls | length }}</span></h2>
+      <div class="photos">
+        {% for src in product.photo_urls %}
+        <a href="{{ src }}" target="_blank" rel="noopener" title="{{ src }}"><img src="{{ src }}" alt=""
+            loading="lazy"></a>
+        {% endfor %}
+      </div>
+      <div class="hint">Клик открывает оригинал — сохраните нужные через «Сохранить изображение».</div>
+    </div>
+    {% endif %}
+
+    {% if product.doc_urls %}
+    <div class="card">
+      <h2>Документы</h2>
+      <div class="docs">
+        {% for d in product.doc_urls %}
+        <a href="{{ d }}" target="_blank" rel="noopener">{% if d == product.spec_pdf_url %}Техлист (использован для
+          габаритов) — {% endif %}{{ d }}</a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+    {% endif %}
+  </div>
+
+  <script>
+    document.getElementById('form').addEventListener('submit', () => {
+      const b = document.getElementById('go');
+      b.disabled = true;
+      b.textContent = 'Ищу…';
+    });
+
+    const copy = document.getElementById('copy');
+    if (copy) {
+      copy.addEventListener('click', async () => {
+        const desc = document.getElementById('f_desc');
+        try {
+          await navigator.clipboard.writeText(desc.value);
+        } catch (e) {
+          desc.select();
+          document.execCommand('copy');
+        }
+        copy.textContent = 'Скопировано';
+        setTimeout(() => (copy.textContent = 'Скопировать описание'), 1500);
+      });
+    }
+  </script>
+</body>
+
+</html>

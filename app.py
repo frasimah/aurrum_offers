@@ -14,9 +14,14 @@ from datetime import timedelta
 
 from markupsafe import Markup, escape
 
+from dotenv import load_dotenv
 from flask import (Flask, redirect, render_template, request, session, url_for)
 
-import spec_parser
+# Ключи и пароли живут в .env (в git не попадает; образец — .env.example).
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+
+import product_lookup  # noqa: E402 — после load_dotenv, читает переменные окружения
+import spec_parser  # noqa: E402
 
 ALLOWED = {".xlsx", ".xlsm"}
 MAX_MB = 25
@@ -130,11 +135,30 @@ def index():
     return render_template("index.html", error=request.args.get("error"))
 
 
-@app.route("/calc")
-def calc():
-    # Внутренний калькулятор цены: вся математика выполняется в браузере,
-    # на сервер данные расчёта не отправляются.
-    return render_template("calc.html")
+@app.route("/lookup", methods=["GET", "POST"])
+def lookup():
+    """Карточка позиции по ссылке на сайт бренда."""
+    url = (request.form.get("url") or "").strip()
+    if request.method == "GET" or not url:
+        return render_template(
+            "lookup.html", error="Вставьте ссылку на товар." if request.method == "POST" else None
+        )
+
+    if not url.startswith(("http://", "https://")):
+        return render_template("lookup.html", url=url, error="Ссылка должна начинаться с http:// или https://"), 400
+
+    try:
+        product = product_lookup.lookup(url)
+    except Exception as exc:  # noqa: BLE001 — причину показываем пользователю
+        return render_template("lookup.html", url=url, error=str(exc)), 502
+
+    return render_template(
+        "lookup.html",
+        url=url,
+        product=product,
+        description=product_lookup.to_excel_description(product),
+        types=product_lookup.TYPES_RU,
+    )
 
 
 @app.route("/convert", methods=["POST"])
