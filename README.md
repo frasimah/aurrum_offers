@@ -159,6 +159,8 @@ app.py            Flask: загрузка, роуты, фильтры шабло
 spec_parser.py    разбор книги в структуру Spec
 product_lookup.py разбор страницы товара в карточку позиции
 doc_parser.py     разбор техлиста (PDF) через LlamaParse
+config/           extraction_schema.json — схема извлечения для агента LlamaCloud
+docs/             llamacloud-agent.md — инструкция агенту и приёмка
 templates/        index.html (загрузка), spec.html (документ), lookup.html (позиция по ссылке)
 static/           doc.css, логотип
 ```

@@ -14,6 +14,7 @@ R (объём) и текст описания. Скрипт показывает
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 
@@ -84,6 +85,51 @@ def check_volume() -> tuple[int, int]:
         good += hit
         print(f"  {OK if hit else BAD} {w}x{d}x{h:<6} -> {got:.1f} м³   в книге {expected} ({source})")
     return good, len(VOLUME_CASES)
+
+
+def check_schema() -> tuple[int, int]:
+    """Схема извлечения дублирует списки из кода — стережём расхождение.
+
+    Заодно ловим форму, на которой LlamaExtract падает ещё до чтения
+    документа: nullable-массив он разворачивает в anyOf и теряет items.
+    """
+    print("\n СХЕМА ИЗВЛЕЧЕНИЯ (config/extraction_schema.json)")
+    print(" " + "-" * 74)
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "config", "extraction_schema.json")
+    schema = json.load(open(path, encoding="utf-8"))
+    item = schema["properties"]["products"]["items"]["properties"]
+
+    bad: list[str] = []
+
+    def walk(node, where="корень"):
+        t = node.get("type")
+        if isinstance(t, list) and "array" in t:
+            bad.append(f"{where}: массив объявлен nullable — LlamaExtract потеряет items")
+        if t == "array" and "items" not in node:
+            bad.append(f"{where}: массив без items")
+        if isinstance(t, list) and "enum" in node:
+            bad.append(f"{where}: enum на nullable-типе")
+        for k, v in (node.get("properties") or {}).items():
+            walk(v, f"{where}.{k}")
+        if isinstance(node.get("items"), dict):
+            walk(node["items"], f"{where}[]")
+
+    walk(schema)
+
+    checks = [
+        ("типы совпадают с TYPES_RU", item["type_ru"]["enum"] == pl.TYPES_RU),
+        ("роли совпадают с ROLES_RU",
+         item["finishes"]["items"]["properties"]["role_ru"]["enum"] == pl.ROLES_RU),
+        ("исполнение — строка массива variants", "dims_raw" in
+         item["variants"]["items"]["properties"]),
+        ("форма схемы принимается LlamaExtract", not bad),
+    ]
+    for label, hit in checks:
+        print(f"  {OK if hit else BAD} {label}")
+    for b in bad:
+        print(f"      {b}")
+    return sum(h for _, h in checks), len(checks)
 
 
 def _same(expected, actual) -> bool:
@@ -161,18 +207,20 @@ def main() -> int:
 
     d_ok, d_all = check_dims()
     v_ok, v_all = check_volume()
+    s_ok, s_all = check_schema()
 
     if "--offline" not in args:
         check_live()
 
+    ok = d_ok == d_all and v_ok == v_all and s_ok == s_all
     print("\n" + " " + "=" * 74)
-    print(f"  Размеры: {d_ok}/{d_all}   Объём: {v_ok}/{v_all}")
-    if d_ok == d_all and v_ok == v_all:
-        print("  Разбор совпадает с книгой.")
+    print(f"  Размеры: {d_ok}/{d_all}   Объём: {v_ok}/{v_all}   Схема: {s_ok}/{s_all}")
+    if ok:
+        print("  Разбор совпадает с книгой, схема согласована с кодом.")
     else:
         print("  ЕСТЬ РАСХОЖДЕНИЯ — смотрите строки с ✗ выше.")
     print(" " + "=" * 74)
-    return 0 if (d_ok == d_all and v_ok == v_all) else 1
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":
