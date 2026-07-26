@@ -1,0 +1,110 @@
+{
+  "type": "object",
+  "required": ["products"],
+  "properties": {
+    "brand": {
+      "type": ["string", "null"],
+      "description": "Manufacturer or brand exactly as printed in the document, e.g. 'TRUSSARDI CASA'. Copy verbatim, keep the original case. Null if not printed."
+    },
+    "catalog_ref": {
+      "type": ["string", "null"],
+      "description": "Catalogue version or revision exactly as printed, e.g. 'V04/2025'. Copy the characters as they appear — do not convert to a date format."
+    },
+    "products": {
+      "type": "array",
+      "description": "One entry per distinct product model in the document. Most spec sheets contain exactly one.",
+      "items": {
+        "type": "object",
+        "required": ["model", "variants"],
+        "properties": {
+          "model": {
+            "type": "string",
+            "description": "Product name as printed, e.g. 'VIBES'. Copy verbatim, do not translate or expand."
+          },
+          "collection": {
+            "type": ["string", "null"],
+            "description": "Collection or section the product belongs to, as printed, e.g. 'night / beds'. Null if absent."
+          },
+          "type_ru": {
+            "type": ["string", "null"],
+            "enum": [
+              "Кресло", "Диван", "Кровать", "Торшер", "Люстра", "Бра",
+              "Настольная лампа", "Стол", "Стул", "Банкетка", "Пуф",
+              "Тумбочка прикроватная", "Комод", "Шкаф", "Стеллаж", "Ковёр",
+              "Зеркало", "Мебель для кухни", "Другое", null
+            ],
+            "description": "Item type, chosen ONLY from this list. This is the single field you may translate. Mapping hints: BED/LETTO -> Кровать, ARMCHAIR/POLTRONA -> Кресло, SOFA/DIVANO -> Диван, FLOOR LAMP -> Торшер, CEILING/SUSPENSION -> Люстра, WALL LAMP -> Бра, TABLE LAMP -> Настольная лампа, BEDSIDE TABLE/COMODINO -> Тумбочка прикроватная, CHEST OF DRAWERS -> Комод, BENCH -> Банкетка, POUF -> Пуф, MIRROR -> Зеркало, RUG/CARPET -> Ковёр. If nothing fits, use 'Другое'. If the document does not say what the item is, use null — do not guess from the photo."
+          },
+          "variants": {
+            "type": "array",
+            "description": "One entry per execution / size / version listed in the document. NEVER merge several executions into a single entry, and never join their dimensions into one string. A bed offered for five mattress sizes produces five entries. A product with a single size produces one entry.",
+            "items": {
+              "type": "object",
+              "required": ["dims_raw"],
+              "properties": {
+                "sku": {
+                  "type": ["string", "null"],
+                  "description": "Article code of THIS execution exactly as printed, e.g. 'VBE (LE1)'. Null if the document gives no code."
+                },
+                "dims_raw": {
+                  "type": "string",
+                  "description": "Overall dimensions of this execution in CENTIMETRES, copied character for character as printed, e.g. '202x241x92H.' or 'D25/31x125H'. Keep the separators, the H/Н marker, slashes and diameter signs. Do NOT reorder the numbers, do NOT insert spaces, do NOT convert units. If the same dimensions are also printed in inches, ignore the inch line entirely."
+                },
+                "variant_note": {
+                  "type": ["string", "null"],
+                  "description": "What distinguishes this execution, as printed, e.g. '165x200' (mattress size) or 'QUEEN USA'. Null if nothing distinguishes it."
+                },
+                "packed_volume_m3": {
+                  "type": ["number", "null"],
+                  "description": "Packed volume in cubic metres — ONLY if the document prints it under an explicit label such as VOL, VOLUME, TOTAL VOL, M3, MC. Copy the number as printed. Never calculate it yourself from the dimensions. Null if no such label appears."
+                },
+                "package_dims_raw": {
+                  "type": ["string", "null"],
+                  "description": "Packaging/box dimensions as printed, if the document lists them separately from the product dimensions. Null otherwise."
+                },
+                "weight_kg": {
+                  "type": ["string", "null"],
+                  "description": "Weight as printed, including the net/gross form if given, e.g. '8/11 kg'. Copy verbatim. Null if absent."
+                }
+              }
+            }
+          },
+          "finishes": {
+            "type": ["array", "null"],
+            "description": "Available finishes/materials, one entry each. Only what the document actually lists — an empty array is correct when it lists none.",
+            "items": {
+              "type": "object",
+              "required": ["role_ru", "material"],
+              "properties": {
+                "role_ru": {
+                  "type": "string",
+                  "enum": [
+                    "Обивка", "Отделка", "Металл", "Топ", "Кант", "Камень",
+                    "Стекло", "Дерево", "Ножки", "Каркас", "Фасады"
+                  ],
+                  "description": "Which part of the item this finish applies to, chosen ONLY from this list. Hints: upholstery/cover/fabric/leather -> Обивка, piping -> Кант, metal/brass/nickel -> Металл, top -> Топ, marble/stone -> Камень, glass -> Стекло, wood/veneer -> Дерево, feet/legs -> Ножки, frame/structure -> Каркас, fronts/doors -> Фасады. Anything else -> Отделка."
+                },
+                "material": {
+                  "type": "string",
+                  "description": "Material name in the ORIGINAL language of the document, e.g. 'LIGHT BURNISHED BRASS', 'NOCE CANALETTO'. Never translate it into Russian."
+                },
+                "code": {
+                  "type": ["string", "null"],
+                  "description": "Finish code as printed, e.g. 'M11'. Null if the document gives no code."
+                }
+              }
+            }
+          },
+          "materials_note": {
+            "type": ["string", "null"],
+            "description": "Construction description as printed (frame, padding, base, cover, feet), in the original language. Copy the sentences, do not summarise or translate."
+          },
+          "tech_note": {
+            "type": ["string", "null"],
+            "description": "Technical data for lighting and electrics as printed, e.g. '1 x 16W LED 1340lm 2700K'. Null for items without electrics."
+          }
+        }
+      }
+    }
+  }
+}
