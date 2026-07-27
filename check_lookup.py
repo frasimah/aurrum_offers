@@ -108,8 +108,11 @@ def check_schema() -> tuple[int, int]:
             bad.append(f"{where}: массив объявлен nullable — LlamaExtract потеряет items")
         if t == "array" and "items" not in node:
             bad.append(f"{where}: массив без items")
-        if isinstance(t, list) and "enum" in node:
-            bad.append(f"{where}: enum на nullable-типе")
+        # Проверено опытом: enum LlamaExtract не соблюдает, а молча отдаёт
+        # последнее значение списка. Кровать превращалась в «Ковёр»,
+        # ткань — в «Камень». Допустимые значения держим в description.
+        if "enum" in node:
+            bad.append(f"{where}: enum — LlamaExtract вернёт последнее значение списка")
         for k, v in (node.get("properties") or {}).items():
             walk(v, f"{where}.{k}")
         if isinstance(node.get("items"), dict):
@@ -117,10 +120,12 @@ def check_schema() -> tuple[int, int]:
 
     walk(schema)
 
+    role = item["finishes"]["items"]["properties"]["role_ru"]
     checks = [
-        ("типы совпадают с TYPES_RU", item["type_ru"]["enum"] == pl.TYPES_RU),
-        ("роли совпадают с ROLES_RU",
-         item["finishes"]["items"]["properties"]["role_ru"]["enum"] == pl.ROLES_RU),
+        ("все типы перечислены в описании type_ru",
+         all(t in item["type_ru"]["description"] for t in pl.TYPES_RU)),
+        ("все роли перечислены в описании role_ru",
+         all(r in role["description"] for r in pl.ROLES_RU)),
         ("исполнение — строка массива variants", "dims_raw" in
          item["variants"]["items"]["properties"]),
         ("форма схемы принимается LlamaExtract", not bad),

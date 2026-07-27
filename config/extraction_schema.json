@@ -27,13 +27,7 @@
           },
           "type_ru": {
             "type": "string",
-            "enum": [
-              "Кресло", "Диван", "Кровать", "Торшер", "Люстра", "Бра",
-              "Настольная лампа", "Стол", "Стул", "Банкетка", "Пуф",
-              "Тумбочка прикроватная", "Комод", "Шкаф", "Стеллаж", "Ковёр",
-              "Зеркало", "Мебель для кухни", "Другое"
-            ],
-            "description": "Item type, chosen ONLY from this list: Кресло, Диван, Кровать, Торшер, Люстра, Бра, Настольная лампа, Стол, Стул, Банкетка, Пуф, Тумбочка прикроватная, Комод, Шкаф, Стеллаж, Ковёр, Зеркало, Мебель для кухни, Другое. This is the single field you may translate. Mapping hints: BED/LETTO -> Кровать, ARMCHAIR/POLTRONA -> Кресло, SOFA/DIVANO -> Диван, FLOOR LAMP -> Торшер, CEILING/SUSPENSION -> Люстра, WALL LAMP -> Бра, TABLE LAMP -> Настольная лампа, BEDSIDE TABLE/COMODINO -> Тумбочка прикроватная, CHEST OF DRAWERS -> Комод, BENCH -> Банкетка, POUF -> Пуф, MIRROR -> Зеркало, RUG/CARPET -> Ковёр. If nothing fits, or if the document does not say what the item is, use 'Другое' — never guess the type from a photo or drawing."
+            "description": "NO JSON-Schema enum here on purpose: LlamaExtract ignores enum and always returns its last value, which silently turned a bed into 'Ковёр'. The allowed values live in this description and are re-checked in Python. Item type, chosen ONLY from this list:Кресло, Диван, Кровать, Торшер, Люстра, Бра, Настольная лампа, Стол, Стул, Банкетка, Пуф, Тумбочка прикроватная, Комод, Шкаф, Стеллаж, Ковёр, Зеркало, Мебель для кухни, Другое. This is the single field you may translate. Mapping hints: BED/LETTO -> Кровать, ARMCHAIR/POLTRONA -> Кресло, SOFA/DIVANO -> Диван, FLOOR LAMP -> Торшер, CEILING/SUSPENSION -> Люстра, WALL LAMP -> Бра, TABLE LAMP -> Настольная лампа, BEDSIDE TABLE/COMODINO -> Тумбочка прикроватная, CHEST OF DRAWERS -> Комод, BENCH -> Банкетка, POUF -> Пуф, MIRROR -> Зеркало, RUG/CARPET -> Ковёр. If nothing fits, or if the document does not say what the item is, use 'Другое' — never guess the type from a photo or drawing."
           },
           "variants": {
             "type": "array",
@@ -78,11 +72,7 @@
               "properties": {
                 "role_ru": {
                   "type": "string",
-                  "enum": [
-                    "Обивка", "Отделка", "Металл", "Топ", "Кант", "Камень",
-                    "Стекло", "Дерево", "Ножки", "Каркас", "Фасады"
-                  ],
-                  "description": "Which part of the item this finish applies to, chosen ONLY from this list. Hints: upholstery/cover/fabric/leather -> Обивка, piping -> Кант, metal/brass/nickel -> Металл, top -> Топ, marble/stone -> Камень, glass -> Стекло, wood/veneer -> Дерево, feet/legs -> Ножки, frame/structure -> Каркас, fronts/doors -> Фасады. Anything else -> Отделка."
+                  "description": "NO JSON-Schema enum here on purpose — see the note on type_ru. Which part of the item this finish applies to, chosen ONLY from this list: Обивка, Отделка, Металл, Топ, Кант, Камень, Стекло, Дерево, Ножки, Каркас, Фасады. Hints:upholstery/cover/fabric/leather -> Обивка, piping -> Кант, metal/brass/nickel -> Металл, top -> Топ, marble/stone -> Камень, glass -> Стекло, wood/veneer -> Дерево, feet/legs -> Ножки, frame/structure -> Каркас, fronts/doors -> Фасады. Anything else -> Отделка."
                 },
                 "material": {
                   "type": "string",
