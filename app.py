@@ -24,6 +24,7 @@ from flask import (Flask, Response, redirect, render_template, request,
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
 import doc_parser  # noqa: E402
+import extract_agent  # noqa: E402
 import product_lookup  # noqa: E402 — после load_dotenv, читают переменные окружения
 import spec_parser  # noqa: E402
 
@@ -167,36 +168,50 @@ def lookup():
 
 @app.route("/parse-doc", methods=["POST"])
 def parse_doc():
-    """Разбор техлиста через LlamaParse — по кнопке у документа.
+    """Разбор техлиста через LlamaExtract — по кнопке у документа.
 
-    Отдаём кандидатов в габариты, а не одно значение: у изделия бывает
-    несколько исполнений, и выбрать должен менеджер.
+    Отдаём список исполнений, а не одно значение: у изделия бывает
+    несколько версий, и выбрать должен менеджер. У каждой — свой артикул
+    и признак вроде размера матраса, по которым выбор и делается.
+
+    Если извлечение не сработало, откатываемся на регулярку по markdown
+    от LlamaParse: она находит только числа без контекста, но это лучше,
+    чем пустая карточка.
     """
     url = (request.get_json(silent=True) or {}).get("url", "").strip()
     if not url.startswith(("http://", "https://")):
         return {"error": "Нужна ссылка на документ."}, 400
 
     try:
-        markdown = doc_parser.parse_pdf(url)
+        data = extract_agent.extract_pdf(url)
     except Exception as exc:  # noqa: BLE001 — причину показываем пользователю
-        return {"error": str(exc)}, 502
+        return _parse_doc_fallback(url, str(exc))
+
+    candidates, finishes, warnings = extract_agent.to_candidates(data)
+    return {"candidates": candidates, "finishes": finishes,
+            "warnings": warnings, "source": "extract"}
+
+
+def _parse_doc_fallback(url: str, reason: str):
+    """Запасной разбор: markdown от LlamaParse + регулярка по габаритам."""
+    try:
+        markdown = doc_parser.parse_pdf(url)
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"{reason} Запасной разбор тоже не удался: {exc}"}, 502
 
     candidates = []
     for cand in doc_parser.find_dim_candidates(markdown):
-        w, d, h, _sure = product_lookup.parse_dims(cand["value"])
+        w, d, h, sure = product_lookup.parse_dims(cand["value"])
         candidates.append({
-            **cand,
-            "width_cm": w,
-            "depth_cm": d,
-            "height_cm": h,
+            **cand, "sku": None,
+            "width_cm": w, "depth_cm": d, "height_cm": h,
             "volume_m3": product_lookup.volume_m3(w, d, h),
+            "volume_source": "формула", "dims_confident": sure,
         })
 
-    return {
-        "candidates": candidates,
-        "chars": len(markdown),
-        "markdown": markdown[:20000],
-    }
+    return {"candidates": candidates, "finishes": [], "source": "fallback",
+            "warnings": [f"Извлечение не сработало ({reason}) — показаны "
+                         f"размеры, найденные по тексту, без артикулов."]}
 
 
 @app.route("/photo")

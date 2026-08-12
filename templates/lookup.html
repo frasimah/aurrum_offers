@@ -489,8 +489,8 @@
     <div class="card">
       <h2>Документы</h2>
       <div class="hint" style="margin-bottom:12px">
-        «Распарсить» вытащит из PDF таблицу размеров — там, где Firecrawl теряет структуру.
-        У изделия бывает несколько исполнений, поэтому предлагается выбор.
+        «Распарсить» достанет из техлиста исполнения с артикулами, габаритами и отделками —
+        там, где Firecrawl теряет структуру. Выбор за вами: подставится только отмеченное.
       </div>
       {% for d in product.doc_urls %}
       <div class="doc-row">
@@ -520,11 +520,23 @@
 
     function fill(c) {
       const set = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };
+      // Пустое поле заполняем, заполненное не трогаем: из карточки данные
+      // могли прийти со страницы бренда, и молча их затирать нельзя.
+      const fillIfEmpty = (id, v) => {
+        const el = document.getElementById(id);
+        if (el && v && !el.value.trim()) el.value = v;
+      };
       set('f_d', c.width_cm);
       set('f_g', c.depth_cm);
       set('f_v', c.height_cm);
       set('f_vol', c.volume_m3);
       set('f_dims_raw', c.value);
+      fillIfEmpty('f_brand', c.brand);
+      fillIfEmpty('f_model', c.model);
+      const type = document.getElementById('f_type');
+      if (type && c.type_ru && [...type.options].some(o => o.value === c.type_ru)) {
+        type.value = c.type_ru;
+      }
       const desc = document.getElementById('f_desc');
       if (desc) {
         const lines = desc.value.split('\n');
@@ -538,7 +550,7 @@
         const label = btn.textContent;
         btn.disabled = true;
         btn.textContent = 'Разбираю…';
-        out.innerHTML = '<div class="hint" style="margin-top:12px">LlamaParse читает документ, это занимает до минуты…</div>';
+        out.innerHTML = '<div class="hint" style="margin-top:12px">Извлечение читает документ, это занимает до минуты…</div>';
         try {
           const r = await fetch('{{ url_for("parse_doc") }}', {
             method: 'POST',
@@ -548,18 +560,32 @@
           const data = await r.json();
           if (!r.ok) throw new Error(data.error || 'не удалось разобрать документ');
 
+          const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g,
+            m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
+          const warns = (data.warnings || [])
+            .map(w => '<div class="warn" style="margin-top:12px">' + esc(w) + '</div>').join('');
+
           if (!data.candidates.length) {
-            out.innerHTML = '<div class="warn" style="margin-top:12px">Размеров в документе не нашлось. '
-              + 'Разобрано ' + data.chars + ' символов — проверьте документ вручную.</div>';
+            out.innerHTML = warns || '<div class="warn" style="margin-top:12px">'
+              + 'Размеров в документе не нашлось — проверьте его вручную.</div>';
           } else {
-            out.innerHTML = '<div class="hint" style="margin-top:14px">Найденные исполнения — '
+            const fins = (data.finishes || []).map(f =>
+              '<div class="hint" style="font-size:12.5px;color:#2d2d2d">' + esc(f.role_ru)
+              + ' — ' + esc(f.material) + (f.code ? ' <span class="badge">' + esc(f.code) + '</span>' : '')
+              + '</div>').join('');
+
+            out.innerHTML = warns
+              + '<div class="hint" style="margin-top:14px">Найденные исполнения — '
               + 'выберите нужное, поля подставятся в карточку:</div>'
               + data.candidates.map((c, i) =>
                 '<div class="cand">'
-                + '<span class="cand__dims">' + c.value + '</span>'
-                + '<span class="cand__ctx">' + (c.context || '') + '</span>'
+                + '<span class="cand__dims">' + esc(c.value)
+                + (c.sku ? '<span class="badge">' + esc(c.sku) + '</span>' : '') + '</span>'
+                + '<span class="cand__ctx">' + esc(c.context) + '</span>'
                 + '<button type="button" class="ghost" data-i="' + i + '">Подставить</button>'
-                + '</div>').join('');
+                + '</div>').join('')
+              + (fins ? '<label>Отделки из документа</label>' + fins : '');
+
             out.querySelectorAll('button[data-i]').forEach(b =>
               b.addEventListener('click', () => {
                 fill(data.candidates[b.dataset.i]);
