@@ -409,6 +409,9 @@
 
           <label for="f_type">Тип</label>
           <select id="f_type">
+            {# Без пустого пункта неопознанный тип молча показывался бы
+               первым в списке — «Кресло» вместо честного «не определён». #}
+            <option value="" {% if not product.type_ru %}selected{% endif %}>— не определён —</option>
             {% for t in types %}
             <option value="{{ t }}" {% if t==product.type_ru %}selected{% endif %}>{{ t }}</option>
             {% endfor %}

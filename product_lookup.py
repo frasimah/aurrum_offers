@@ -169,6 +169,30 @@ class Product:
     warnings: list[str] = field(default_factory=list)
 
 
+def normalize_type(value: str) -> tuple[str, str | None]:
+    """Тип из извлечения -> (значение из нашего списка, предупреждение).
+
+    Проверять обязательно: значение вне списка не отмечает ни одного пункта
+    в выпадающем поле, и браузер показывает первый — «Диван-кровать» молча
+    превращается в «Кресло». Отдельная причина: LlamaExtract не соблюдает
+    enum в схеме и возвращает последнее значение списка.
+    """
+    value = (value or "").strip()
+    if not value or value in TYPES_RU:
+        return value, None
+    return "Другое", f"Тип «{value}» не из нашего списка — поставлен «Другое»."
+
+
+def normalize_role(value: str) -> tuple[str, str | None]:
+    """Роль отделки -> (значение из нашего списка, предупреждение)."""
+    value = (value or "").strip()
+    if value in ROLES_RU:
+        return value, None
+    if not value:
+        return "Отделка", None
+    return "Отделка", f"Роль «{value}» не из нашего списка — поставлена «Отделка»."
+
+
 def volume_m3(w: float | None, d: float | None, h: float | None) -> float | None:
     """Объём по формуле рабочей книги: ROUNDUP(Д×Г×В×1.5/1e6; 1)."""
     if not (w and d and h):
@@ -415,7 +439,9 @@ def lookup(url: str) -> Product:
     p.model = str(page.get("model") or "").strip()
     p.collection = str(page.get("collection") or "").strip()
     p.designer = str(page.get("designer") or "").strip()
-    p.type_ru = str(page.get("type_ru") or "").strip()
+    p.type_ru, type_warning = normalize_type(str(page.get("type_ru") or ""))
+    if type_warning:
+        p.warnings.append(type_warning)
     p.tech_note = str(page.get("tech_note") or "").strip()
     p.finishes = [_as_dict(f) for f in (page.get("finishes") or [])]
     p.photo_urls = _clean_photos(page.get("photo_urls") or [])
@@ -462,6 +488,12 @@ def lookup(url: str) -> Product:
 
     if not p.brand:
         p.brand = _brand_from_url(url)
+
+    # Роли приводим к нашему списку — извлечение выдаёт и то, чего в нём нет.
+    for f in p.finishes:
+        f["role_ru"], role_warning = normalize_role(str(f.get("role_ru") or ""))
+        if role_warning and role_warning not in p.warnings:
+            p.warnings.append(role_warning)
 
     # Сверка с первоисточником: выдуманные отделки убираем, а не показываем.
     p.finishes, invented = _verify_finishes(p.finishes, sources)

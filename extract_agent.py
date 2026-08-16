@@ -27,6 +27,7 @@ import time
 import httpx
 
 import product_lookup as pl
+import safe_fetch
 
 API = "https://api.cloud.llamaindex.ai/api/v1"
 CONFIG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config")
@@ -34,10 +35,6 @@ CONFIG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config")
 POLL_INTERVAL = 4
 POLL_ATTEMPTS = 30          # ~2 минуты
 MAX_PDF_MB = 40
-
-# Куда падает роль, которой нет в нашем списке: «Отделка» — общий случай.
-ROLE_FALLBACK = "Отделка"
-TYPE_FALLBACK = "Другое"
 
 
 def _key() -> str:
@@ -66,9 +63,11 @@ def extract_pdf(url: str) -> dict:
         "invalidate_cache": True,
     }
 
+    # Ссылку на документ присылает клиент — качаем с проверкой адреса,
+    # иначе роут превращается в прокси во внутреннюю сеть.
+    got = safe_fetch.get(url, timeout=180, headers={"User-Agent": "Mozilla/5.0"})
+
     with httpx.Client(timeout=180, follow_redirects=True) as http:
-        got = http.get(url, headers={"User-Agent": "Mozilla/5.0"})
-        got.raise_for_status()
         if len(got.content) > MAX_PDF_MB * 1024 * 1024:
             raise RuntimeError(f"Документ больше {MAX_PDF_MB} МБ — не разбираю.")
 
@@ -122,19 +121,17 @@ def to_candidates(data: dict) -> tuple[list[dict], list[dict], list[str]]:
     for product in data.get("products") or []:
         model = (product.get("model") or "").strip()
 
-        type_ru = (product.get("type_ru") or "").strip()
-        if type_ru and type_ru not in pl.TYPES_RU:
-            warnings.append(f"Тип «{type_ru}» не из нашего списка — поставлен «{TYPE_FALLBACK}».")
-            type_ru = TYPE_FALLBACK
+        type_ru, warning = pl.normalize_type(product.get("type_ru") or "")
+        if warning:
+            warnings.append(warning)
 
         for f in product.get("finishes") or []:
-            role = (f.get("role_ru") or "").strip()
             material = (f.get("material") or "").strip()
             if not material:
                 continue
-            if role not in pl.ROLES_RU:
-                warnings.append(f"Роль «{role}» не из нашего списка — поставлена «{ROLE_FALLBACK}».")
-                role = ROLE_FALLBACK
+            role, warning = pl.normalize_role(f.get("role_ru") or "")
+            if warning and warning not in warnings:
+                warnings.append(warning)
             finishes.append({"role_ru": role, "material": material,
                              "code": (f.get("code") or "").strip() or None})
 

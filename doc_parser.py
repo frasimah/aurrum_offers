@@ -21,6 +21,8 @@ import time
 
 import httpx
 
+import safe_fetch
+
 API = "https://api.cloud.llamaindex.ai/api/v1/parsing"
 POLL_INTERVAL = 3
 POLL_ATTEMPTS = 40          # ~2 минуты
@@ -41,10 +43,10 @@ def parse_pdf(url: str) -> str:
     """Скачивает PDF и возвращает его markdown от LlamaParse."""
     headers = {"Authorization": f"Bearer {_key()}"}
 
+    # Адрес приходит от клиента — качаем с проверкой, куда он ведёт.
+    data = safe_fetch.get(url, timeout=120).content
+
     with httpx.Client(timeout=120, follow_redirects=True) as http:
-        got = http.get(url)
-        got.raise_for_status()
-        data = got.content
         if len(data) > MAX_PDF_MB * 1024 * 1024:
             raise RuntimeError(f"Документ больше {MAX_PDF_MB} МБ — не разбираю.")
 

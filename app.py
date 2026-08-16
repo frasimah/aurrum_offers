@@ -26,6 +26,7 @@ load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 import doc_parser  # noqa: E402
 import extract_agent  # noqa: E402
 import product_lookup  # noqa: E402 — после load_dotenv, читают переменные окружения
+import safe_fetch  # noqa: E402
 import spec_parser  # noqa: E402
 
 ALLOWED = {".xlsx", ".xlsm"}
@@ -181,6 +182,12 @@ def parse_doc():
     url = (request.get_json(silent=True) or {}).get("url", "").strip()
     if not url.startswith(("http://", "https://")):
         return {"error": "Нужна ссылка на документ."}, 400
+    try:
+        # Проверяем здесь, иначе на внутренний адрес мы зря пойдём
+        # в запасной разбор и ответим 502 вместо честной ошибки запроса.
+        safe_fetch.assert_public(url)
+    except safe_fetch.UnsafeUrl as exc:
+        return {"error": str(exc)}, 400
 
     try:
         data = extract_agent.extract_pdf(url)
@@ -228,13 +235,14 @@ def photo():
 
     try:
         # Без User-Agent часть CDN отдаёт 403 — притворяемся браузером.
-        got = httpx.get(url, timeout=30, follow_redirects=True, headers={
+        got = safe_fetch.get(url, timeout=30, headers={
             "User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                            "AppleWebKit/537.36 (KHTML, like Gecko) "
                            "Chrome/131.0.0.0 Safari/537.36"),
             "Accept": "image/avif,image/webp,image/*,*/*;q=0.8",
         })
-        got.raise_for_status()
+    except safe_fetch.UnsafeUrl as exc:
+        return str(exc), 400
     except Exception as exc:  # noqa: BLE001 — причину показываем пользователю
         return f"Не удалось скачать: {exc}", 502
 
