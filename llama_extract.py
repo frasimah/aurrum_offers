@@ -19,6 +19,7 @@ Firecrawl остался доставкой: он отрисовывает ск�
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import time
@@ -33,6 +34,8 @@ CONFIG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config")
 POLL_INTERVAL = 4
 POLL_ATTEMPTS = 30          # ~2 минуты
 MAX_PDF_MB = 40
+# Меньше этого — считаем, что текстового слоя нет (скан или кривые).
+MIN_PDF_TEXT = 200
 
 # Модель закреплена намеренно: без этого работает дефолт провайдера, и он
 # может смениться без единой правки с нашей стороны. Режим PREMIUM
@@ -105,6 +108,24 @@ def from_text(text: str) -> dict:
     return _run({"text": text})
 
 
+def _pdf_text(data: bytes) -> str:
+    """Текстовый слой PDF своими силами.
+
+    Так мы не тратим квоту LlamaCloud на загрузку файлов и не зависим от
+    неё вовсе. Сверено на техлисте TRUSSARDI VIBES: разбор этого текста
+    даёт те же пять исполнений с артикулами, что и загрузка самого файла.
+    """
+    try:
+        from pypdf import PdfReader
+    except ImportError:          # pragma: no cover — пакет в requirements
+        return ""
+    try:
+        reader = PdfReader(io.BytesIO(data))
+        return "\n".join((page.extract_text() or "") for page in reader.pages)
+    except Exception:            # noqa: BLE001 — битый или зашифрованный файл
+        return ""
+
+
 def from_pdf_url(url: str) -> dict:
     """Разбор техлиста по ссылке."""
     # Ссылку присылает клиент — качаем с проверкой адреса назначения.
@@ -112,6 +133,13 @@ def from_pdf_url(url: str) -> dict:
     if len(got.content) > MAX_PDF_MB * 1024 * 1024:
         raise RuntimeError(f"Документ больше {MAX_PDF_MB} МБ — не разбираю.")
 
+    # Текстовый слой есть почти всегда — тогда файл никуда не загружаем.
+    text = _pdf_text(got.content)
+    if len(text.strip()) >= MIN_PDF_TEXT:
+        return _run({"text": text})
+
+    # Текста нет: документ отсканирован или нарисован кривыми. Такой
+    # разбирается только как картинка, а это уже загрузка файла.
     name = url.split("?")[0].rsplit("/", 1)[-1] or "document"
     if not name.lower().endswith(".pdf"):
         name += ".pdf"
@@ -121,11 +149,11 @@ def from_pdf_url(url: str) -> dict:
         up = http.post(f"{API}/files", headers=headers,
                        files={"upload_file": (name, got.content, "application/pdf")})
         if up.status_code == 402:
-            # Разбор страницы при этом продолжает работать: квота упирается
-            # именно в загрузку файлов, а не в извлечение по тексту.
+            # Сюда попадают только документы без текстового слоя: обычные
+            # техлисты разбираются текстом и загрузки не требуют.
             raise RuntimeError(
-                "В LlamaCloud закончилась квота на загрузку документов — "
-                "техлист не разобрать. Габариты со страницы при этом читаются."
+                "В документе нет текста — его можно разобрать только "
+                "картинкой, а квота LlamaCloud на загрузку файлов исчерпана."
             )
         up.raise_for_status()
     return _run({"file_id": up.json()["id"]})

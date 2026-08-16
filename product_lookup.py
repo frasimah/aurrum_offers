@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from firecrawl import Firecrawl
 
 import llama_extract
+import pdf_extract
 
 # Контролируемый словарь: модель выбирает из списка, а не переводит свободно.
 TYPES_RU = [
@@ -335,10 +336,13 @@ def parse_dims(raw: str, type_ru: str = "") -> tuple[float | None, float | None,
     # котёл чисел — высотой оказывался второй диаметр вместо 75 см.
     s = re.sub(r"\d+(?:\s+\d+\s*/\s*\d+)?\s*(?:\"|''|″|\bin\b)", " ", s)
 
-    # Явная пометка высоты: «...x125Н», «H 125», «125 cm H»
+    # Явная пометка высоты: «H 125», «...x125Н», «125 cm H».
+    # Подпись перед числом проверяем первой: у PORADA пишут
+    # «Ø130 - 140 - 150 - 160 h 75», и обратный шаблон принимал «160 h»
+    # за высоту, хотя 160 — это диаметр, а высота 75.
     h_match = (
-        re.search(rf"({num})\s*(?:cm|см|mm|мм)?\s*[HНh](?![a-zA-Zа-яА-Я])", s)
-        or re.search(rf"[HНh]\s*({num})", s)
+        re.search(rf"[HНh]\s*({num})", s)
+        or re.search(rf"({num})\s*(?:cm|см|mm|мм)?\s*[HНh](?![a-zA-Zа-яА-Я])", s)
     )
     height = float(h_match.group(1)) if h_match else None
 
@@ -474,7 +478,7 @@ def lookup(url: str) -> Product:
     p.spec_pdf_url = _pick_spec_pdf(p.doc_urls)
     if p.spec_pdf_url:
         try:
-            pdf = _first_product(llama_extract.from_pdf_url(p.spec_pdf_url))
+            pdf = _first_product(pdf_extract.from_url(p.spec_pdf_url))
         except Exception as exc:  # noqa: BLE001 — техлист не критичен
             pdf = {}
             p.warnings.append(f"Техлист не прочитался: {exc}")

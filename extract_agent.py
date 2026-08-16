@@ -10,13 +10,13 @@
 
 from __future__ import annotations
 
-import llama_extract
+import pdf_extract
 import product_lookup as pl
 
 
 def extract_pdf(url: str) -> dict:
     """Ссылка на техлист -> извлечённые данные по нашей схеме."""
-    return llama_extract.from_pdf_url(url)
+    return pdf_extract.from_url(url)
 
 
 def to_candidates(data: dict) -> tuple[list[dict], list[dict], list[str]]:
