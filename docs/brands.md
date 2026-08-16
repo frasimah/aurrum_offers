@@ -12,13 +12,13 @@
 | Bentley Home | luxurylivinggroup.com | строкой на странице | [LLG](../brands/luxury-living-group.md) |
 | Bugatti Home | luxurylivinggroup.com | строкой на странице | [LLG](../brands/luxury-living-group.md) |
 | Dolce & Gabbana Casa | luxurylivinggroup.com | строкой на странице | [LLG](../brands/luxury-living-group.md) |
-| Emmemobili | emmemobili.it | техлист | — |
+| Emmemobili | emmemobili.it | техлист | [есть](../brands/emmemobili.md) |
 | Fendi Casa | fendicasa.com | подписями на странице | — |
-| Henge | henge07.com | строкой на странице | — |
+| Henge | henge07.com | строкой на странице | [есть](../brands/henge.md) |
 | Luxence | luxurylivinggroup.com | строкой на странице | [LLG](../brands/luxury-living-group.md) |
 | Porada | porada.it | техлист | [есть](../brands/porada.md) |
 | Trussardi Casa | luxurylivinggroup.com | техлист, исполнения с артикулами | [LLG](../brands/luxury-living-group.md) |
-| Venicem | venicem.com | техлист, объём от производителя | — |
+| Venicem | venicem.com | техлист, объём от производителя | [есть](../brands/venicem.md) |
 | Versace Home | luxurylivinggroup.com | строкой на странице | [LLG](../brands/luxury-living-group.md) |
 
 Двенадцать брендов из восемнадцати. Кухни (Modulnova, Alta Cucine) вне работы.
@@ -35,6 +35,15 @@
 | Misura Emme | на странице только размеры матрасов, техлиста нет | найти источник габаритов кровати |
 | Pieter Adam | единственный PDF — каталог целиком, не лист позиции | ссылка на товар с отдельным техлистом, если он есть |
 | Sahrai Milano | размеры в выпадающем списке, а не в тексте | ссылка на товар; отдельно — как считать объём ковра |
+
+## Чем разбирается
+
+Firecrawl доставляет страницу — отрисовывает скрипты и проходит антибот;
+без него не читаются Henge и Versace Home. Разбирает **Gemini**: и текст
+страницы, и техлист. На пяти брендах он совпал с прежним извлекателем
+по типу, числу исполнений и габаритам, оказался вдвое быстрее и так же
+не выдумал размеры там, где их нет. Отдельно важно, что он читает
+размерные выноски на чертежах — у Venicem они есть только там.
 
 ## Устройство профиля
 
