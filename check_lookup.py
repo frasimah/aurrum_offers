@@ -157,6 +157,46 @@ def check_dims_grounding() -> tuple[int, int]:
     return good, len(cases)
 
 
+def check_book_row() -> tuple[int, int]:
+    """Строка для книги: формулы должны совпадать с рабочим файлом.
+
+    Эталон снят с позиции 16 файла 0000-Offer-…-AUR-FORM.xlsx. Если
+    разметка книги поедет, проверка это покажет, а не менеджер потом
+    в готовом компреде.
+    """
+    import book_row
+    print("\n СТРОКА ДЛЯ КНИГИ")
+    print(" " + "-" * 74)
+    R = 16
+    cells = book_row.visible_row({}, R) + book_row.pricing_row({}, R)
+    cols = list("ABCDEFGHIJKLMNOPQRS") + ["T", "U", "V", "W", "X", "Y", "Z",
+                                          "AA", "AB", "AC", "AD", "AE", "AF",
+                                          "AG", "AH", "AI"]
+    got = dict(zip(cols, (str(c) for c in cells)))
+    expected = {
+        "F": "=D16*E16", "H": "=D16*G16", "R": "=U16", "S": "=R16*D16",
+        "U": "=ROUNDUP(J16*K16*L16*1.5/1000000,1)",
+        "W": "=T16-T16*V16", "Y": "=W16+W16*X16", "Z": "=Y16*($Z$1+0)/100",
+        "AA": "=W16*$AA$1/100", "AC": "=U16*$AC$1",
+        "AD": "=Y16+Z16+AA16+AB16+AC16", "AE": "=AD16/1",
+        "AF": "=AE16/(1-$AF$1/100)", "AG": "=AF16/(1-$AG$1/100)",
+        "AH": "=AG16/(1-$AH$1/100)", "AI": "=AH16/(1-$AI$1/100)",
+    }
+    good = 0
+    for col, want in expected.items():
+        hit = got.get(col) == want
+        good += hit
+        print(f"  {OK if hit else BAD} {col:3} {want}")
+        if not hit:
+            print(f"      у нас: {got.get(col)}")
+    # Многострочное описание обязано пережить вставку
+    multi = book_row.build({"description": "A\nB"}, R)
+    quoted = '"A\nB"' in multi
+    good += quoted
+    print(f"  {OK if quoted else BAD} описание в кавычках — перевод строки не рвёт строку")
+    return good, len(expected) + 1
+
+
 def check_spec_pdf() -> tuple[int, int]:
     """Отбор техлиста среди прочих PDF страницы."""
     print("\n ОТБОР ТЕХЛИСТА")
@@ -323,6 +363,7 @@ def main() -> int:
     v_ok, v_all = check_volume()
     g_ok, g_all = check_dims_grounding()
     f_ok, f_all = check_spec_pdf()
+    b_ok, b_all = check_book_row()
     t_ok, t_all = check_url_types()
     s_ok, s_all = check_schema()
 
@@ -330,10 +371,12 @@ def main() -> int:
         check_live()
 
     ok = (d_ok == d_all and v_ok == v_all and s_ok == s_all
-          and t_ok == t_all and g_ok == g_all and f_ok == f_all)
+          and t_ok == t_all and g_ok == g_all and f_ok == f_all
+          and b_ok == b_all)
     print("\n" + " " + "=" * 74)
     print(f"  Размеры: {d_ok}/{d_all}   Объём: {v_ok}/{v_all}   "
           f"Сверка: {g_ok}/{g_all}   Техлист: {f_ok}/{f_all}   "
+          f"Строка: {b_ok}/{b_all}   "
           f"Тип по адресу: {t_ok}/{t_all}   Схема: {s_ok}/{s_all}")
     if ok:
         print("  Разбор совпадает с книгой, схема согласована с кодом.")

@@ -450,6 +450,25 @@
             <button type="button" class="ghost" id="copy">Скопировать описание</button>
           </div>
 
+          <label for="f_row">Строка в книге</label>
+          <div class="grid3">
+            <input id="f_row" type="number" min="2" max="10000" value="16">
+            <input id="f_qty" type="number" min="1" value="1" title="Количество">
+            <button type="button" id="rowcopy">Скопировать строку</button>
+          </div>
+          <div class="hint">
+            Вставлять строго в указанную строку: формулы ссылаются на её номер.
+            Вставка в другую уведёт ссылки на соседние позиции.
+          </div>
+          <label style="display:flex;align-items:center;gap:8px;margin-top:10px">
+            <input type="checkbox" id="f_pricing" style="width:16px;height:16px;padding:0">
+            <span>со скрытым расчётом (T…AI)</span>
+          </label>
+          <div class="hint">
+            По умолчанию только видимая часть A…S. Скрытый расчёт затрёт формулы книги,
+            включая коэффициент сборки, который у каждой позиции свой.
+          </div>
+
           {% if product.package_note %}
           <label>Упаковка</label>
           <div class="hint" style="font-size:12.5px">{{ product.package_note }}</div>
@@ -656,6 +675,39 @@
           await new Promise(r => setTimeout(r, 400));
         }
         dl.disabled = false;
+      });
+    }
+
+    // Строка для книги. Собирает сервер: формулы привязаны к номеру строки,
+    // и ошибка здесь тихо уводит ссылки на соседние позиции.
+    const rowcopy = document.getElementById('rowcopy');
+    if (rowcopy) {
+      rowcopy.addEventListener('click', async () => {
+        const val = id => (document.getElementById(id) || {}).value || '';
+        const label = 'Скопировать строку';
+        rowcopy.disabled = true;
+        try {
+          const r = await fetch('{{ url_for("book_row_route") }}', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              row: val('f_row'),
+              qty: val('f_qty'),
+              brand: val('f_brand'),
+              description: val('f_desc'),
+              width_cm: val('f_d'), depth_cm: val('f_g'), height_cm: val('f_v'),
+              note: val('f_note'),
+              with_pricing: document.getElementById('f_pricing').checked,
+            }),
+          });
+          const data = await r.json();
+          if (!r.ok) throw new Error(data.error || 'не удалось собрать строку');
+          await navigator.clipboard.writeText(data.tsv);
+          rowcopy.textContent = 'Строка ' + data.row + ' скопирована';
+        } catch (e) {
+          rowcopy.textContent = e.message.slice(0, 40);
+        }
+        rowcopy.disabled = false;
+        setTimeout(() => (rowcopy.textContent = label), 2500);
       });
     }
 

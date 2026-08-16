@@ -24,6 +24,7 @@ from flask import (Flask, Response, redirect, render_template, request,
 # Ключи и пароли живут в .env (в git не попадает; образец — .env.example).
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
+import book_row  # noqa: E402
 import doc_parser  # noqa: E402
 import extract_agent  # noqa: E402
 import product_lookup  # noqa: E402 — после load_dotenv, читают переменные окружения
@@ -232,6 +233,27 @@ def _parse_doc_fallback(url: str, reason: str):
     return {"candidates": candidates, "finishes": [], "source": "fallback",
             "warnings": [f"Извлечение не сработало ({reason}) — показаны "
                          f"размеры, найденные по тексту, без артикулов."]}
+
+
+@app.route("/book-row", methods=["POST"])
+def book_row_route():
+    """Карточка -> строка для вставки в рабочую книгу.
+
+    Собираем на сервере, а не в браузере: формулы привязаны к номеру
+    строки, и ошибка здесь тихо уводит ссылки на соседние позиции.
+    """
+    data = request.get_json(silent=True) or {}
+    try:
+        row = int(data.get("row") or 0)
+    except (TypeError, ValueError):
+        row = 0
+    if not 2 <= row <= 10000:
+        return {"error": "Укажите номер строки в книге — от 2 до 10000."}, 400
+
+    return {
+        "row": row,
+        "tsv": book_row.build(data, row, with_pricing=bool(data.get("with_pricing"))),
+    }
 
 
 @app.route("/photo")
