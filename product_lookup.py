@@ -83,6 +83,49 @@ PAGE_SCHEMA = {
         "collection": {"type": "string"},
         "designer": {"type": "string"},
         "type_ru": {"type": "string", "enum": TYPES_RU},
+        # Габариты на странице искали не всегда: схема была написана по
+        # VENICEM, где размеры нарисованы в SVG кривыми и на странице их
+        # нет. Оказалось, это не общее правило — у BENTLEY на странице
+        # стоит «72x76x75H», у BAROVIER целая таблица исполнений. Модель
+        # их не находила просто потому, что её об этом не просили.
+        "variants": {
+            "type": "array",
+            "description": (
+                "исполнения изделия, если на странице их несколько "
+                "(разные размеры, версии, артикулы). Одна запись — одно "
+                "исполнение; никогда не объединяй их размеры в одну строку"
+            ),
+            "items": {
+                "type": "object",
+                "properties": {
+                    "sku": {"type": "string", "description": "артикул исполнения, если указан"},
+                    "dims_raw": {
+                        "type": "string",
+                        "description": (
+                            "габариты этого исполнения ДОСЛОВНО как на странице, "
+                            "в сантиметрах. ОБЯЗАТЕЛЬНО сохрани подписи размеров, "
+                            "если они есть: высоту, диаметр, ширину, глубину. Без "
+                            "подписи два числа неразличимы. Если размер "
+                            "продублирован в дюймах — дюймовую запись не бери"
+                        ),
+                    },
+                    "variant_note": {
+                        "type": "string",
+                        "description": "чем это исполнение отличается от прочих",
+                    },
+                },
+                "required": ["dims_raw"],
+            },
+        },
+        "dims_raw": {
+            "type": "string",
+            "description": (
+                "габариты изделия одной строкой ДОСЛОВНО как на странице, "
+                "если исполнение одно. Только размеры самого изделия: "
+                "не бери размер матраса, длину провода, размеры упаковки "
+                "и высоту подвеса"
+            ),
+        },
         "finishes": {"type": "array", "items": _FINISH_ITEM},
         "tech_note": {
             "type": "string",
@@ -166,6 +209,7 @@ class Product:
     photo_urls: list[str] = field(default_factory=list)
     doc_urls: list[str] = field(default_factory=list)
     spec_pdf_url: str = ""
+    variants: list[dict] = field(default_factory=list)   # исполнения со страницы
     warnings: list[str] = field(default_factory=list)
 
 
@@ -372,6 +416,20 @@ def parse_dims(raw: str, type_ru: str = "") -> tuple[float | None, float | None,
     s = raw.replace(",", ".").replace("×", "x").replace("Х", "x")
     num = r"\d+(?:\.\d+)?"
 
+    # Подписи словами приводим к символам: на сайтах пишут «Height 60 cm,
+    # Diameter 93 cm», и без этого два числа неразличимы — у люстры высота
+    # уезжала в ширину. Слово H в «Height» разбору не мешает: пометку
+    # высоты мы ищем только там, где за H не идёт буква.
+    _H = r"height|altezza|hauteur|h[oö]he|высота|выс\.?"
+    _D = r"diameter|diametro|diam[eè]tre|durchmesser|диаметр|диам\.?"
+    # Подпись после числа: «90 cm (высота)» — тоже встречается, и часто
+    # в одном ответе с обратным порядком.
+    s = re.sub(rf"({num})\s*(?:cm|см|mm|мм)?\s*\(\s*(?:{_H})\s*\)", r" H \1 ", s, flags=re.I)
+    s = re.sub(rf"({num})\s*(?:cm|см|mm|мм)?\s*\(\s*(?:{_D})\s*\)", r" Ø \1 ", s, flags=re.I)
+    # Подпись перед числом: «Height 60 cm, Diameter 93 cm»
+    s = re.sub(rf"\b(?:{_H})\b\s*:?\s*", " H ", s, flags=re.I)
+    s = re.sub(rf"\b(?:{_D})\b\s*:?\s*", " Ø ", s, flags=re.I)
+
     # Дюймовые двойники выкидываем целиком. Раньше отбрасывались только те,
     # что в скобках, и у PORADA «43 1/4"» через запятую попадало в общий
     # котёл чисел — высотой оказывался второй диаметр вместо 75 см.
@@ -494,6 +552,12 @@ def lookup(url: str) -> Product:
     p.photo_urls = _clean_photos(page.get("photo_urls") or [])
     p.doc_urls = [u for u in (page.get("doc_urls") or []) if isinstance(u, str)]
 
+    # Габариты со страницы — запасной источник, если техлиста нет или он
+    # молчит. У части брендов они там и лежат, причём таблицей исполнений.
+    page_dims = str(page.get("dims_raw") or "").strip()
+    p.variants = [v for v in (_as_dict(x) for x in (page.get("variants") or []))
+                  if str(v.get("dims_raw") or "").strip()]
+
     # Габариты и фактический объём живут в техлисте, а не на странице.
     sources = page_md
     p.spec_pdf_url = _pick_spec_pdf(p.doc_urls)
@@ -526,6 +590,23 @@ def lookup(url: str) -> Product:
         p.warnings.append(
             "Техлист (spec sheet) не найден — габариты и объём заполните вручную."
         )
+
+    # Техлист молчит — берём то, что нашлось на странице.
+    if not (p.width_cm and p.depth_cm and p.height_cm):
+        # Исполнение важнее общей строки: когда их несколько, извлечение
+        # склеивает все размеры в одну кашу, и оттуда собирается небылица
+        # вроде «высота от одного исполнения, диаметр от другого».
+        fallback = (p.variants[0].get("dims_raw") if p.variants else "") or page_dims
+        w, d, h, sure = parse_dims(str(fallback or ""), p.type_ru)
+        if w and d and h:
+            p.dims_raw = p.dims_raw or str(fallback).strip()
+            p.width_cm, p.depth_cm, p.height_cm = w, d, h
+            p.dims_confident = sure
+            if len(p.variants) > 1:
+                p.warnings.append(
+                    f"На странице {len(p.variants)} исполнений — подставлено первое, "
+                    "выберите нужное из списка ниже."
+                )
 
     if p.volume_m3 is None:
         calc = volume_m3(p.width_cm, p.depth_cm, p.height_cm)
