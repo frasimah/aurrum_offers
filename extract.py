@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Разбор техлиста: PDF -> структура по нашей схеме.
+Извлечение: текст страницы или PDF -> структура по нашей схеме.
 
 Порядок попыток и почему он такой.
 
@@ -38,6 +38,8 @@ GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "").strip() or "gemini-3.7-flash"
 MAX_PDF_MB = 40
 # Меньше этого — считаем, что текстового слоя нет.
 MIN_PDF_TEXT = 200
+# Потолок текста в одном запросе — страницы брендов заметно короче.
+MAX_TEXT = 200_000
 
 # Поля перечислены прямо в запросе, а не JSON-схемой: схема извлечения
 # использует nullable-типы, которые Gemini в responseSchema не принимает.
@@ -53,17 +55,19 @@ _ASK = (
 )
 
 
-def _gemini(data: bytes) -> dict:
+def _gemini(data: bytes | None = None, text: str | None = None) -> dict:
     key = os.environ.get("GOOGLE_API_KEY", "").strip()
     if not key:
         raise RuntimeError("нет GOOGLE_API_KEY")
 
+    if data is not None:
+        payload = {"inline_data": {"mime_type": "application/pdf",
+                                   "data": base64.b64encode(data).decode()}}
+    else:
+        payload = {"text": (text or "")[:MAX_TEXT]}
+
     body = {
-        "contents": [{"parts": [
-            {"inline_data": {"mime_type": "application/pdf",
-                             "data": base64.b64encode(data).decode()}},
-            {"text": _ASK},
-        ]}],
+        "contents": [{"parts": [payload, {"text": _ASK}]}],
         "systemInstruction": {"parts": [
             {"text": llama_extract._read("extraction_prompt.txt")}
         ]},
@@ -77,6 +81,23 @@ def _gemini(data: bytes) -> dict:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def from_text(text: str) -> dict:
+    """Разбор текста страницы.
+
+    Очная ставка на пяти брендах: тип, число исполнений и габариты
+    совпали с LlamaExtract везде, включая проверку на выдумку (у FENDI
+    оба честно вернули ноль). Gemini при этом вдвое быстрее, а на HENGE
+    втрое-вдевятеро: 3 секунды против 28.
+    """
+    text = (text or "").strip()
+    if not text:
+        return {}
+    try:
+        return _gemini(text=text)
+    except Exception:            # noqa: BLE001 — есть чем заменить
+        return llama_extract.from_text(text)
+
+
 def from_url(url: str) -> dict:
     """Ссылка на техлист -> извлечённые данные."""
     got = safe_fetch.get(url, timeout=180, headers={"User-Agent": "Mozilla/5.0"})
@@ -85,7 +106,7 @@ def from_url(url: str) -> dict:
         raise RuntimeError(f"Документ больше {MAX_PDF_MB} МБ — не разбираю.")
 
     try:
-        return _gemini(data)
+        return _gemini(data=data)
     except Exception as gemini_failed:   # noqa: BLE001 — есть чем заменить
         reason = str(gemini_failed)[:120]
 

@@ -2,7 +2,7 @@
 """
 Техлист -> исполнения для карточки.
 
-Разбор делает `llama_extract`; здесь остаётся то, что модели не отдаётся:
+Разбор делает `extract`; здесь остаётся то, что модели не отдаётся:
 раскладка осей, объём и сверка значений с нашими списками. Списки нужны
 потому, что LlamaExtract не соблюдает `enum` в схеме — он молча возвращает
 последнее значение списка, из-за чего кровать становилась «Ковёр».
@@ -10,13 +10,13 @@
 
 from __future__ import annotations
 
-import pdf_extract
+import extract
 import product_lookup as pl
 
 
 def extract_pdf(url: str) -> dict:
     """Ссылка на техлист -> извлечённые данные по нашей схеме."""
-    return pdf_extract.from_url(url)
+    return extract.from_url(url)
 
 
 def to_candidates(data: dict) -> tuple[list[dict], list[dict], list[str]]:

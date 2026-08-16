@@ -21,8 +21,7 @@ from dataclasses import dataclass, field
 
 from firecrawl import Firecrawl
 
-import llama_extract
-import pdf_extract
+import extract
 
 # Контролируемый словарь: модель выбирает из списка, а не переводит свободно.
 TYPES_RU = [
@@ -191,7 +190,7 @@ def _scrape(fc: Firecrawl, url: str, timeout_ms: int = 120_000) -> tuple[str, li
     Firecrawl здесь именно доставщик — отрисовывает скрипты, проходит
     антибот. Извлечение у него отключено намеренно: на живых страницах
     оно выдумывало габариты, теряло строки таблиц и переводило названия
-    материалов. Разбирает `llama_extract` по нашей схеме.
+    материалов. Разбирает `extract` по нашей схеме.
     """
     doc = fc.scrape(url, formats=["markdown", "links"],
                     only_main_content=False, timeout=timeout_ms)
@@ -431,7 +430,7 @@ def _first_product(data: dict) -> dict:
 def lookup(url: str) -> Product:
     """Ссылка на товар -> карточка.
 
-    Firecrawl доставляет страницу, `llama_extract` её разбирает. Если
+    Firecrawl доставляет страницу, `extract` её разбирает. Если
     у товара есть техлист — он забирается тем же извлекателем и имеет
     приоритет: там исполнения приходят с артикулами, а объём бывает
     указан производителем.
@@ -449,7 +448,7 @@ def lookup(url: str) -> Product:
     p.photo_urls = _photos_from(page_md, links)
     p.doc_urls = _docs_from(links)
 
-    extracted = llama_extract.from_text(page_md)
+    extracted = extract.from_text(page_md)
     page = _first_product(extracted)
     p.brand = str(extracted.get("brand") or "").strip()
     p.model = str(page.get("model") or "").strip()
@@ -478,7 +477,7 @@ def lookup(url: str) -> Product:
     p.spec_pdf_url = _pick_spec_pdf(p.doc_urls)
     if p.spec_pdf_url:
         try:
-            pdf = _first_product(pdf_extract.from_url(p.spec_pdf_url))
+            pdf = _first_product(extract.from_url(p.spec_pdf_url))
         except Exception as exc:  # noqa: BLE001 — техлист не критичен
             pdf = {}
             p.warnings.append(f"Техлист не прочитался: {exc}")

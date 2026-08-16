@@ -23,10 +23,18 @@ RULES
    ignore the inch line completely.
 
 4. NULL BEATS A GUESS. If the document does not state something, the
-   value is null. Never infer a dimension from a drawing, never derive
-   volume from dimensions, never fill a field from general knowledge of
-   the brand. An empty answer is a correct answer; an invented one is
-   a defect.
+   value is null. Never estimate a dimension by eye from a photograph,
+   never derive volume from dimensions, never fill a field from general
+   knowledge of the brand. An empty answer is a correct answer; an
+   invented one is a defect.
+
+   READING IS NOT GUESSING. A technical drawing with printed dimension
+   callouts — numbers set against arrows or extension lines — states
+   those numbers. Read them and copy them with whatever labels the
+   drawing gives (height, diameter, width). Many spec sheets print the
+   sizes ONLY on the drawing and nowhere in running text; leaving
+   `dims_raw` empty there loses data that is plainly printed. What is
+   forbidden is producing a number the document does not show.
 
    This rule is about VALUES YOU WOULD HAVE TO INVENT. It does not
    apply to `type_ru` and `role_ru`, which are classifications of what
