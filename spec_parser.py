@@ -21,15 +21,33 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 
 import openpyxl
+from openpyxl.utils import column_index_from_string, get_column_letter
 
 NS_XDR = "{http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing}"
 NS_A = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
 NS_R = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
 
-# Колонки листа (совпадают с шаблоном спецификации AURRUM)
+# Запасная разметка — шаблон «Спецификация». Берётся, только если подписи
+# в строке заголовка прочитать не удалось.
 COL_N, COL_BRAND, COL_DESC = "A", "C", "E"
 COL_QTY, COL_PRICE, COL_SUM = "I", "J", "M"
-COL_TOTAL_LABEL, COL_TOTAL_VALUE = "J", "M"
+
+# Колонки ищем по подписям заголовка, а не по буквам: у книги «Спецификация»
+# описание лежит в E, а у формы коммерческого предложения — в C. С жёсткими
+# буквами форма читалась как спецификация, и в графу «Цена» попадала ширина
+# позиции. Ошибка тихая — документ выглядит правильным.
+_HEADER_KEYS = {
+    "n": ("№",),
+    "brand": ("производител", "реф"),
+    "desc": ("описание",),
+    "qty": ("к-во", "кол-во", "количество"),
+    "price": ("цена", "стоимость"),
+    "total": ("сумма",),
+}
+
+# «СПЕЦ. ЦЕНА» и «СПЕЦ. СУММА» — внутренние колонки для торга. В документ
+# они не идут и не должны перехватывать поиск цены.
+_HEADER_SKIP = ("спец",)
 
 # Максимум строк, которые просматриваем в поисках позиций и итогов
 SCAN_LIMIT = 200
@@ -190,6 +208,26 @@ def _extract_photos(data: bytes) -> dict[int, str]:
     return photos
 
 
+def _map_columns(g, header_row: int) -> dict[str, str]:
+    """Буквы колонок по подписям строки заголовка.
+
+    Первое совпадение слева выигрывает, поэтому «Цена, Евро» находится
+    раньше, чем «СПЕЦ. ЦЕНА», а та вдобавок отсеивается по слову «спец».
+    """
+    found: dict[str, str] = {}
+    for c in range(1, 40):
+        label = g(f"{get_column_letter(c)}{header_row}")
+        if not isinstance(label, str):
+            continue
+        low = " ".join(label.lower().split())
+        if not low or any(skip in low for skip in _HEADER_SKIP):
+            continue
+        for key, needles in _HEADER_KEYS.items():
+            if key not in found and any(n in low for n in needles):
+                found[key] = get_column_letter(c)
+    return found
+
+
 def parse(data: bytes) -> Spec:
     """Книга приходит байтами: временные файлы не нужны ни локально,
     ни на serverless, где диск между запросами не сохраняется."""
@@ -238,6 +276,20 @@ def parse(data: bytes) -> Spec:
             "разбираю по стандартной разметке."
         )
 
+    cols = _map_columns(g, header_row)
+    col_n = cols.get("n", COL_N)
+    col_brand = cols.get("brand", COL_BRAND)
+    col_desc = cols.get("desc", COL_DESC)
+    col_qty = cols.get("qty", COL_QTY)
+    col_price = cols.get("price", COL_PRICE)
+    col_sum = cols.get("total", COL_SUM)
+    col_total_value = col_sum
+    if len(cols) < len(_HEADER_KEYS):
+        spec.warnings.append(
+            "В заголовке таблицы нашлись не все колонки — часть разобрана "
+            "по запасной разметке. Проверьте цену и количество."
+        )
+
     # Строка над заголовком: страна происхождения и пометка вроде «НА ЗАКАЗ»
     meta_row = header_row - 1
     origin = g(f"A{meta_row}")
@@ -258,26 +310,26 @@ def parse(data: bytes) -> Spec:
     for r in range(items_first, SCAN_LIMIT):
         if r in hidden_rows:
             continue
-        num, desc = g(f"{COL_N}{r}"), g(f"{COL_DESC}{r}")
+        num, desc = g(f"{col_n}{r}"), g(f"{col_desc}{r}")
         if num is None or desc is None or not str(desc).strip():
             continue
         lines = str(desc).strip().splitlines()
         spec.items.append(
             Item(
                 n=str(num).strip(),
-                brand=str(g(f"{COL_BRAND}{r}") or "").strip(),
+                brand=str(g(f"{col_brand}{r}") or "").strip(),
                 title=lines[0].strip(),
                 body="\n".join(lines[1:]).strip(),
-                qty=str(g(f"{COL_QTY}{r}") or "").strip(),
-                price=g(f"{COL_PRICE}{r}"),
-                total=g(f"{COL_SUM}{r}"),
+                qty=str(g(f"{col_qty}{r}") or "").strip(),
+                price=g(f"{col_price}{r}"),
+                total=g(f"{col_sum}{r}"),
                 photo=photos.get(r),
             )
         )
 
     last_item_row = items_first
     for r in range(items_first, SCAN_LIMIT):
-        if g(f"{COL_N}{r}") is not None and g(f"{COL_DESC}{r}") is not None:
+        if g(f"{col_n}{r}") is not None and g(f"{col_desc}{r}") is not None:
             last_item_row = r
 
     # --- Итоги: пары "подпись/сумма" ниже позиций. Скрытые строки книги
@@ -285,10 +337,19 @@ def parse(data: bytes) -> Spec:
     for r in range(last_item_row + 1, SCAN_LIMIT):
         if r in hidden_rows:
             continue
-        label, value = g(f"{COL_TOTAL_LABEL}{r}"), g(f"{COL_TOTAL_VALUE}{r}")
-        if not isinstance(label, str) or not label.strip():
-            continue
+        value = g(f"{col_total_value}{r}")
         if not isinstance(value, (int, float)):
+            continue
+        # Подпись стоит слева от суммы, но в разных шаблонах по-разному:
+        # в форме — вплотную, в спецификации HENGE — в самой первой колонке.
+        # Поэтому берём ближайшую непустую текстовую ячейку слева.
+        label = None
+        for c in range(column_index_from_string(col_total_value) - 1, 0, -1):
+            candidate = g(f"{get_column_letter(c)}{r}")
+            if isinstance(candidate, str) and candidate.strip():
+                label = candidate
+                break
+        if not label:
             continue
         text = label.strip()
         spec.totals.append(
@@ -323,6 +384,6 @@ def parse(data: bytes) -> Spec:
             "с шаблоном (№ в A, производитель в C, описание в E)."
         )
     if not spec.totals:
-        spec.warnings.append("Не найден блок итогов (подписи в J, суммы в M).")
+        spec.warnings.append(f"Не найден блок итогов (суммы в колонке {col_total_value}).")
 
     return spec

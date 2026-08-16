@@ -157,6 +157,44 @@ def check_dims_grounding() -> tuple[int, int]:
     return good, len(cases)
 
 
+def check_columns() -> tuple[int, int]:
+    """Колонки книги ищутся по подписям, а не по буквам.
+
+    Из-за жёстких букв форма коммерческого предложения читалась как
+    спецификация, и в графу «Цена» попадала ширина позиции. Ошибка тихая:
+    документ выглядит правильным.
+    """
+    import spec_parser
+    print("\n КОЛОНКИ ПО ПОДПИСЯМ ЗАГОЛОВКА")
+    print(" " + "-" * 74)
+    headers = [
+        ("форма КП",
+         {"A": "№", "B": "Производитель", "C": "Описание", "D": "К-во",
+          "E": "Цена, Евро", "F": "Сумма, Евро", "G": "СПЕЦ. ЦЕНА, Евро",
+          "H": "СПЕЦ. СУММА, Евро"},
+         {"n": "A", "brand": "B", "desc": "C", "qty": "D", "price": "E", "total": "F"}),
+        ("спецификация",
+         {"A": "№", "C": "Производитель", "E": "Описание", "I": "К-во",
+          "J": "Цена, Евро", "M": "Сумма, Евро"},
+         {"n": "A", "brand": "C", "desc": "E", "qty": "I", "price": "J", "total": "M"}),
+        ("спецификация HENGE",
+         {"A": "№", "C": "Реф.", "E": "Описание", "I": "К-во",
+          "J": "Стоимость, Евро", "M": "Сумма, Евро"},
+         {"n": "A", "brand": "C", "desc": "E", "qty": "I", "price": "J", "total": "M"}),
+    ]
+    good = 0
+    for name, cells, expected in headers:
+        # ключ вида "B12" -> буква колонки
+        got = spec_parser._map_columns(
+            lambda ref, c=cells: c.get(ref.rstrip("0123456789")), 12)
+        hit = got == expected
+        good += hit
+        print(f"  {OK if hit else BAD} {name:22} {got}")
+        if not hit:
+            print(f"      ожидали {expected}")
+    return good, len(headers)
+
+
 def check_book_row() -> tuple[int, int]:
     """Строка для книги: формулы должны совпадать с рабочим файлом.
 
@@ -364,6 +402,7 @@ def main() -> int:
     g_ok, g_all = check_dims_grounding()
     f_ok, f_all = check_spec_pdf()
     b_ok, b_all = check_book_row()
+    c_ok, c_all = check_columns()
     t_ok, t_all = check_url_types()
     s_ok, s_all = check_schema()
 
@@ -372,11 +411,11 @@ def main() -> int:
 
     ok = (d_ok == d_all and v_ok == v_all and s_ok == s_all
           and t_ok == t_all and g_ok == g_all and f_ok == f_all
-          and b_ok == b_all)
+          and b_ok == b_all and c_ok == c_all)
     print("\n" + " " + "=" * 74)
     print(f"  Размеры: {d_ok}/{d_all}   Объём: {v_ok}/{v_all}   "
           f"Сверка: {g_ok}/{g_all}   Техлист: {f_ok}/{f_all}   "
-          f"Строка: {b_ok}/{b_all}   "
+          f"Строка: {b_ok}/{b_all}   Колонки: {c_ok}/{c_all}   "
           f"Тип по адресу: {t_ok}/{t_all}   Схема: {s_ok}/{s_all}")
     if ok:
         print("  Разбор совпадает с книгой, схема согласована с кодом.")
