@@ -364,6 +364,27 @@ def _grounded(value: str, sources: str) -> bool:
     return any(t.lower() in low for t in tokens)
 
 
+def _dims_grounded(dims_raw: str, sources: str) -> bool:
+    """Встречаются ли числа габаритов в тексте источника.
+
+    Проверять обязательно, и это не перестраховка. У FENDI CASA страница
+    не публикует размеров вовсе — ни одного «NN cm», — а извлечение вернуло
+    «высота: 83 см, ширина: 81 см, глубина: 88 см». Правдоподобные числа
+    для кресла, которых на сайте нет. Карточка показала их как уверенные
+    и посчитала объём, а объём — это деньги за транспорт.
+
+    Сверяем строку размеров, а не разложенные оси: оси считает Python,
+    и если исходная строка настоящая, то и они настоящие.
+    """
+    numbers = [n for n in re.findall(r"\d{2,4}", dims_raw or "")]
+    if not numbers:
+        return True                      # нечего проверять
+    present = set(re.findall(r"\d{2,4}", sources or ""))
+    # Хватает большинства: источник может округлять или опускать одно значение.
+    hits = sum(1 for n in numbers if n in present)
+    return hits >= max(1, len(numbers) - 1)
+
+
 def _verify_finishes(finishes: list[dict], sources: str) -> tuple[list[dict], list[str]]:
     """Отсеиваем отделки, которых нет в источнике."""
     kept, dropped = [], []
@@ -607,6 +628,16 @@ def lookup(url: str) -> Product:
                     f"На странице {len(p.variants)} исполнений — подставлено первое, "
                     "выберите нужное из списка ниже."
                 )
+
+    # Габариты, которых нет в источнике, — выдумка. Убираем, а не показываем.
+    if p.dims_raw and not _dims_grounded(p.dims_raw, sources):
+        p.warnings.append(
+            f"Габариты «{p.dims_raw}» не найдены в тексте источника — похоже, "
+            "извлечение их придумало. Поля очищены, заполните вручную."
+        )
+        p.dims_raw = ""
+        p.width_cm = p.depth_cm = p.height_cm = None
+        p.dims_confident = False
 
     if p.volume_m3 is None:
         calc = volume_m3(p.width_cm, p.depth_cm, p.height_cm)

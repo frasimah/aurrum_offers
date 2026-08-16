@@ -122,6 +122,37 @@ def check_volume() -> tuple[int, int]:
     return good, len(VOLUME_CASES)
 
 
+def check_dims_grounding() -> tuple[int, int]:
+    """Габариты, которых нет в источнике, обязаны отбиваться.
+
+    Случай из жизни: страница FENDI CASA не публикует размеров вовсе,
+    а извлечение вернуло правдоподобные «83 / 81 / 88» — и карточка
+    посчитала по ним объём.
+    """
+    print("\n СВЕРКА ГАБАРИТОВ С ИСТОЧНИКОМ")
+    print(" " + "-" * 74)
+    cases = [
+        ("высота: 83 см, ширина: 81 см, глубина: 88 см",
+         "Кресло Cleo, кожа и дерево. Фото и описание без размеров.",
+         False, "выдумка на странице без размеров"),
+        ("72x76x75H cm", "Mere armchair 72x76x75H cm, fabric or leather",
+         True, "есть в источнике"),
+        ("Height 60 cm; Diameter 93 cm", "Metropolis Height 60 cm Diameter 93 cm Weight 15 kg",
+         True, "подписи словами"),
+        ("202x241x92H.", "…165x200 - 202x241x92H. - H.B.36cm…",
+         True, "из техлиста"),
+        ("", "любой текст", True, "пустая строка не проверяется"),
+    ]
+    good = 0
+    for dims, source, expected, note in cases:
+        got = pl._dims_grounded(dims, source)
+        hit = got == expected
+        good += hit
+        print(f"  {OK if hit else BAD} {(dims or '(пусто)')[:44]:46} -> "
+              f"{'принято' if got else 'отбито':8} {note}")
+    return good, len(cases)
+
+
 def check_url_types() -> tuple[int, int]:
     print("\n ТИП ПО РАЗДЕЛУ САЙТА")
     print(" " + "-" * 74)
@@ -262,16 +293,18 @@ def main() -> int:
 
     d_ok, d_all = check_dims()
     v_ok, v_all = check_volume()
+    g_ok, g_all = check_dims_grounding()
     t_ok, t_all = check_url_types()
     s_ok, s_all = check_schema()
 
     if "--offline" not in args:
         check_live()
 
-    ok = d_ok == d_all and v_ok == v_all and s_ok == s_all and t_ok == t_all
+    ok = (d_ok == d_all and v_ok == v_all and s_ok == s_all
+          and t_ok == t_all and g_ok == g_all)
     print("\n" + " " + "=" * 74)
     print(f"  Размеры: {d_ok}/{d_all}   Объём: {v_ok}/{v_all}   "
-          f"Тип по адресу: {t_ok}/{t_all}   Схема: {s_ok}/{s_all}")
+          f"Сверка: {g_ok}/{g_all}   Тип по адресу: {t_ok}/{t_all}   Схема: {s_ok}/{s_all}")
     if ok:
         print("  Разбор совпадает с книгой, схема согласована с кодом.")
     else:
