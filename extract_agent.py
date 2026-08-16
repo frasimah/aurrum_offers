@@ -1,127 +1,22 @@
 # -*- coding: utf-8 -*-
 """
-Извлечение данных из техлиста через LlamaExtract.
+Техлист -> исполнения для карточки.
 
-Без сохранённого агента: схема и инструкция уходят прямо в запросе
-(`POST /api/v1/extraction/run`). Оба файла лежат в `config/` и правятся
-как обычный код — конфиг агента в интерфейсе LlamaCloud через публичный
-API не читается и не пишется, и каждая правка там стоила бы ручной
-вставки.
-
-Чем это лучше регулярки из doc_parser: та находит только числа. Здесь
-приезжает артикул исполнения и размер матраса — то, по чему исполнение
-и выбирают.
-
-Списки значений проверяет Python: LlamaExtract не соблюдает `enum`
-в схеме, а молча возвращает последнее значение списка (проверено —
-кровать становилась «Ковёр»). Поэтому `type_ru` и `role_ru` приходят
-свободными строками и сверяются здесь.
+Разбор делает `llama_extract`; здесь остаётся то, что модели не отдаётся:
+раскладка осей, объём и сверка значений с нашими списками. Списки нужны
+потому, что LlamaExtract не соблюдает `enum` в схеме — он молча возвращает
+последнее значение списка, из-за чего кровать становилась «Ковёр».
 """
 
 from __future__ import annotations
 
-import json
-import os
-import time
-
-import httpx
-
+import llama_extract
 import product_lookup as pl
-import safe_fetch
-
-API = "https://api.cloud.llamaindex.ai/api/v1"
-CONFIG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config")
-
-POLL_INTERVAL = 4
-POLL_ATTEMPTS = 30          # ~2 минуты
-MAX_PDF_MB = 40
-
-# Модель извлечения. Переопределяется переменной окружения — сменить
-# можно без правки кода, а список допустимых отдаёт сам API в ошибке.
-EXTRACT_MODEL = os.environ.get("LLAMA_EXTRACT_MODEL", "").strip() or "openai-gpt-5"
-
-
-def _key() -> str:
-    key = os.environ.get("LLAMA_CLOUD_API_KEY", "").strip()
-    if not key:
-        raise RuntimeError(
-            "Не задан LLAMA_CLOUD_API_KEY. Добавьте его в .env "
-            "(образец — в .env.example)."
-        )
-    return key
-
-
-def _read(name: str) -> str:
-    with open(os.path.join(CONFIG, name), encoding="utf-8") as f:
-        return f.read()
 
 
 def extract_pdf(url: str) -> dict:
-    """Скачивает PDF и возвращает извлечённые данные по нашей схеме."""
-    headers = {"Authorization": f"Bearer {_key()}"}
-    schema = json.loads(_read("extraction_schema.json"))
-    config = {
-        "system_prompt": _read("extraction_prompt.txt"),
-        "use_reasoning": True,
-        # Иначе правка инструкции молча не действует: кеш её не учитывает.
-        "invalidate_cache": True,
-        # Модель закреплена намеренно. Без этого работает дефолт провайдера,
-        # и он может смениться без единой правки с нашей стороны — разбор
-        # поедет молча. На эталоне VIBES дефолт давал то 4 отделки, то 9,
-        # то 10 от запуска к запуску.
-        #
-        # Режим PREMIUM допускает только openai-gpt-4-1, openai-gpt-5
-        # и openai-gpt-5-mini. Gemini в качестве извлекающей модели
-        # недоступен вовсе, а как разбирающая — только gemini-2.5-pro.
-        #
-        # Сверено на VIBES: обе модели дают 5/5 исполнений и ноль выдуманных
-        # отделок; gpt-5 находит их полнее (11 против 9) ценой ~40 лишних
-        # секунд, что укладывается в бюджет функции.
-        "extract_model": EXTRACT_MODEL,
-    }
-
-    # Ссылку на документ присылает клиент — качаем с проверкой адреса,
-    # иначе роут превращается в прокси во внутреннюю сеть.
-    got = safe_fetch.get(url, timeout=180, headers={"User-Agent": "Mozilla/5.0"})
-
-    with httpx.Client(timeout=180, follow_redirects=True) as http:
-        if len(got.content) > MAX_PDF_MB * 1024 * 1024:
-            raise RuntimeError(f"Документ больше {MAX_PDF_MB} МБ — не разбираю.")
-
-        name = url.split("?")[0].rsplit("/", 1)[-1] or "document"
-        if not name.lower().endswith(".pdf"):
-            name += ".pdf"
-
-        up = http.post(f"{API}/files", headers=headers,
-                       files={"upload_file": (name, got.content, "application/pdf")})
-        up.raise_for_status()
-
-        started = http.post(f"{API}/extraction/run", headers=headers, json={
-            "data_schema": schema,
-            "config": config,
-            "file_id": up.json()["id"],
-        })
-        started.raise_for_status()
-        # Ответ /run — это job, а не run: опрашивать надо /extraction/jobs.
-        job = started.json()["id"]
-
-        for _ in range(POLL_ATTEMPTS):
-            state = http.get(f"{API}/extraction/jobs/{job}", headers=headers).json()
-            status = state.get("status")
-            if status == "SUCCESS":
-                break
-            if status in ("ERROR", "FAILED", "CANCELLED"):
-                raise RuntimeError(
-                    "LlamaExtract не смог разобрать документ: "
-                    + str(state.get("error") or "причина не указана")
-                )
-            time.sleep(POLL_INTERVAL)
-        else:
-            raise RuntimeError("LlamaExtract не ответил вовремя — попробуйте ещё раз.")
-
-        result = http.get(f"{API}/extraction/jobs/{job}/result", headers=headers)
-        result.raise_for_status()
-        return result.json().get("data") or {}
+    """Ссылка на техлист -> извлечённые данные по нашей схеме."""
+    return llama_extract.from_pdf_url(url)
 
 
 def to_candidates(data: dict) -> tuple[list[dict], list[dict], list[str]]:

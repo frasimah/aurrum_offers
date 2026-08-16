@@ -21,6 +21,8 @@ from dataclasses import dataclass, field
 
 from firecrawl import Firecrawl
 
+import llama_extract
+
 # Контролируемый словарь: модель выбирает из списка, а не переводит свободно.
 TYPES_RU = [
     "Кресло", "Диван", "Кровать", "Торшер", "Люстра", "Бра",
@@ -38,155 +40,6 @@ ROLES_RU = [
 # U = ROUNDUP(Д×Г×В×1.5/1000000; 1)
 PACKING_FACTOR = 1.5
 VOLUME_STEP = 0.1
-
-_EXTRACT_RULES = f"""
-Извлеки карточку предмета мебели или света для коммерческого предложения.
-
-Правила:
-- Названия материалов, отделок и коллекций НЕ переводи — копируй ровно теми
-  символами, что стоят на источнике, вместе с артикулом и номером категории.
-- Ничего не выдумывай: если название материала на источнике не указано,
-  не добавляй эту отделку вообще. Пустой список лучше правдоподобной догадки.
-- Тип предмета и роль отделки выбирай строго из списка допустимых значений.
-- Для светильников тип определяй по способу установки:
-  floor/pavimento → Торшер; ceiling/suspension/soffitto → Люстра;
-  wall/parete → Бра; table/tavolo → Настольная лампа.
-  Слово «Floor» в названии модели означает напольный светильник — Торшер.
-- Габариты бери ТОЛЬКО из раздела размеров изделия (DIMENSIONS, DIMENSIONI,
-  MISURE, РАЗМЕРЫ). В техлистах подписи и значения часто идут разными
-  колонками — сопоставляй их аккуратно.
-  Категорически не бери в габариты: CABLE LENGTH (длина провода),
-  PACKAGE / BOX (размеры упаковки), высоту подвеса, диапазон регулировки.
-  Если в разделе размеров несколько значений — верни их все в dims_raw
-  и выбери из них наибольший горизонтальный и высоту.
-- Если данных на источнике нет — оставь поле пустым. Не догадывайся.
-
-Допустимые типы: {", ".join(TYPES_RU)}.
-Допустимые роли отделок: {", ".join(ROLES_RU)}.
-""".strip()
-
-_FINISH_ITEM = {
-    "type": "object",
-    "properties": {
-        "role_ru": {"type": "string", "enum": ROLES_RU},
-        "material": {"type": "string", "description": "как на источнике, без перевода"},
-        "code": {"type": "string", "description": "артикул отделки, если указан"},
-    },
-    "required": ["role_ru", "material"],
-}
-
-PAGE_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "brand": {"type": "string"},
-        "model": {"type": "string", "description": "название модели без бренда"},
-        "collection": {"type": "string"},
-        "designer": {"type": "string"},
-        "type_ru": {"type": "string", "enum": TYPES_RU},
-        # Габариты на странице искали не всегда: схема была написана по
-        # VENICEM, где размеры нарисованы в SVG кривыми и на странице их
-        # нет. Оказалось, это не общее правило — у BENTLEY на странице
-        # стоит «72x76x75H», у BAROVIER целая таблица исполнений. Модель
-        # их не находила просто потому, что её об этом не просили.
-        "variants": {
-            "type": "array",
-            "description": (
-                "исполнения изделия, если на странице их несколько "
-                "(разные размеры, версии, артикулы). Одна запись — одно "
-                "исполнение; никогда не объединяй их размеры в одну строку"
-            ),
-            "items": {
-                "type": "object",
-                "properties": {
-                    "sku": {"type": "string", "description": "артикул исполнения, если указан"},
-                    "dims_raw": {
-                        "type": "string",
-                        "description": (
-                            "габариты этого исполнения ДОСЛОВНО как на странице, "
-                            "в сантиметрах. ОБЯЗАТЕЛЬНО сохрани подписи размеров, "
-                            "если они есть: высоту, диаметр, ширину, глубину. Без "
-                            "подписи два числа неразличимы. Если размер "
-                            "продублирован в дюймах — дюймовую запись не бери"
-                        ),
-                    },
-                    "variant_note": {
-                        "type": "string",
-                        "description": "чем это исполнение отличается от прочих",
-                    },
-                },
-                "required": ["dims_raw"],
-            },
-        },
-        "dims_raw": {
-            "type": "string",
-            "description": (
-                "габариты изделия одной строкой ДОСЛОВНО как на странице, "
-                "если исполнение одно. Только размеры самого изделия: "
-                "не бери размер матраса, длину провода, размеры упаковки "
-                "и высоту подвеса"
-            ),
-        },
-        "finishes": {"type": "array", "items": _FINISH_ITEM},
-        "tech_note": {
-            "type": "string",
-            "description": "мощность, люмены, цветовая температура, особенности",
-        },
-        "photo_urls": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": "фотографии самого изделия; без логотипов, иконок и образцов материалов",
-        },
-        "doc_urls": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": "ссылки на PDF: spec sheet, техлист, чертежи",
-        },
-    },
-    "required": ["brand", "model"],
-}
-
-PDF_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "dims_raw": {
-            "type": "string",
-            "description": (
-                "габариты изделия одной строкой ДОСЛОВНО как в документе, "
-                "со всеми значениями и обозначениями (Ø, H), без перевода "
-                "единиц на русский. Пример: '125 cm, Ø 25 cm, 31 cm'"
-            ),
-        },
-        "width_cm": {
-            "type": "number",
-            "description": (
-                "наибольший горизонтальный габарит изделия в см. Если указано "
-                "несколько диаметров или ширин — бери максимальный"
-            ),
-        },
-        "depth_cm": {
-            "type": "number",
-            "description": (
-                "глубина в см. Для круглых изделий равна наибольшему диаметру"
-            ),
-        },
-        "height_cm": {
-            "type": "number",
-            "description": (
-                "ВЕРТИКАЛЬНЫЙ размер изделия в см — то, насколько оно высокое. "
-                "В документах обычно помечен H или Н. У напольного светильника "
-                "это самое большое из значений"
-            ),
-        },
-        "volume_m3_declared": {
-            "type": "number",
-            "description": "объём упаковки TOTAL VOL в м³, если указан",
-        },
-        "package_note": {"type": "string", "description": "размеры короба и вес"},
-        "tech_note": {"type": "string"},
-        "finishes": {"type": "array", "items": _FINISH_ITEM},
-    },
-}
-
 
 @dataclass
 class Product:
@@ -331,23 +184,40 @@ def _as_dict(value) -> dict:
     return getattr(value, "__dict__", {}) or {}
 
 
-def _scrape_json(
-    fc: Firecrawl, url: str, schema: dict, timeout_ms: int = 120_000
-) -> tuple[dict, str]:
-    """Возвращает (структура, исходный markdown).
+def _scrape(fc: Firecrawl, url: str, timeout_ms: int = 120_000) -> tuple[str, list[str]]:
+    """Доставка: markdown страницы и её ссылки.
 
-    Markdown нужен, чтобы сверить извлечённое с первоисточником: модель
-    способна выдумать правдоподобное название материала, которого на
-    странице нет (проверено на LONGHI ARIANNA).
+    Firecrawl здесь именно доставщик — отрисовывает скрипты, проходит
+    антибот. Извлечение у него отключено намеренно: на живых страницах
+    оно выдумывало габариты, теряло строки таблиц и переводило названия
+    материалов. Разбирает `llama_extract` по нашей схеме.
     """
-    doc = fc.scrape(
-        url,
-        formats=["markdown", {"type": "json", "prompt": _EXTRACT_RULES, "schema": schema}],
-        only_main_content=True,
-        timeout=timeout_ms,
-    )
+    doc = fc.scrape(url, formats=["markdown", "links"],
+                    only_main_content=False, timeout=timeout_ms)
     data = _as_dict(doc)
-    return _as_dict(data.get("json")), str(data.get("markdown") or "")
+    links = [u for u in (data.get("links") or []) if isinstance(u, str)]
+    return str(data.get("markdown") or ""), links
+
+
+_MD_IMAGE = re.compile(r"!\[[^\]]*\]\(([^)\s]+)")
+_IMAGE_EXT = re.compile(r"\.(?:jpe?g|png|webp|avif)(?:$|\?)", re.I)
+
+
+def _photos_from(markdown: str, links: list[str]) -> list[str]:
+    """Фотографии собираем сами: адрес картинки выдумать нельзя, а модель
+    на этом месте только теряла часть галереи."""
+    urls = _MD_IMAGE.findall(markdown or "")
+    urls += [u for u in links if _IMAGE_EXT.search(u.split("?")[0])]
+    return _clean_photos(urls)
+
+
+def _docs_from(links: list[str]) -> list[str]:
+    seen, out = set(), []
+    for u in links:
+        if u.split("?")[0].lower().endswith(".pdf") and u not in seen:
+            seen.add(u)
+            out.append(u)
+    return out
 
 
 def _grounded(value: str, sources: str) -> bool:
@@ -540,22 +410,38 @@ def _clean_photos(urls: list[str]) -> list[str]:
     return out
 
 
+def _first_product(data: dict) -> dict:
+    products = data.get("products") or []
+    return _as_dict(products[0]) if products else {}
+
+
 def lookup(url: str) -> Product:
-    """Ссылка на товар -> карточка. Тянет страницу, затем spec-sheet PDF."""
+    """Ссылка на товар -> карточка.
+
+    Firecrawl доставляет страницу, `llama_extract` её разбирает. Если
+    у товара есть техлист — он забирается тем же извлекателем и имеет
+    приоритет: там исполнения приходят с артикулами, а объём бывает
+    указан производителем.
+    """
     fc = _client()
     p = Product(source_url=url)
 
-    page, page_md = _scrape_json(fc, url, PAGE_SCHEMA)
-    if not page:
+    page_md, links = _scrape(fc, url)
+    if not page_md.strip():
         raise RuntimeError(
-            "Со страницы не удалось извлечь данные. Проверьте ссылку — "
-            "возможно, сайт закрыт от автоматических запросов."
+            "Страница не отдала содержимого. Проверьте ссылку — возможно, "
+            "сайт закрыт от автоматических запросов."
         )
 
-    p.brand = str(page.get("brand") or "").strip()
+    p.photo_urls = _photos_from(page_md, links)
+    p.doc_urls = _docs_from(links)
+
+    extracted = llama_extract.from_text(page_md)
+    page = _first_product(extracted)
+    p.brand = str(extracted.get("brand") or "").strip()
     p.model = str(page.get("model") or "").strip()
     p.collection = str(page.get("collection") or "").strip()
-    p.designer = str(page.get("designer") or "").strip()
+
     p.type_ru, type_warning = normalize_type(str(page.get("type_ru") or ""))
     if type_warning:
         p.warnings.append(type_warning)
@@ -568,90 +454,74 @@ def lookup(url: str) -> Product:
             f"«{p.type_ru or 'ничего'}» — поставлен «{by_url}», проверьте."
         )
         p.type_ru = by_url
+
     p.tech_note = str(page.get("tech_note") or "").strip()
     p.finishes = [_as_dict(f) for f in (page.get("finishes") or [])]
-    p.photo_urls = _clean_photos(page.get("photo_urls") or [])
-    p.doc_urls = [u for u in (page.get("doc_urls") or []) if isinstance(u, str)]
-
-    # Габариты со страницы — запасной источник, если техлиста нет или он
-    # молчит. У части брендов они там и лежат, причём таблицей исполнений.
-    page_dims = str(page.get("dims_raw") or "").strip()
     p.variants = [v for v in (_as_dict(x) for x in (page.get("variants") or []))
                   if str(v.get("dims_raw") or "").strip()]
 
-    # Габариты и фактический объём живут в техлисте, а не на странице.
-    sources = page_md
+    # Техлист: исполнения с артикулами и объём от производителя.
+    dims_from_page = True
     p.spec_pdf_url = _pick_spec_pdf(p.doc_urls)
     if p.spec_pdf_url:
         try:
-            pdf, pdf_md = _scrape_json(fc, p.spec_pdf_url, PDF_SCHEMA)
-            sources += "\n" + pdf_md
+            pdf = _first_product(llama_extract.from_pdf_url(p.spec_pdf_url))
         except Exception as exc:  # noqa: BLE001 — техлист не критичен
             pdf = {}
             p.warnings.append(f"Техлист не прочитался: {exc}")
-        p.dims_raw = str(pdf.get("dims_raw") or "").strip()
-        p.width_cm = pdf.get("width_cm")
-        p.depth_cm = pdf.get("depth_cm")
-        p.height_cm = pdf.get("height_cm")
-        # Оси берём из строки размеров: модель их путает между запусками.
-        w, d, h, sure = parse_dims(p.dims_raw, p.type_ru)
-        if w and d and h:
-            p.width_cm, p.depth_cm, p.height_cm = w, d, h
-            p.dims_confident = sure
-        p.package_note = str(pdf.get("package_note") or "").strip()
-        declared = pdf.get("volume_m3_declared")
-        if declared:
-            p.volume_m3 = round(float(declared), 3)
-            p.volume_source = "производитель"
-        if not p.tech_note:
-            p.tech_note = str(pdf.get("tech_note") or "").strip()
+        pdf_variants = [v for v in (_as_dict(x) for x in (pdf.get("variants") or []))
+                        if str(v.get("dims_raw") or "").strip()]
+        if pdf_variants:
+            p.variants = pdf_variants
+            dims_from_page = False
         if not p.finishes:
             p.finishes = [_as_dict(f) for f in (pdf.get("finishes") or [])]
+        if not p.tech_note:
+            p.tech_note = str(pdf.get("tech_note") or "").strip()
     else:
         p.warnings.append(
-            "Техлист (spec sheet) не найден — габариты и объём заполните вручную."
+            "Техлист (spec sheet) не найден — габариты и объём проверьте по источнику."
         )
 
-    # Техлист молчит — берём то, что нашлось на странице.
-    if not (p.width_cm and p.depth_cm and p.height_cm):
-        # Исполнение важнее общей строки: когда их несколько, извлечение
-        # склеивает все размеры в одну кашу, и оттуда собирается небылица
-        # вроде «высота от одного исполнения, диаметр от другого».
-        fallback = (p.variants[0].get("dims_raw") if p.variants else "") or page_dims
-        w, d, h, sure = parse_dims(str(fallback or ""), p.type_ru)
-        if w and d and h:
-            p.dims_raw = p.dims_raw or str(fallback).strip()
-            p.width_cm, p.depth_cm, p.height_cm = w, d, h
-            p.dims_confident = sure
-            if len(p.variants) > 1:
-                p.warnings.append(
-                    f"На странице {len(p.variants)} исполнений — подставлено первое, "
-                    "выберите нужное из списка ниже."
-                )
+    # Оси и объём считает Python: набор чисел извлечение отдаёт верный,
+    # а раскладывает их нестабильно от запроса к запросу.
+    if p.variants:
+        first = p.variants[0]
+        p.dims_raw = str(first.get("dims_raw") or "").strip()
+        w, d, h, sure = parse_dims(p.dims_raw, p.type_ru)
+        p.width_cm, p.depth_cm, p.height_cm, p.dims_confident = w, d, h, sure
+        declared = first.get("packed_volume_m3")
+        if isinstance(declared, (int, float)) and declared > 0:
+            p.volume_m3, p.volume_source = round(float(declared), 2), "производитель"
+        p.package_note = str(first.get("package_dims_raw") or "").strip()
+        if len(p.variants) > 1:
+            p.warnings.append(
+                f"Исполнений {len(p.variants)} — подставлено первое, "
+                "выберите нужное из списка."
+            )
 
-    # Габариты, которых нет в источнике, — выдумка. Убираем, а не показываем.
-    if p.dims_raw and not _dims_grounded(p.dims_raw, sources):
+    # Габариты со страницы сверяем с её текстом: извлечение способно вернуть
+    # правдоподобные числа, которых на странице нет вовсе (FENDI CASA).
+    # У техлиста своего текста под рукой нет, и там проверка не применяется.
+    if dims_from_page and p.dims_raw and not _dims_grounded(p.dims_raw, page_md):
         p.warnings.append(
-            f"Габариты «{p.dims_raw}» не найдены в тексте источника — похоже, "
+            f"Габариты «{p.dims_raw}» не найдены в тексте страницы — похоже, "
             "извлечение их придумало. Поля очищены, заполните вручную."
         )
         p.dims_raw = ""
         p.width_cm = p.depth_cm = p.height_cm = None
         p.dims_confident = False
+        p.variants = []
 
     if p.volume_m3 is None:
         calc = volume_m3(p.width_cm, p.depth_cm, p.height_cm)
         if calc:
-            p.volume_m3 = round(calc, 2)
-            p.volume_source = "расчёт по габаритам"
+            p.volume_m3, p.volume_source = round(calc, 2), "расчёт по габаритам"
 
     if not p.brand:
         p.brand = _brand_from_url(url)
 
-    # Роли приводим к нашему списку — извлечение выдаёт и то, чего в нём нет.
-    # Заодно схлопываем повторы: у MISURAEMME одна и та же ткань приезжала
-    # четырьмя строками. В описании для Excel они и так склеивались, а
-    # в карточке дублировались.
+    # Роли приводим к нашему списку и схлопываем повторы.
     unique: list[dict] = []
     seen_finishes: set[tuple[str, str]] = set()
     for f in p.finishes:
@@ -666,12 +536,11 @@ def lookup(url: str) -> Product:
     p.finishes = unique
 
     # Сверка с первоисточником: выдуманные отделки убираем, а не показываем.
-    p.finishes, invented = _verify_finishes(p.finishes, sources)
+    p.finishes, invented = _verify_finishes(p.finishes, page_md)
     if invented:
         p.warnings.append(
             "Не найдены в источнике и убраны из карточки: "
-            + ", ".join(invented)
-            + ". Заполните отделки вручную."
+            + ", ".join(invented) + ". Заполните отделки вручную."
         )
 
     if not (p.width_cm and p.depth_cm and p.height_cm):
@@ -680,10 +549,6 @@ def lookup(url: str) -> Product:
         p.warnings.append(
             "В источнике нет пометки высоты — Д/Г/В расставлены предположительно, "
             "сверьте со строкой размеров."
-        )
-    elif _dims_disagree(p):
-        p.warnings.append(
-            "Габариты по осям расходятся со строкой размеров — сверьте Д/Г/В."
         )
     if not p.photo_urls:
         p.warnings.append("Фотографии не найдены.")
