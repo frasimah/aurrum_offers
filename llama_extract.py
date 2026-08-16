@@ -120,5 +120,12 @@ def from_pdf_url(url: str) -> dict:
     with httpx.Client(timeout=180) as http:
         up = http.post(f"{API}/files", headers=headers,
                        files={"upload_file": (name, got.content, "application/pdf")})
+        if up.status_code == 402:
+            # Разбор страницы при этом продолжает работать: квота упирается
+            # именно в загрузку файлов, а не в извлечение по тексту.
+            raise RuntimeError(
+                "В LlamaCloud закончилась квота на загрузку документов — "
+                "техлист не разобрать. Габариты со страницы при этом читаются."
+            )
         up.raise_for_status()
     return _run({"file_id": up.json()["id"]})

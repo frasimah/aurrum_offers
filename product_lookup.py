@@ -269,21 +269,30 @@ def _verify_finishes(finishes: list[dict], sources: str) -> tuple[list[dict], li
     return kept, dropped
 
 
+# Документы, которые к товару отношения не имеют. У Shopify-сайтов на
+# каждой странице висит заявление о доступности, у BAROVIER — политика
+# информирования о нарушениях. Взять «первый PDF» означает искать
+# габариты в юридическом тексте.
+_NOT_A_SPEC = ("accessibility", "privacy", "cookie", "policy", "whistleblowing",
+               "terms", "warranty", "assembly", "instruction", "montaggio", "manual")
+_LOOKS_LIKE_SPEC = ("fact_sheet", "fact-sheet", "spec", "scheda", "technical",
+                    "datasheet", "tech")
+
+
 def _pick_spec_pdf(doc_urls: list[str]) -> str:
-    """Из ссылок на документы выбираем техлист, а не инструкцию по сборке."""
-    pdfs = [u for u in doc_urls if u.lower().endswith(".pdf")]
-    if not pdfs:
+    """Из ссылок на документы выбираем техлист, а не постороннюю бумагу."""
+    # Адрес приходит с хвостом версии — «…/VIBES_bed_GUEST.pdf?v=674412…»,
+    # поэтому окончание проверяем у пути, а не у всей строки.
+    pdfs = [u for u in doc_urls if u.split("?")[0].lower().endswith(".pdf")]
+    named = [(u, u.split("?")[0].rsplit("/", 1)[-1].lower()) for u in pdfs]
+
+    clean = [(u, n) for u, n in named if not any(t in n for t in _NOT_A_SPEC)]
+    if not clean:
         return ""
-    preferred = ("fact_sheet", "fact-sheet", "spec", "scheda", "technical", "datasheet")
-    for url in pdfs:
-        low = url.lower()
-        if any(token in low for token in preferred):
+    for url, name in clean:
+        if any(t in name for t in _LOOKS_LIKE_SPEC):
             return url
-    skip = ("assembly", "instruction", "montaggio", "manual", "warranty")
-    for url in pdfs:
-        if not any(token in url.lower() for token in skip):
-            return url
-    return pdfs[0]
+    return clean[0][0]
 
 
 # Категории, у которых высота обычно наибольший размер — нужно, чтобы

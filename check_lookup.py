@@ -153,6 +153,30 @@ def check_dims_grounding() -> tuple[int, int]:
     return good, len(cases)
 
 
+def check_spec_pdf() -> tuple[int, int]:
+    """Отбор техлиста среди прочих PDF страницы."""
+    print("\n ОТБОР ТЕХЛИСТА")
+    print(" " + "-" * 74)
+    cases = [
+        (["https://x/cdn/shop/files/VIBES_bed_GUEST.pdf?v=674412",
+          "https://cdn.shopify.com/s/files/Accessibility_Statement_EN.pdf?v=176"],
+         "VIBES", "адрес с хвостом версии, рядом заявление о доступности"),
+        (["https://barovier.com/files/policy-whistleblowing-barovier-toso_0.pdf"],
+         "", "единственный PDF — политика, техлиста нет"),
+        (["https://venicem.com/Venicem_Assembly_Instructions_Pinocchio.pdf",
+          "https://venicem.com/Venicem_product_fact_sheet_pinocchio-floor.pdf"],
+         "fact_sheet", "инструкция сборки рядом с техлистом"),
+        ([], "", "документов нет"),
+    ]
+    good = 0
+    for urls, expected, note in cases:
+        got = pl._pick_spec_pdf(urls)
+        hit = (expected in got) if expected else (got == "")
+        good += hit
+        print(f"  {OK if hit else BAD} {note:56} -> {(got.rsplit('/', 1)[-1] or '—')[:26]}")
+    return good, len(cases)
+
+
 def check_url_types() -> tuple[int, int]:
     print("\n ТИП ПО РАЗДЕЛУ САЙТА")
     print(" " + "-" * 74)
@@ -294,6 +318,7 @@ def main() -> int:
     d_ok, d_all = check_dims()
     v_ok, v_all = check_volume()
     g_ok, g_all = check_dims_grounding()
+    f_ok, f_all = check_spec_pdf()
     t_ok, t_all = check_url_types()
     s_ok, s_all = check_schema()
 
@@ -301,10 +326,11 @@ def main() -> int:
         check_live()
 
     ok = (d_ok == d_all and v_ok == v_all and s_ok == s_all
-          and t_ok == t_all and g_ok == g_all)
+          and t_ok == t_all and g_ok == g_all and f_ok == f_all)
     print("\n" + " " + "=" * 74)
     print(f"  Размеры: {d_ok}/{d_all}   Объём: {v_ok}/{v_all}   "
-          f"Сверка: {g_ok}/{g_all}   Тип по адресу: {t_ok}/{t_all}   Схема: {s_ok}/{s_all}")
+          f"Сверка: {g_ok}/{g_all}   Техлист: {f_ok}/{f_all}   "
+          f"Тип по адресу: {t_ok}/{t_all}   Схема: {s_ok}/{s_all}")
     if ok:
         print("  Разбор совпадает с книгой, схема согласована с кодом.")
     else:
