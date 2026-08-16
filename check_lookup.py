@@ -33,6 +33,15 @@ DIMS_CASES = [
     ("D25/31x125Н",            "Торшер",                (31, 31, 125),  "VENICEM CIRCLE, R20"),
     ("202x241x36/92Н",         "Кровать",               (202, 241, 92), "TRUSSARDI VIBES, R22"),
     ("66x60x44Н SPECIAL",      "Тумбочка прикроватная", (66, 60, 44),   "TRUSSARDI COMFY, R23"),
+    # Нотации живых сайтов: в книгах их нет, а ошибаются они дороже всего.
+    # 43 1/4" = 110 см, 47 1/4" = 120 см, 25 5/8" = 65 см — это дюймовые
+    # двойники диаметров; единственный несдиаметральный сантиметр — высота 75.
+    ('Ø110 - 120, 43 1/4" - 47 1/4", 75 cm, Ø65, 25 5/8"',
+                               "Стол",                  (120, 120, 75), "PORADA INFINITY, сайт"),
+    ("135 cm, 100 cm, 64 cm",  "Кресло",                (135, 100, 64), "HENGE RADICAL, сайт"),
+    ("Ø 120 cm, H 75 cm",      "Стол",                  (120, 120, 75), "круглый стол с меткой H"),
+    ('200x52x80 cm (78 3/4"x20 1/2"x31 1/2")',
+                               "Комод",                 (200, 52, 80),  "дюймы в скобках"),
 ]
 
 # --- Эталоны объёма: габариты -> м³ по колонке R книги -----------------
@@ -41,6 +50,23 @@ VOLUME_CASES = [
     ((90, 84, 80),   1.0, "R18"),
     ((31, 31, 125),  0.2, "R20"),
     ((202, 241, 92), 6.8, "R22"),
+    # Не из книги: до правки высотой считался диаметр 120 и выходило 2,2 м³.
+    ((120, 120, 75), 1.7, "PORADA INFINITY"),
+]
+
+# --- Тип по разделу сайта: адрес -> тип ('' = раздел неоднозначен) ------
+URL_TYPE_CASES = [
+    ("https://www.emmemobili.it/en/prodotti/contenitori/fractal", "Комод"),
+    ("https://www.misuraemme.it/en/products/baltimora-bed",       "Кровать"),
+    ("https://www.brand.it/en/products/armchairs/soft",           "Кресло"),
+    ("https://www.brand.it/en/products/chairs/pin",               "Стул"),
+    ("https://www.brand.it/prodotti/comodini/x",     "Тумбочка прикроватная"),
+    ("https://www.porada.it/en/products/side-coffee-tables",      "Стол"),
+    # «chairs» лежит внутри «armchairs» — раздел смешанный, тип не навязываем
+    ("https://www.henge07.com/products/sofas-and-armchairs/radical", ""),
+    ("https://www.porada.it/prodotto/infinity",                   ""),
+    # У света тип задаёт способ монтажа, а не раздел
+    ("https://flos.com/en/us/ic-lights-floor/M-ic-lights-floor.html", ""),
 ]
 
 # --- Живые ссылки: что ожидаем увидеть ---------------------------------
@@ -85,6 +111,21 @@ def check_volume() -> tuple[int, int]:
         good += hit
         print(f"  {OK if hit else BAD} {w}x{d}x{h:<6} -> {got:.1f} м³   в книге {expected} ({source})")
     return good, len(VOLUME_CASES)
+
+
+def check_url_types() -> tuple[int, int]:
+    print("\n ТИП ПО РАЗДЕЛУ САЙТА")
+    print(" " + "-" * 74)
+    good = 0
+    for url, expected in URL_TYPE_CASES:
+        got = pl.type_from_url(url)
+        hit = got == expected
+        good += hit
+        short = url.split("//")[-1][:52]
+        print(f"  {OK if hit else BAD} {short:54} -> {got or '—'}")
+        if not hit:
+            print(f"      ожидали {expected or '—'}")
+    return good, len(URL_TYPE_CASES)
 
 
 def check_schema() -> tuple[int, int]:
@@ -212,14 +253,16 @@ def main() -> int:
 
     d_ok, d_all = check_dims()
     v_ok, v_all = check_volume()
+    t_ok, t_all = check_url_types()
     s_ok, s_all = check_schema()
 
     if "--offline" not in args:
         check_live()
 
-    ok = d_ok == d_all and v_ok == v_all and s_ok == s_all
+    ok = d_ok == d_all and v_ok == v_all and s_ok == s_all and t_ok == t_all
     print("\n" + " " + "=" * 74)
-    print(f"  Размеры: {d_ok}/{d_all}   Объём: {v_ok}/{v_all}   Схема: {s_ok}/{s_all}")
+    print(f"  Размеры: {d_ok}/{d_all}   Объём: {v_ok}/{v_all}   "
+          f"Тип по адресу: {t_ok}/{t_all}   Схема: {s_ok}/{s_all}")
     if ok:
         print("  Разбор совпадает с книгой, схема согласована с кодом.")
     else:

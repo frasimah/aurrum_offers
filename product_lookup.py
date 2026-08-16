@@ -183,6 +183,38 @@ def normalize_type(value: str) -> tuple[str, str | None]:
     return "Другое", f"Тип «{value}» не из нашего списка — поставлен «Другое»."
 
 
+# Раздел сайта — сильный сигнал о типе, и он не используется извлечением:
+# у EMMEMOBILI страница /prodotti/contenitori/ («Storage units», в тексте
+# прямо «sideboard») приезжала как «Стол». Список нарочно короткий — только
+# однозначные разделы; свет сюда не годится, там тип задаёт способ монтажа.
+_URL_TYPES = {
+    "Комод": ("contenitori", "storage", "sideboard", "credenz", "madia", "dresser"),
+    "Кровать": ("letti", "bed", "beds"),
+    "Стул": ("sedie", "chair", "chairs"),
+    "Кресло": ("poltrone", "armchair", "armchairs"),
+    "Стеллаж": ("librerie", "bookcase", "shelving"),
+    "Диван": ("divani", "sofa", "sofas"),
+    "Стол": ("tavoli", "table", "tables"),
+    "Тумбочка прикроватная": ("comodini", "bedside", "nightstand"),
+    "Ковёр": ("tappeti", "rug", "rugs", "carpet"),
+    "Зеркало": ("specchi", "mirror", "mirrors"),
+}
+
+
+def type_from_url(url: str) -> str:
+    """Тип по разделу сайта в адресе. Пусто, если раздел неоднозначен.
+
+    Совпадение только с начала слова: иначе «chairs» находится внутри
+    «armchairs» и раздел с креслами уезжает в «Стул».
+    """
+    low = (url or "").lower()
+    hits = {
+        type_ru for type_ru, tokens in _URL_TYPES.items()
+        if any(re.search(rf"(?<![a-z]){tok}", low) for tok in tokens)
+    }
+    return hits.pop() if len(hits) == 1 else ""
+
+
 def normalize_role(value: str) -> tuple[str, str | None]:
     """Роль отделки -> (значение из нашего списка, предупреждение)."""
     value = (value or "").strip()
@@ -340,6 +372,11 @@ def parse_dims(raw: str, type_ru: str = "") -> tuple[float | None, float | None,
     s = raw.replace(",", ".").replace("×", "x").replace("Х", "x")
     num = r"\d+(?:\.\d+)?"
 
+    # Дюймовые двойники выкидываем целиком. Раньше отбрасывались только те,
+    # что в скобках, и у PORADA «43 1/4"» через запятую попадало в общий
+    # котёл чисел — высотой оказывался второй диаметр вместо 75 см.
+    s = re.sub(r"\d+(?:\s+\d+\s*/\s*\d+)?\s*(?:\"|''|″|\bin\b)", " ", s)
+
     # Явная пометка высоты: «...x125Н», «H 125», «125 cm H»
     h_match = (
         re.search(rf"({num})\s*(?:cm|см|mm|мм)?\s*[HНh](?![a-zA-Zа-яА-Я])", s)
@@ -347,9 +384,10 @@ def parse_dims(raw: str, type_ru: str = "") -> tuple[float | None, float | None,
     )
     height = float(h_match.group(1)) if h_match else None
 
-    # Диаметр бывает диапазоном: «D25/31» — берём наибольшее значение.
+    # Диаметр бывает диапазоном — и через дробь «D25/31», и через тире
+    # «Ø110 - 120». Берём наибольшее значение.
     diameters: list[float] = []
-    for group in re.findall(rf"[ØøD]\s*({num}(?:\s*/\s*{num})*)", s):
+    for group in re.findall(rf"[ØøD]\s*({num}(?:\s*[/\-–—]\s*{num})*)", s):
         diameters += [float(x) for x in re.findall(num, group)]
     all_nums = [float(x) for x in re.findall(num, s)]
     # Размеры в дюймах идут в скобках — они не нужны
@@ -442,6 +480,15 @@ def lookup(url: str) -> Product:
     p.type_ru, type_warning = normalize_type(str(page.get("type_ru") or ""))
     if type_warning:
         p.warnings.append(type_warning)
+
+    # Раздел сайта надёжнее догадки извлечения — но подмену показываем.
+    by_url = type_from_url(url)
+    if by_url and by_url != p.type_ru:
+        p.warnings.append(
+            f"Раздел сайта говорит «{by_url}», извлечение вернуло "
+            f"«{p.type_ru or 'ничего'}» — поставлен «{by_url}», проверьте."
+        )
+        p.type_ru = by_url
     p.tech_note = str(page.get("tech_note") or "").strip()
     p.finishes = [_as_dict(f) for f in (page.get("finishes") or [])]
     p.photo_urls = _clean_photos(page.get("photo_urls") or [])
@@ -490,10 +537,21 @@ def lookup(url: str) -> Product:
         p.brand = _brand_from_url(url)
 
     # Роли приводим к нашему списку — извлечение выдаёт и то, чего в нём нет.
+    # Заодно схлопываем повторы: у MISURAEMME одна и та же ткань приезжала
+    # четырьмя строками. В описании для Excel они и так склеивались, а
+    # в карточке дублировались.
+    unique: list[dict] = []
+    seen_finishes: set[tuple[str, str]] = set()
     for f in p.finishes:
         f["role_ru"], role_warning = normalize_role(str(f.get("role_ru") or ""))
         if role_warning and role_warning not in p.warnings:
             p.warnings.append(role_warning)
+        key = (f["role_ru"], str(f.get("material") or "").strip().casefold())
+        if key in seen_finishes:
+            continue
+        seen_finishes.add(key)
+        unique.append(f)
+    p.finishes = unique
 
     # Сверка с первоисточником: выдуманные отделки убираем, а не показываем.
     p.finishes, invented = _verify_finishes(p.finishes, sources)
