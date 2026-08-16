@@ -9,6 +9,7 @@ from __future__ import annotations
 import hmac
 import os
 import re
+import secrets
 import time
 from collections import defaultdict
 from datetime import timedelta
@@ -32,14 +33,22 @@ import spec_parser  # noqa: E402
 ALLOWED = {".xlsx", ".xlsm"}
 MAX_MB = 25
 
-# Общий пароль на вход.
+# Общий пароль на вход — только из окружения.
 #
-# ВРЕМЕННЫЙ РЕЖИМ: дефолт «123», чтобы приложение работало на Vercel без
-# настройки переменных. Пароль такого вида подбирается автоматическими
-# сканерами за минуты, поэтому перед реальной работой задайте
-# AURRUM_PASSWORD в Project Settings -> Environment Variables:
-# переменная перекрывает дефолт, править код не нужно.
-PASSWORD = os.environ.get("AURRUM_PASSWORD") or "123"
+# Дефолта нет намеренно: пока он был («123»), приложение работало и без
+# настройки переменных, а значит на проде стоял известный пароль, за
+# которым лежат ключи API. Без переменной вход закрыт совсем — это
+# заметно сразу, в отличие от тихо открытой двери.
+PASSWORD = os.environ.get("AURRUM_PASSWORD", "").strip()
+
+# Фиксированный ключ подписи был не менее опасен: зная его, сессию можно
+# подделать и пароль не понадобится вовсе. Если переменной нет, берём
+# случайный — вход всё равно закрыт отсутствием пароля.
+SECRET_KEY = os.environ.get("AURRUM_SECRET_KEY", "").strip() or secrets.token_hex(32)
+
+MISSING_ENV = [name for name, value in
+               (("AURRUM_PASSWORD", PASSWORD), ("AURRUM_SECRET_KEY",
+                os.environ.get("AURRUM_SECRET_KEY", "").strip())) if not value]
 
 # Защита от перебора: N неудачных попыток с одного адреса — пауза.
 MAX_FAILS = 5
@@ -52,10 +61,7 @@ PUBLIC_ENDPOINTS = {"login", "static"}
 app = Flask(__name__)
 app.config.update(
     MAX_CONTENT_LENGTH=MAX_MB * 1024 * 1024,
-    # На нескольких инстансах Vercel случайный ключ на каждом процессе означал
-    # бы постоянный разлогин, поэтому во временном режиме держим фиксированный
-    # дефолт. AURRUM_SECRET_KEY его перекрывает — задайте на проде.
-    SECRET_KEY=os.environ.get("AURRUM_SECRET_KEY") or "aurrum-temp-session-key",
+    SECRET_KEY=SECRET_KEY,
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=bool(os.environ.get("AURRUM_HTTPS")),
@@ -87,6 +93,13 @@ def require_password():
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
+    if MISSING_ENV:
+        return render_template("login.html", error=(
+            "Приложение не настроено: нет " + ", ".join(MISSING_ENV)
+            + ". Задайте переменные в Project Settings → Environment Variables "
+              "(локально — в .env)."
+        )), 503
+
     ip = _client_ip()
     if _locked(ip):
         return render_template(
