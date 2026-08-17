@@ -13,6 +13,7 @@ import secrets
 import time
 from collections import defaultdict
 from datetime import timedelta
+from urllib.parse import quote
 
 import httpx
 from markupsafe import Markup, escape
@@ -24,6 +25,7 @@ from flask import (Flask, Response, redirect, render_template, request,
 # Ключи и пароли живут в .env (в git не попадает; образец — .env.example).
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
+import book_export  # noqa: E402
 import book_row  # noqa: E402
 import doc_parser  # noqa: E402
 import extract_agent  # noqa: E402
@@ -266,6 +268,30 @@ def calc():
         return {"error": "Слишком много позиций за раз."}, 400
 
     return pricing.project(positions, rates=data.get("rates"))
+
+
+@app.route("/project/export", methods=["POST"])
+def project_export():
+    """Проект -> файл Excel в разметке рабочей формы, с фотографиями."""
+    data = request.get_json(silent=True) or {}
+    positions = data.get("positions")
+    if not isinstance(positions, list) or not positions:
+        return {"error": "В проекте нет позиций."}, 400
+    if len(positions) > 200:
+        return {"error": "Слишком много позиций за раз."}, 400
+
+    try:
+        content = book_export.build(positions, rates=data.get("rates"))
+    except Exception as exc:  # noqa: BLE001 — причину показываем пользователю
+        return {"error": f"Не удалось собрать файл: {exc}"}, 500
+
+    name = "AURRUM-проект.xlsx"
+    return Response(content, headers={
+        "Content-Type": "application/vnd.openxmlformats-officedocument."
+                        "spreadsheetml.sheet",
+        "Content-Disposition": f'attachment; filename="{name}"; '
+                               f"filename*=UTF-8''{quote(name)}",
+    })
 
 
 @app.route("/book-row", methods=["POST"])
