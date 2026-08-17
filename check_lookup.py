@@ -178,6 +178,12 @@ def check_photos() -> tuple[int, int]:
          "по названию не нашлось — отдаём всё"),
         (["https://x/a.jpg", "https://x/logo.png"], "Pin", 1,
          "короткое название не фильтр, логотип отсеян"),
+        # Служебные слова сравниваются целиком: подстрока отбрасывала
+        # «iconic-collection» из-за «icon», а это частое слово в каталогах.
+        (["https://x/iconic-collection/sofa-01.jpg", "https://x/spinello-table.jpg",
+          "https://x/avatar-lounge-chair.jpg"], "", 3, "слова внутри других слов"),
+        (["https://x/icons/arrow.png", "https://x/img/logo.png",
+          "https://x/real-photo.jpg"], "", 1, "каталог icons и файл logo целиком"),
     ]
     good = 0
     for urls, model, want, note in cases:

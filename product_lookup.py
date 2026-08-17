@@ -415,6 +415,32 @@ def _slug(text: str) -> str:
 
 _WIDTH_PARAM = re.compile(r"[?&]width=(\d+)", re.I)
 
+# Служебная графика: логотипы, иконки, заглушки.
+_JUNK_WORDS = {"logo", "logos", "icon", "icons", "sprite", "sprites",
+               "placeholder", "spinner", "avatar", "favicon", "badge", "flag"}
+
+
+def _is_junk(url: str) -> bool:
+    """Служебная ли это картинка.
+
+    Сравниваем целыми словами, а не подстрокой. Подстрока ошибалась
+    дорого и незаметно: «iconic-collection» отбрасывался из-за «icon»,
+    «spinello-table» из-за «spin». В мебельных каталогах «iconic»
+    встречается постоянно, и так терялись снимки самого изделия.
+
+    Правило нарочно узкое: отбрасываем, только если служебным словом
+    названо всё изображение целиком («logo.png») или так назван каталог
+    («/icons/»). Из двух ошибок дороже вторая: лишний снимок менеджер
+    снимет галочкой, а пропавший он не увидит вовсе — и не узнает, что
+    тот был. Поэтому кресло с именем «avatar-lounge-chair» остаётся.
+    """
+    path = url.split("?")[0].lower()
+    segments = [s for s in path.split("/") if s]
+    if any(seg in _JUNK_WORDS for seg in segments[:-1]):
+        return True
+    name = segments[-1] if segments else ""
+    return name.rsplit(".", 1)[0] in _JUNK_WORDS
+
 
 def _largest_of_each(urls: list[str]) -> list[str]:
     """Один снимок — одна плитка, в наибольшем доступном размере.
@@ -453,17 +479,13 @@ def _clean_photos(urls: list[str], model: str = "") -> list[str]:
     Если по названию не нашлось ничего, отдаём всё: лучше показать
     лишнее, чем пустой блок.
     """
-    junk = ("logo", "icon", "sprite", "placeholder", "spin", "avatar", "favicon")
     out, seen = [], set()
     for url in urls:
         if not isinstance(url, str) or not url.startswith("http"):
             continue
-        low = url.lower()
-        if any(token in low for token in junk):
+        if url.split("?")[0].lower().endswith(".svg"):   # схемы, а не фото
             continue
-        if low.endswith(".svg"):        # схемы, а не фото
-            continue
-        if url in seen:
+        if _is_junk(url) or url in seen:
             continue
         seen.add(url)
         out.append(url)
