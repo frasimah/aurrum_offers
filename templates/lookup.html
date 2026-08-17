@@ -217,8 +217,8 @@
 
     .ph {
       position: relative;
-      width: 108px;
-      height: 108px;
+      width: 190px;
+      height: 190px;
       border: 1px solid #eee;
     }
 
@@ -290,6 +290,35 @@
     /* Общее правило полей вернуло бы скрытому input'у display:block */
     input[type=file] {
       display: none;
+    }
+
+    /* Удаление — в дальнем от галочки углу: снять отметку и убрать совсем
+       это разные намерения, и путать их ценой одного промаха не стоит. */
+    .ph__del {
+      position: absolute;
+      right: 0;
+      bottom: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 30px;
+      height: 30px;
+      padding: 0;
+      border: 0;
+      background: rgba(255, 255, 255, 0.9);
+      color: #949598;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+
+    .ph__del:hover {
+      background: #d64545;
+      color: #fff;
+    }
+
+    .ph__del svg {
+      width: 15px;
+      height: 15px;
     }
 
     .ph__tag {
@@ -494,6 +523,12 @@
         <div class="ph" data-src="{{ src }}">
           <label><input type="checkbox" checked><img src="{{ src }}" alt="" loading="lazy"></label>
           <a class="ph__open" href="{{ src }}" target="_blank" rel="noopener" title="Открыть оригинал">↗</a>
+          <button type="button" class="ph__del" title="Убрать фото">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6" />
+            </svg>
+          </button>
         </div>
         {% endfor %}
       </div>
@@ -628,6 +663,13 @@
     const photos = document.getElementById('photos');
     const count = document.getElementById('photo_count');
 
+    // Та же кнопка, что и у серверных плиток: держим разметку в одном месте,
+    // иначе снимки с диска однажды окажутся без удаления.
+    const TRASH = '<button type="button" class="ph__del" title="Убрать фото">'
+      + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"'
+      + ' stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6"/></svg></button>';
+
     function recount() {
       count.textContent = photos.querySelectorAll('input:checked').length
         + ' из ' + photos.querySelectorAll('.ph').length;
@@ -635,6 +677,18 @@
     if (photos) {
       recount();
       photos.addEventListener('change', recount);
+
+      // Делегированием: плитки появляются и после загрузки страницы.
+      photos.addEventListener('click', (e) => {
+        const del = e.target.closest('.ph__del');
+        if (!del) return;
+        e.preventDefault();
+        const tile = del.closest('.ph');
+        // Ссылку на файл с диска отпускаем, иначе она держит память вкладки.
+        if (tile.dataset.local) URL.revokeObjectURL(tile.querySelector('img').src);
+        tile.remove();
+        recount();
+      });
 
       document.getElementById('pick').addEventListener('click', () =>
         document.getElementById('file').click());
@@ -647,7 +701,7 @@
           const url = URL.createObjectURL(f);
           tile.innerHTML = '<label><input type="checkbox" checked><img alt=""></label>'
             + '<a class="ph__open" target="_blank" rel="noopener" title="Открыть оригинал">↗</a>'
-            + '<span class="ph__tag">салон</span>';
+            + TRASH + '<span class="ph__tag">салон</span>';
           tile.querySelector('img').src = url;
           tile.querySelector('a').href = url;
           photos.appendChild(tile);
