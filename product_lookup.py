@@ -204,11 +204,15 @@ _IMAGE_EXT = re.compile(r"\.(?:jpe?g|png|webp|avif)(?:$|\?)", re.I)
 
 
 def _photos_from(markdown: str, links: list[str]) -> list[str]:
-    """Фотографии собираем сами: адрес картинки выдумать нельзя, а модель
-    на этом месте только теряла часть галереи."""
+    """Все адреса картинок со страницы, без отбора.
+
+    Собираем сами: адрес картинки выдумать нельзя, а извлечение на этом
+    месте теряло часть галереи. Отбор — отдельным шагом, когда известна
+    модель (см. `_clean_photos`).
+    """
     urls = _MD_IMAGE.findall(markdown or "")
     urls += [u for u in links if _IMAGE_EXT.search(u.split("?")[0])]
-    return _clean_photos(urls)
+    return urls
 
 
 def _docs_from(links: list[str]) -> list[str]:
@@ -403,8 +407,52 @@ def _dims_disagree(p: "Product") -> bool:
     return not assigned.issubset(in_raw)
 
 
-def _clean_photos(urls: list[str]) -> list[str]:
-    """Отсекаем иконки, логотипы и служебную графику."""
+def _slug(text: str) -> str:
+    """«Circle Floor» -> «circlefloor». Разделители снимаем, чтобы
+    «circle-floor» в адресе и «Circle Floor» в названии сошлись."""
+    return re.sub(r"[^a-z0-9]+", "", (text or "").lower())
+
+
+_WIDTH_PARAM = re.compile(r"[?&]width=(\d+)", re.I)
+
+
+def _largest_of_each(urls: list[str]) -> list[str]:
+    """Один снимок — одна плитка, в наибольшем доступном размере.
+
+    Магазины отдают одну и ту же картинку несколько раз с разным
+    `width`: у BENTLEY рядом лежали варианты на 1946 и на 54 пикселя.
+    Порядок сохраняем: галерея выстроена не случайно.
+    """
+    best: dict[str, tuple[int, str]] = {}
+    order: list[str] = []
+    for url in urls:
+        path = url.split("?")[0]
+        match = _WIDTH_PARAM.search(url)
+        width = int(match.group(1)) if match else 0
+        if path not in best:
+            order.append(path)
+            best[path] = (width, url)
+        elif width > best[path][0]:
+            best[path] = (width, url)
+    return [best[path][1] for path in order]
+
+
+def _clean_photos(urls: list[str], model: str = "") -> list[str]:
+    """Фотографии именно этого изделия.
+
+    Одного отсева служебной графики мало: страница отдаёт всю галерею
+    раздела. У PORADA приезжало 72 снимка, из них к изделию относился
+    21 — остальное чужие товары. У VENICEM из восьми лишними оказались
+    образцы металла и три других светильника той же серии.
+
+    Разделяет их название модели в имени файла. Признак сильный и
+    дешёвый: производители называют файлы по модели. Полное название
+    важно — короткое «circle» захватило бы потолочный, настольный и
+    настенный светильники, а «circle-floor» оставляет только напольный.
+
+    Если по названию не нашлось ничего, отдаём всё: лучше показать
+    лишнее, чем пустой блок.
+    """
     junk = ("logo", "icon", "sprite", "placeholder", "spin", "avatar", "favicon")
     out, seen = [], set()
     for url in urls:
@@ -419,7 +467,15 @@ def _clean_photos(urls: list[str]) -> list[str]:
             continue
         seen.add(url)
         out.append(url)
-    return out
+
+    out = _largest_of_each(out)
+
+    # Короткое название не фильтр, а лотерея: «Pin» найдётся в любом адресе.
+    slug = _slug(model)
+    if len(slug) < 4:
+        return out
+    matched = [u for u in out if slug in _slug(u.rsplit("/", 1)[-1])]
+    return matched or out
 
 
 def _first_product(data: dict) -> dict:
@@ -445,7 +501,7 @@ def lookup(url: str) -> Product:
             "сайт закрыт от автоматических запросов."
         )
 
-    p.photo_urls = _photos_from(page_md, links)
+    photo_candidates = _photos_from(page_md, links)
     p.doc_urls = _docs_from(links)
 
     extracted = extract.from_text(page_md)
@@ -466,6 +522,16 @@ def lookup(url: str) -> Product:
             f"«{p.type_ru or 'ничего'}» — поставлен «{by_url}», проверьте."
         )
         p.type_ru = by_url
+
+    # Отбираем фото, когда известна модель: её название в имени файла
+    # отделяет изделие от остальной галереи раздела.
+    p.photo_urls = _clean_photos(photo_candidates, p.model)
+    if photo_candidates and len(p.photo_urls) < len(photo_candidates):
+        p.warnings.append(
+            f"Из {len(photo_candidates)} снимков на странице оставлено "
+            f"{len(p.photo_urls)} — с названием модели в имени файла. "
+            "Если нужного нет, проверьте страницу."
+        )
 
     p.tech_note = str(page.get("tech_note") or "").strip()
     p.finishes = [_as_dict(f) for f in (page.get("finishes") or [])]

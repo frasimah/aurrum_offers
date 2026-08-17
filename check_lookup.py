@@ -157,6 +157,37 @@ def check_dims_grounding() -> tuple[int, int]:
     return good, len(cases)
 
 
+def check_photos() -> tuple[int, int]:
+    """Отбор фотографий изделия среди всей галереи страницы.
+
+    У PORADA страница отдавала 72 снимка, к изделию относился 21.
+    У VENICEM среди восьми были образцы металла и три других светильника
+    той же серии — короткое «circle» захватило бы и их.
+    """
+    print("\n ОТБОР ФОТОГРАФИЙ")
+    print(" " + "-" * 74)
+    cases = [
+        (["https://x/infinity-01-Infinity.jpg", "https://x/podi-cover.jpg",
+          "https://x/02-Infinity.jpg"], "INFINITY", 2, "чужие изделия раздела"),
+        (["https://x/circle-floor-1.jpg", "https://x/circle_ceiling_1.jpg",
+          "https://x/circle_table_3.jpg", "https://x/materials_metals_M11-1.jpg"],
+         "Circle Floor", 1, "другие светильники серии и образцы металла"),
+        (["https://x/mere.jpg?width=1946", "https://x/mere.jpg?width=54",
+          "https://x/mere-detail.jpg?width=1946"], "Mere", 2, "тот же файл разного размера"),
+        (["https://x/a.jpg", "https://x/b.jpg"], "Zeta", 2,
+         "по названию не нашлось — отдаём всё"),
+        (["https://x/a.jpg", "https://x/logo.png"], "Pin", 1,
+         "короткое название не фильтр, логотип отсеян"),
+    ]
+    good = 0
+    for urls, model, want, note in cases:
+        got = pl._clean_photos(urls, model)
+        hit = len(got) == want
+        good += hit
+        print(f"  {OK if hit else BAD} {model:14} {len(urls)} -> {len(got):2} (ждали {want})  {note}")
+    return good, len(cases)
+
+
 def check_pricing() -> tuple[int, int]:
     """Цепочка расчёта — против чисел рабочей книги.
 
@@ -431,6 +462,7 @@ def main() -> int:
     b_ok, b_all = check_book_row()
     c_ok, c_all = check_columns()
     p_ok, p_all = check_pricing()
+    ph_ok, ph_all = check_photos()
     t_ok, t_all = check_url_types()
     s_ok, s_all = check_schema()
 
@@ -439,11 +471,13 @@ def main() -> int:
 
     ok = (d_ok == d_all and v_ok == v_all and s_ok == s_all
           and t_ok == t_all and g_ok == g_all and f_ok == f_all
-          and b_ok == b_all and c_ok == c_all and p_ok == p_all)
+          and b_ok == b_all and c_ok == c_all and p_ok == p_all
+          and ph_ok == ph_all)
     print("\n" + " " + "=" * 74)
     print(f"  Размеры: {d_ok}/{d_all}   Объём: {v_ok}/{v_all}   "
           f"Сверка: {g_ok}/{g_all}   Техлист: {f_ok}/{f_all}   "
-          f"Строка: {b_ok}/{b_all}   Колонки: {c_ok}/{c_all}   Расчёт: {p_ok}/{p_all}   "
+          f"Строка: {b_ok}/{b_all}   Колонки: {c_ok}/{c_all}   Расчёт: {p_ok}/{p_all}\n"
+          f"  Фото: {ph_ok}/{ph_all}   "
           f"Тип по адресу: {t_ok}/{t_all}   Схема: {s_ok}/{s_all}")
     if ok:
         print("  Разбор совпадает с книгой, схема согласована с кодом.")
