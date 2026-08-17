@@ -109,7 +109,12 @@ def login():
         ), 429
 
     if request.method == "POST":
-        if hmac.compare_digest(request.form.get("password", ""), PASSWORD):
+        # Сравниваем байтами: со строками compare_digest требует чистого
+        # ASCII и падает на любом другом символе. Достаточно набрать пароль
+        # с русской раскладкой — и вместо «неверный пароль» приходит 500.
+        # Поймано на проде: локально я вводил только латиницу.
+        entered = request.form.get("password", "").encode("utf-8")
+        if hmac.compare_digest(entered, PASSWORD.encode("utf-8")):
             session.clear()
             session.permanent = True
             session["authorized"] = True

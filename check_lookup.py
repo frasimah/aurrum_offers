@@ -157,6 +157,40 @@ def check_dims_grounding() -> tuple[int, int]:
     return good, len(cases)
 
 
+def check_login() -> tuple[int, int]:
+    """Вход не должен падать на нелатинском пароле.
+
+    Поймано на проде: hmac.compare_digest со строками требует чистого
+    ASCII. Достаточно набрать пароль с русской раскладкой — и вместо
+    «неверный пароль» приходил 500.
+    """
+    import os
+    os.environ.setdefault("AURRUM_PASSWORD", "проверка-пароля")
+    os.environ.setdefault("AURRUM_SECRET_KEY", "x" * 32)
+    import importlib
+    import app as flask_app
+    importlib.reload(flask_app)
+
+    print("\n ВХОД ПО ПАРОЛЮ")
+    print(" " + "-" * 74)
+    client = flask_app.app.test_client()
+    right = os.environ["AURRUM_PASSWORD"]
+    cases = [
+        ("неверный", 401, "кириллица"),
+        ("wrong", 401, "латиница"),
+        ("пароль с пробелом и ё", 401, "кириллица с пробелами"),
+        ("", 401, "пустой"),
+        (right, 302, "верный"),
+    ]
+    good = 0
+    for password, expected, note in cases:
+        got = client.post("/login", data={"password": password}).status_code
+        hit = got == expected
+        good += hit
+        print(f"  {OK if hit else BAD} {note:24} -> {got} (ждали {expected})")
+    return good, len(cases)
+
+
 def check_gallery_rules() -> tuple[int, int]:
     """Правила галерей: разбираются ли селекторы и на месте ли эталоны.
 
@@ -498,6 +532,7 @@ def main() -> int:
     c_ok, c_all = check_columns()
     p_ok, p_all = check_pricing()
     r_ok, r_all = check_gallery_rules()
+    l_ok, l_all = check_login()
     ph_ok, ph_all = check_photos()
     t_ok, t_all = check_url_types()
     s_ok, s_all = check_schema()
