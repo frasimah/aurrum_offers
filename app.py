@@ -27,6 +27,7 @@ load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 import book_row  # noqa: E402
 import doc_parser  # noqa: E402
 import extract_agent  # noqa: E402
+import pricing  # noqa: E402
 import product_lookup  # noqa: E402 — после load_dotenv, читают переменные окружения
 import safe_fetch  # noqa: E402
 import spec_parser  # noqa: E402
@@ -233,6 +234,33 @@ def _parse_doc_fallback(url: str, reason: str):
     return {"candidates": candidates, "finishes": [], "source": "fallback",
             "warnings": [f"Извлечение не сработало ({reason}) — показаны "
                          f"размеры, найденные по тексту, без артикулов."]}
+
+
+@app.route("/project")
+def project():
+    """Набранные позиции и расчёт по ним.
+
+    Сам список живёт в браузере: базы у приложения нет, а на serverless
+    нет и диска. Зато перезагрузка страницы больше ничего не теряет.
+    """
+    return render_template("project.html")
+
+
+@app.route("/calc", methods=["POST"])
+def calc():
+    """Позиции -> расчёт по цепочке рабочей книги.
+
+    Считает сервер, а не браузер: формула должна быть одна на приложение,
+    иначе появятся две правды и разойдутся.
+    """
+    data = request.get_json(silent=True) or {}
+    positions = data.get("positions")
+    if not isinstance(positions, list):
+        return {"error": "Нужен список позиций."}, 400
+    if len(positions) > 500:
+        return {"error": "Слишком много позиций за раз."}, 400
+
+    return pricing.project(positions, rates=data.get("rates"))
 
 
 @app.route("/book-row", methods=["POST"])

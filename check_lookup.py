@@ -157,6 +157,33 @@ def check_dims_grounding() -> tuple[int, int]:
     return good, len(cases)
 
 
+def check_pricing() -> tuple[int, int]:
+    """Цепочка расчёта — против чисел рабочей книги.
+
+    Сверяем СУММУ (AD) и сумму со сборкой (AE): это то, что считается
+    формулой. Цену клиенту не сверяем — в книге она округлена по-разному
+    (вниз, вверх, до копейки), то есть ставится решением менеджера.
+    """
+    import pricing
+    print("\n РАСЧЁТ ЦЕНЫ ПРОТИВ КНИГИ")
+    print(" " + "-" * 74)
+    cases = [
+        ("LONGHI ARIANA",   6886.0,  0.5, 0.45, 0.00, 1.00,  5752.2,  5752.2),
+        ("FLOU BUTTERFLY",  4389.0,  1.0, 0.50, 0.12, 1.00,  4127.8,  4127.8),
+        ("VENICEM CIRCLE",  2550.0,  0.2, 0.50, 0.00, 0.95,  2085.0,  2194.7),
+        ("TRUSSARDI VIBES", 16020.0, 6.8, 0.50, 0.00, 0.95, 14814.0, 15593.7),
+        ("TRUSSARDI COMFY", 5000.0,  0.3, 0.50, 0.00, 1.00,  3850.0,  3850.0),
+    ]
+    good = 0
+    for name, t, vol, disc, markup, asm, want_total, want_assembly in cases:
+        r = pricing.line(t, vol, factory_discount=disc, dealer_markup=markup, assembly=asm)
+        hit = abs(r.total - want_total) < 0.6 and abs(r.with_assembly - want_assembly) < 0.6
+        good += hit
+        print(f"  {OK if hit else BAD} {name:18} СУММА {r.total:9.1f} "
+              f"со сборкой {r.with_assembly:9.1f}   в книге {want_total:8.1f} / {want_assembly:8.1f}")
+    return good, len(cases)
+
+
 def check_columns() -> tuple[int, int]:
     """Колонки книги ищутся по подписям, а не по буквам.
 
@@ -403,6 +430,7 @@ def main() -> int:
     f_ok, f_all = check_spec_pdf()
     b_ok, b_all = check_book_row()
     c_ok, c_all = check_columns()
+    p_ok, p_all = check_pricing()
     t_ok, t_all = check_url_types()
     s_ok, s_all = check_schema()
 
@@ -411,11 +439,11 @@ def main() -> int:
 
     ok = (d_ok == d_all and v_ok == v_all and s_ok == s_all
           and t_ok == t_all and g_ok == g_all and f_ok == f_all
-          and b_ok == b_all and c_ok == c_all)
+          and b_ok == b_all and c_ok == c_all and p_ok == p_all)
     print("\n" + " " + "=" * 74)
     print(f"  Размеры: {d_ok}/{d_all}   Объём: {v_ok}/{v_all}   "
           f"Сверка: {g_ok}/{g_all}   Техлист: {f_ok}/{f_all}   "
-          f"Строка: {b_ok}/{b_all}   Колонки: {c_ok}/{c_all}   "
+          f"Строка: {b_ok}/{b_all}   Колонки: {c_ok}/{c_all}   Расчёт: {p_ok}/{p_all}   "
           f"Тип по адресу: {t_ok}/{t_all}   Схема: {s_ok}/{s_all}")
     if ok:
         print("  Разбор совпадает с книгой, схема согласована с кодом.")

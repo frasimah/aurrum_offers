@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AURRUM — проект</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: #f7f7f7;
+      color: #2d2d2d;
+      font-family: Inter, sans-serif;
+      font-size: 14px;
+    }
+
+    .bar {
+      position: sticky; top: 0; z-index: 10;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 24px;
+      background: #fff; border-bottom: 1px solid #eee;
+    }
+
+    .bar a { color: #2d2d2d; text-decoration: none; transition: 0.3s; }
+    .bar a:hover { color: #fff; background: #2d2d2d; }
+    .bar .title { font-weight: 500; }
+
+    .wrap { max-width: 1500px; margin: 20px auto; padding: 0 24px; }
+
+    .card {
+      background: #fff; border: 1px solid #eee;
+      padding: 20px; margin-bottom: 20px;
+    }
+
+    .card h2 { margin: 0 0 4px; font-size: 15px; font-weight: 500; }
+
+    .hint { margin-top: 4px; font-size: 11.5px; color: #949598; }
+
+    button {
+      height: 34px; padding: 0 16px;
+      border: 1px solid #2d2d2d; background: #2d2d2d; color: #fff;
+      font-family: inherit; font-size: 13px; white-space: nowrap;
+      cursor: pointer; transition: 0.3s;
+    }
+    button:hover { background: #fff; color: #2d2d2d; }
+    button.ghost { background: #fff; color: #2d2d2d; }
+    button.ghost:hover { background: #2d2d2d; color: #fff; }
+    button.link {
+      border: 0; background: none; color: #949598;
+      height: auto; padding: 0; font-size: 12px;
+    }
+    button.link:hover { background: none; color: #d64545; }
+
+    table { width: 100%; border-collapse: collapse; }
+
+    th {
+      padding: 6px 8px;
+      font-size: 11px; font-weight: 400; color: #949598;
+      text-align: right; white-space: nowrap;
+      border-bottom: 1px solid #eee;
+    }
+    th:first-child, th.left { text-align: left; }
+
+    td {
+      padding: 8px; vertical-align: top;
+      border-bottom: 1px solid #f2f2f2;
+      text-align: right; white-space: nowrap;
+    }
+    td.left { text-align: left; white-space: normal; }
+
+    tr.own td { background: #fcfcfc; }
+
+    .name { font-weight: 500; }
+    .sub { font-size: 11.5px; color: #949598; }
+
+    input {
+      width: 100%; min-width: 62px; height: 30px;
+      padding: 0 7px; border: 1px solid #d9d9d9; border-radius: 0;
+      background: #fff; color: #2d2d2d;
+      font-family: inherit; font-size: 13px; text-align: right;
+      appearance: none; -webkit-appearance: none;
+    }
+    input:focus { outline: none; border-color: #2d2d2d; }
+
+    /* Колонки, которые заполняет менеджер, — светлым фоном:
+       остальное посчитано и правке не подлежит. */
+    input.manual { background: #fffdf2; border-color: #e6d9a8; }
+
+    .num { font-variant-numeric: tabular-nums; }
+    .muted { color: #949598; }
+    .strong { font-weight: 500; }
+
+    .totals {
+      display: flex; flex-wrap: wrap; gap: 28px;
+      padding-top: 14px; margin-top: 4px;
+      border-top: 1px solid #eee;
+    }
+    .totals div span { display: block; font-size: 11.5px; color: #949598; }
+    .totals div b { font-size: 17px; font-weight: 500; }
+
+    .empty { padding: 40px 0; text-align: center; color: #949598; }
+
+    .actions { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+
+    .add { display: flex; gap: 10px; }
+    .add input {
+      flex: 1; height: 34px; text-align: left; min-width: 0;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="bar">
+    <a href="{{ url_for('index') }}">← Конвертер</a>
+    <span class="title">Проект</span>
+    <a href="{{ url_for('logout') }}">Выйти</a>
+  </div>
+
+  <div class="wrap">
+
+    <div class="card">
+      <h2>Добавить позицию</h2>
+      <div class="hint" style="margin-bottom:10px">
+        Ссылка на товар на сайте бренда. Карточка соберётся и ляжет в проект —
+        оттуда её можно поправить.
+      </div>
+      <form class="add" method="post" action="{{ url_for('lookup') }}">
+        <input type="url" name="url" placeholder="https://www.venicem.com/product/circle-floor/" required>
+        <button type="submit">Найти</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>Позиции <span class="muted" id="count"></span></h2>
+      <div class="hint" style="margin-bottom:12px">
+        Жёлтым — то, что вводится руками: цена прайса, скидка фабрики, наценка дилера
+        и коэффициент сборки. Их со страницы бренда не узнать. Остальное считается.
+      </div>
+
+      <div id="empty" class="empty" hidden>
+        Пока пусто. Найдите товар по ссылке — и он появится здесь.
+      </div>
+
+      <div style="overflow-x:auto">
+        <table id="rows" hidden>
+          <thead>
+            <tr>
+              <th class="left">Позиция</th>
+              <th>К-во</th>
+              <th>м³</th>
+              <th>Цена прайса</th>
+              <th>Скидка</th>
+              <th>Наценка</th>
+              <th>Сборка</th>
+              <th>Закуп</th>
+              <th>Рентаб</th>
+              <th>Транш</th>
+              <th>SWIFT</th>
+              <th>Транспорт</th>
+              <th>Сумма</th>
+              <th>Цена</th>
+              <th>Итого</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="totals" id="totals" hidden>
+        <div><span>Позиций</span><b id="t_count">0</b></div>
+        <div><span>Объём, м³</span><b id="t_volume">0</b></div>
+        <div><span>Сумма, евро</span><b id="t_sum">0</b></div>
+        <div><span>Безнал, евро</span><b id="t_finserv" class="muted">0</b></div>
+      </div>
+
+      <div class="actions">
+        <button type="button" class="ghost" id="recalc">Пересчитать</button>
+        <button type="button" class="ghost" id="copyall">Скопировать все строки</button>
+        <button type="button" class="link" id="clear">Очистить проект</button>
+      </div>
+      <div class="hint" id="status"></div>
+    </div>
+
+  </div>
+
+  <script>
+    // Проект живёт в браузере. Базы у приложения нет, а на serverless
+    // и диска нет — зато перезагрузка страницы больше ничего не теряет.
+    const KEY = 'aurrum.project';
+    const rub = n => (n || 0).toLocaleString('ru-RU', { maximumFractionDigits: 0 });
+
+    const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) { return []; } };
+    const save = list => localStorage.setItem(KEY, JSON.stringify(list));
+
+    let positions = load();
+
+    const esc = s => String(s == null ? '' : s)
+      .replace(/[&<>"]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
+
+    function render(calc) {
+      const table = document.getElementById('rows');
+      const body = table.querySelector('tbody');
+      const empty = document.getElementById('empty');
+      document.getElementById('count').textContent = positions.length ? positions.length : '';
+      table.hidden = empty.hidden = false;
+      if (!positions.length) { table.hidden = true; document.getElementById('totals').hidden = true; return; }
+      empty.hidden = true;
+
+      body.innerHTML = positions.map((p, i) => {
+        const c = (calc && calc.lines[i]) || {};
+        const cell = (key, value, cls) =>
+          `<td><input class="manual ${cls || ''}" data-i="${i}" data-k="${key}" value="${esc(value)}"></td>`;
+        return `<tr>
+          <td class="left">
+            <div class="name">${esc(p.brand)} ${esc(p.model)}</div>
+            <div class="sub">${esc(p.type_ru || '')}${p.dims_raw ? ' · ' + esc(p.dims_raw) : ''}</div>
+          </td>
+          ${cell('qty', p.qty == null ? 1 : p.qty)}
+          ${cell('volume_m3', p.volume_m3 == null ? '' : p.volume_m3)}
+          ${cell('list_price', p.list_price == null ? '' : p.list_price)}
+          ${cell('factory_discount', p.factory_discount == null ? '' : p.factory_discount)}
+          ${cell('dealer_markup', p.dealer_markup == null ? '' : p.dealer_markup)}
+          ${cell('assembly', p.assembly == null ? 1 : p.assembly)}
+          <td class="num muted">${rub(c.purchase)}</td>
+          <td class="num muted">${rub(c.margin)}</td>
+          <td class="num muted">${rub(c.transfer)}</td>
+          <td class="num muted">${rub(c.swift)}</td>
+          <td class="num muted">${rub(c.freight)}</td>
+          <td class="num">${rub(c.total)}</td>
+          <td class="num strong">${rub(c.price)}</td>
+          <td class="num strong">${rub(c.sum)}</td>
+          <td><button class="link" data-del="${i}">убрать</button></td>
+        </tr>`;
+      }).join('');
+
+      if (calc) {
+        document.getElementById('totals').hidden = false;
+        document.getElementById('t_count').textContent = calc.count;
+        document.getElementById('t_volume').textContent = calc.volume_m3;
+        document.getElementById('t_sum').textContent = rub(calc.sum);
+        document.getElementById('t_finserv').textContent = rub((calc.levels || {}).finserv);
+      }
+
+      body.querySelectorAll('input[data-k]').forEach(el =>
+        el.addEventListener('change', () => {
+          positions[el.dataset.i][el.dataset.k] = el.value;
+          save(positions);
+          recalc();
+        }));
+      body.querySelectorAll('button[data-del]').forEach(el =>
+        el.addEventListener('click', () => {
+          positions.splice(+el.dataset.del, 1);
+          save(positions);
+          recalc();
+        }));
+    }
+
+    // Считает сервер: формула одна на всё приложение, и повторять её
+    // в браузере — верный способ развести две правды.
+    async function recalc() {
+      if (!positions.length) { render(null); return; }
+      const r = await fetch('{{ url_for("calc") }}', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ positions }),
+      });
+      render(r.ok ? await r.json() : null);
+    }
+
+    document.getElementById('recalc').addEventListener('click', recalc);
+
+    document.getElementById('clear').addEventListener('click', () => {
+      if (!confirm('Убрать все позиции из проекта?')) return;
+      positions = [];
+      save(positions);
+      recalc();
+    });
+
+    document.getElementById('copyall').addEventListener('click', async () => {
+      const start = parseInt(prompt('С какой строки книги вставлять?', '16'), 10);
+      if (!start) return;
+      const out = [];
+      for (let i = 0; i < positions.length; i++) {
+        const p = positions[i];
+        const r = await fetch('{{ url_for("book_row_route") }}', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...p, row: start + i, with_pricing: false }),
+        });
+        if (!r.ok) return;
+        out.push((await r.json()).tsv);
+      }
+      await navigator.clipboard.writeText(out.join('\n'));
+      document.getElementById('status').textContent =
+        'Скопировано строк: ' + out.length + '. Вставлять начиная со строки ' + start + '.';
+    });
+
+    recalc();
+  </script>
+</body>
+
+</html>

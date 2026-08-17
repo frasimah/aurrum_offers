@@ -447,6 +447,7 @@
           <label>Описание — для колонки «Описание»</label>
           <textarea id="f_desc">{{ description }}</textarea>
           <div class="actions">
+            <button type="button" id="toproject">В проект</button>
             <button type="button" class="ghost" id="copy">Скопировать описание</button>
           </div>
 
@@ -675,6 +676,36 @@
           await new Promise(r => setTimeout(r, 400));
         }
         dl.disabled = false;
+      });
+    }
+
+    // «В проект»: карточка со всеми правками уходит в список позиций.
+    // Список живёт в браузере — базы у приложения нет, а перезагрузку
+    // страницы он переживает.
+    const toproject = document.getElementById('toproject');
+    if (toproject) {
+      toproject.addEventListener('click', () => {
+        const val = id => (document.getElementById(id) || {}).value || '';
+        const KEY = 'aurrum.project';
+        let list = [];
+        try { list = JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) { list = []; }
+        list.push({
+          source_url: {{ (product.source_url if product else '') | tojson }},
+          brand: val('f_brand'),
+          model: val('f_model'),
+          type_ru: val('f_type'),
+          dims_raw: val('f_dims_raw'),
+          description: val('f_desc'),
+          note: val('f_note'),
+          width_cm: val('f_d'), depth_cm: val('f_g'), height_cm: val('f_v'),
+          volume_m3: val('f_vol'),
+          qty: 1, assembly: 1,
+          photos: [...document.querySelectorAll('.ph')]
+            .filter(t => t.querySelector('input').checked && !t.dataset.local)
+            .map(t => t.dataset.src),
+        });
+        localStorage.setItem(KEY, JSON.stringify(list));
+        window.location = '{{ url_for("project") }}';
       });
     }
 
