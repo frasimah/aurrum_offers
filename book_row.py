@@ -81,7 +81,9 @@ def pricing_row(fields: dict, row: int) -> list[str]:
         f"=W{r}+W{r}*X{r}",                           # Y  ЗАКУП AURRUM
         f"=Y{r}*($Z$1+0)/100",                        # Z  РЕНТАБ
         f"=W{r}*$AA$1/100",                           # AA ТРАНШ
-        200,                                          # AB SWIFT
+        # В форме SWIFT стоит числом в каждой строке, а не ссылкой на
+        # первую, — поэтому подставляем сюда заданную величину.
+        fields.get("swift", 200),                     # AB SWIFT
         f"=U{r}*$AC$1",                               # AC ТРАНСПОРТ
         f"=Y{r}+Z{r}+AA{r}+AB{r}+AC{r}",              # AD СУММА
         f"=AD{r}/{fields.get('assembly') or 1}",      # AE СУМ СО СБОРКОЙ

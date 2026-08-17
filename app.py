@@ -253,6 +253,12 @@ def project():
     return render_template("project.html")
 
 
+@app.route("/settings")
+def settings():
+    """Величины расчёта — одни на все проекты."""
+    return render_template("settings.html", defaults=pricing.DEFAULT_RATES)
+
+
 @app.route("/calc", methods=["POST"])
 def calc():
     """Позиции -> расчёт по цепочке рабочей книги.

@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AURRUM — константы</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0; background: #f7f7f7; color: #2d2d2d;
+      font-family: Inter, sans-serif; font-size: 14px;
+    }
+
+    .bar {
+      position: sticky; top: 0; z-index: 10;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 24px; background: #fff; border-bottom: 1px solid #eee;
+    }
+    .bar a { color: #2d2d2d; text-decoration: none; transition: 0.3s; }
+    .bar a:hover { color: #fff; background: #2d2d2d; }
+    .bar .title { font-weight: 500; }
+
+    .wrap { max-width: 880px; margin: 24px auto; padding: 0 24px; }
+
+    .card {
+      background: #fff; border: 1px solid #eee;
+      padding: 22px; margin-bottom: 20px;
+    }
+    .card h2 { margin: 0 0 4px; font-size: 15px; font-weight: 500; }
+    .hint { margin-top: 4px; font-size: 11.5px; color: #949598; line-height: 1.5; }
+
+    button {
+      height: 34px; padding: 0 18px;
+      border: 1px solid #2d2d2d; background: #2d2d2d; color: #fff;
+      font-family: inherit; font-size: 13px; cursor: pointer; transition: 0.3s;
+    }
+    button:hover { background: #fff; color: #2d2d2d; }
+    button.link {
+      border: 0; background: none; color: #949598;
+      height: auto; padding: 0; font-size: 12px;
+    }
+    button.link:hover { background: none; color: #d64545; }
+
+    table { width: 100%; border-collapse: collapse; margin-top: 14px; }
+    td { padding: 9px 8px; border-bottom: 1px solid #f2f2f2; vertical-align: middle; }
+    td.name { font-weight: 500; white-space: nowrap; }
+    td.base { color: #949598; font-size: 12.5px; }
+    td.col { color: #c4c4c4; font-size: 11px; text-align: right; white-space: nowrap; }
+    td.field { width: 118px; }
+
+    input {
+      width: 100%; height: 32px; padding: 0 9px;
+      border: 1px solid #d9d9d9; border-radius: 0; background: #fffdf2;
+      font-family: inherit; font-size: 14px; text-align: right;
+      appearance: none; -webkit-appearance: none;
+    }
+    input:focus { outline: none; border-color: #2d2d2d; }
+
+    .unit { color: #949598; font-size: 12px; padding-left: 6px; }
+
+    .chain {
+      margin: 0; padding: 14px 16px; background: #fafafa;
+      border-left: 2px solid #e6e6e6;
+      font-size: 12.5px; line-height: 1.9; color: #4a4a4a;
+    }
+    .chain b { font-weight: 500; }
+
+    .actions { display: flex; gap: 12px; align-items: center; margin-top: 18px; }
+    .saved { font-size: 12px; color: #949598; }
+  </style>
+</head>
+
+<body>
+
+  <div class="bar">
+    <a href="{{ url_for('project') }}">← Проект</a>
+    <span class="title">Константы</span>
+    <a href="{{ url_for('logout') }}">Выйти</a>
+  </div>
+
+  <div class="wrap">
+
+    <div class="card">
+      <h2>Величины расчёта</h2>
+      <div class="hint">
+        Те же, что стоят в скрытых колонках рабочей формы — подписи и буквы колонок
+        рядом. Одни на все проекты. В выгружаемый файл они попадают первой строкой,
+        поэтому проект, открытый через полгода, покажет те числа, в которых уходил
+        клиенту, а не пересчитается по новым.
+      </div>
+
+      <table>
+        <tbody id="rows"></tbody>
+      </table>
+
+      <div class="actions">
+        <button type="button" id="save">Сохранить</button>
+        <button type="button" class="link" id="reset">Вернуть значения формы</button>
+        <span class="saved" id="saved"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Как считается позиция</h2>
+      <div class="hint">Порядок тот же, что в форме.</div>
+      <p class="chain">
+        цена прайса − скидка фабрики → <b>цена со скидкой</b><br>
+        + наценка дилера → <b>ЗАКУП</b><br>
+        + РЕНТАБ от закупа + ТРАНШ от цены со скидкой + SWIFT + ТРАНСПОРТ за объём<br>
+        = <b>СУММА</b> → делится на коэффициент сборки → <b>цена клиенту</b><br>
+        далее ДИЗАЙНЕР, УСНО, НДС, FINSERV — уровни цены под условия оплаты
+      </p>
+      <div class="hint">
+        Скидка фабрики, наценка дилера и коэффициент сборки — свои у каждой позиции,
+        они задаются в проекте, а не здесь.
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    // Константы одни на все проекты и живут в браузере — как и сам проект.
+    const KEY = 'aurrum.rates';
+
+    // Подписи и буквы колонок — из рабочей формы, чтобы величину можно было
+    // найти в файле глазами.
+    const FIELDS = [
+      ['margin',   'РЕНТАБ',    '%', 'от закупа',            'Z'],
+      ['transfer', 'ТРАНШ',     '%', 'от цены со скидкой',   'AA'],
+      ['swift',    'SWIFT',     '€', 'за позицию',           'AB'],
+      ['freight',  'ТРАНСПОРТ', '€', 'за м³',                'AC'],
+      ['designer', 'ДИЗАЙНЕР',  '%', 'наценка сверху',       'AF'],
+      ['usno',     'УСНО',      '%', 'наценка сверху',       'AG'],
+      ['vat',      'НДС',       '%', 'наценка сверху',       'AH'],
+      ['finserv',  'FINSERV',   '%', 'безнал, наценка сверху', 'AI'],
+    ];
+
+    const DEFAULTS = {{ defaults | tojson }};
+
+    const load = () => {
+      try { return { ...DEFAULTS, ...(JSON.parse(localStorage.getItem(KEY)) || {}) }; }
+      catch (e) { return { ...DEFAULTS }; }
+    };
+
+    function render(values) {
+      document.getElementById('rows').innerHTML = FIELDS.map(
+        ([key, name, unit, base, column]) => `<tr>
+          <td class="name">${name}</td>
+          <td class="field"><input id="f_${key}" value="${values[key]}"></td>
+          <td class="unit">${unit}</td>
+          <td class="base">${base}</td>
+          <td class="col">колонка ${column}</td>
+        </tr>`).join('');
+    }
+
+    render(load());
+
+    document.getElementById('save').addEventListener('click', () => {
+      const out = {};
+      for (const [key] of FIELDS) {
+        const raw = (document.getElementById('f_' + key).value || '').replace(',', '.');
+        const number = parseFloat(raw);
+        if (!isFinite(number) || number < 0) {
+          document.getElementById('saved').textContent = 'Проверьте значения — нужны числа.';
+          return;
+        }
+        out[key] = number;
+      }
+      localStorage.setItem(KEY, JSON.stringify(out));
+      document.getElementById('saved').textContent =
+        'Сохранено. Проект пересчитается по этим величинам.';
+    });
+
+    document.getElementById('reset').addEventListener('click', () => {
+      localStorage.removeItem(KEY);
+      render(load());
+      document.getElementById('saved').textContent = 'Возвращены значения из рабочей формы.';
+    });
+  </script>
+</body>
+
+</html>

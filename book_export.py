@@ -129,7 +129,7 @@ def build(positions: list[dict], rates: dict | None = None) -> bytes:
             dealer_markup=position.get("dealer_markup"),
             assembly=position.get("assembly"), rates=r,
         )
-        fields = {**position, "number": offset + 1,
+        fields = {**position, "number": offset + 1, "swift": r["swift"],
                   # Цена клиенту — предложение расчёта; менеджер правит в файле.
                   "price": position.get("price") or computed.price or ""}
 
