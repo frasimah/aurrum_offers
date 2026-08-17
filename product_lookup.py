@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from firecrawl import Firecrawl
 
 import extract
+import shopify
 
 # Контролируемый словарь: модель выбирает из списка, а не переводит свободно.
 TYPES_RU = [
@@ -523,8 +524,13 @@ def lookup(url: str) -> Product:
             "сайт закрыт от автоматических запросов."
         )
 
-    photo_candidates = _photos_from(page_md, links)
     p.doc_urls = _docs_from(links)
+
+    # Если магазин на Shopify, список фотографий отдаёт он сам — точный,
+    # без чужих товаров и образцов материалов. Отбор по именам файлов
+    # остаётся только там, где такого источника нет.
+    shop = shopify.fetch(url)
+    photo_candidates = shopify.photos(shop) if shop else _photos_from(page_md, links)
 
     extracted = extract.from_text(page_md)
     page = _first_product(extracted)
@@ -545,15 +551,22 @@ def lookup(url: str) -> Product:
         )
         p.type_ru = by_url
 
-    # Отбираем фото, когда известна модель: её название в имени файла
-    # отделяет изделие от остальной галереи раздела.
-    p.photo_urls = _clean_photos(photo_candidates, p.model)
-    if photo_candidates and len(p.photo_urls) < len(photo_candidates):
-        p.warnings.append(
-            f"Из {len(photo_candidates)} снимков на странице оставлено "
-            f"{len(p.photo_urls)} — с названием модели в имени файла. "
-            "Если нужного нет, проверьте страницу."
-        )
+    if shop:
+        # Магазин знает своё лучше извлечения: производителя и название
+        # берём у него, отбор фотографий не нужен вовсе.
+        p.brand = str(shop.get("vendor") or "").strip() or p.brand
+        p.model = str(shop.get("title") or "").strip() or p.model
+        p.photo_urls = _clean_photos(photo_candidates)
+    else:
+        # Отбираем фото по названию модели: оно в имени файла отделяет
+        # изделие от остальной галереи раздела.
+        p.photo_urls = _clean_photos(photo_candidates, p.model)
+        if photo_candidates and len(p.photo_urls) < len(photo_candidates):
+            p.warnings.append(
+                f"Из {len(photo_candidates)} снимков на странице оставлено "
+                f"{len(p.photo_urls)} — с названием модели в имени файла. "
+                "Если нужного нет, проверьте страницу."
+            )
 
     p.tech_note = str(page.get("tech_note") or "").strip()
     p.finishes = [_as_dict(f) for f in (page.get("finishes") or [])]
