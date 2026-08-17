@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from firecrawl import Firecrawl
 
 import extract
+import gallery
 import shopify
 
 # Контролируемый словарь: модель выбирает из списка, а не переводит свободно.
@@ -193,11 +194,11 @@ def _scrape(fc: Firecrawl, url: str, timeout_ms: int = 120_000) -> tuple[str, li
     оно выдумывало габариты, теряло строки таблиц и переводило названия
     материалов. Разбирает `extract` по нашей схеме.
     """
-    doc = fc.scrape(url, formats=["markdown", "links"],
+    doc = fc.scrape(url, formats=["markdown", "links", "html"],
                     only_main_content=False, timeout=timeout_ms)
     data = _as_dict(doc)
     links = [u for u in (data.get("links") or []) if isinstance(u, str)]
-    return str(data.get("markdown") or ""), links
+    return str(data.get("markdown") or ""), links, str(data.get("html") or "")
 
 
 _MD_IMAGE = re.compile(r"!\[[^\]]*\]\(([^)\s]+)")
@@ -517,7 +518,7 @@ def lookup(url: str) -> Product:
     fc = _client()
     p = Product(source_url=url)
 
-    page_md, links = _scrape(fc, url)
+    page_md, links, page_html = _scrape(fc, url)
     if not page_md.strip():
         raise RuntimeError(
             "Страница не отдала содержимого. Проверьте ссылку — возможно, "
@@ -530,7 +531,20 @@ def lookup(url: str) -> Product:
     # без чужих товаров и образцов материалов. Отбор по именам файлов
     # остаётся только там, где такого источника нет.
     shop = shopify.fetch(url)
-    photo_candidates = shopify.photos(shop) if shop else _photos_from(page_md, links)
+    by_selector = None if shop else gallery.photos(page_html, url)
+    if shop:
+        photo_candidates, photo_source = shopify.photos(shop), "магазин"
+    elif by_selector:
+        photo_candidates, photo_source = by_selector, "разметка"
+    else:
+        photo_candidates, photo_source = _photos_from(page_md, links), "имена файлов"
+        if by_selector == []:
+            # Правило есть, но не сработало: сайт переверстали. Молчать
+            # нельзя — иначе мы вернёмся к угадыванию, не зная об этом.
+            p.warnings.append(
+                "Разметка галереи изменилась — фотографии отобраны запасным "
+                "способом, по именам файлов. Проверьте их состав."
+            )
 
     extracted = extract.from_text(page_md)
     page = _first_product(extracted)
@@ -556,6 +570,8 @@ def lookup(url: str) -> Product:
         # берём у него, отбор фотографий не нужен вовсе.
         p.brand = str(shop.get("vendor") or "").strip() or p.brand
         p.model = str(shop.get("title") or "").strip() or p.model
+        p.photo_urls = _clean_photos(photo_candidates)
+    elif photo_source == "разметка":
         p.photo_urls = _clean_photos(photo_candidates)
     else:
         # Отбираем фото по названию модели: оно в имени файла отделяет

@@ -157,6 +157,35 @@ def check_dims_grounding() -> tuple[int, int]:
     return good, len(cases)
 
 
+def check_gallery_rules() -> tuple[int, int]:
+    """Правила галерей: разбираются ли селекторы и на месте ли эталоны.
+
+    Саму выборку проверяет живой прогон (`check_lookup.py` без --offline):
+    число снимков у эталонного товара записано в правиле, и переверстка
+    сайта роняет проверку, а не остаётся незамеченной.
+    """
+    import gallery
+    from bs4 import BeautifulSoup
+    print("\n ПРАВИЛА ГАЛЕРЕЙ")
+    print(" " + "-" * 74)
+    rules = gallery._rules()
+    good = 0
+    soup = BeautifulSoup("<div></div>", "html.parser")
+    for domain, rule in rules.items():
+        selectors = rule.get("selectors") or []
+        ref = rule.get("эталон") or {}
+        try:
+            for sel in selectors:
+                soup.select(sel)          # синтаксис селектора
+            valid = bool(selectors) and bool(ref.get("url")) and bool(ref.get("фото"))
+        except Exception:
+            valid = False
+        good += valid
+        print(f"  {OK if valid else BAD} {domain:16} селекторов {len(selectors)}, "
+              f"эталон {ref.get('фото', '—')} фото")
+    return good, len(rules)
+
+
 def check_photos() -> tuple[int, int]:
     """Отбор фотографий изделия среди всей галереи страницы.
 
@@ -468,6 +497,7 @@ def main() -> int:
     b_ok, b_all = check_book_row()
     c_ok, c_all = check_columns()
     p_ok, p_all = check_pricing()
+    r_ok, r_all = check_gallery_rules()
     ph_ok, ph_all = check_photos()
     t_ok, t_all = check_url_types()
     s_ok, s_all = check_schema()

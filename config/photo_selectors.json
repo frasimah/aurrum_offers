@@ -1,0 +1,56 @@
+{
+  "_комментарий": [
+    "Где на странице бренда лежат фотографии изделия. Правила смотрятся",
+    "глазами один раз и правятся как данные, без программиста.",
+    "",
+    "Порядок отбора в product_lookup: сначала штатная карточка магазина",
+    "(Shopify отдаёт список сам), затем эти селекторы, и только если бренда",
+    "здесь нет — запасная эвристика по имени файла.",
+    "",
+    "Если селектор описан, но ничего не нашёл, карточка скажет об этом",
+    "громко: молчаливый откат на угадывание вернул бы нас к началу.",
+    "Число снимков у эталонного товара стережёт check_lookup.py."
+  ],
+  "venicem.com": {
+    "selectors": [
+      "div.immagine a.singola-apertura img",
+      "div.img-zoom-container:not(.immagine-verticale) img"
+    ],
+    "почему": "другие светильники серии (потолочный, настольный, настенный) лежат в div.immagine-verticale, а у него тот же класс img-zoom-container — поэтому исключаем его явно; span.ico-materiale — образцы металла",
+    "эталон": {
+      "url": "https://www.venicem.com/product/circle-floor/",
+      "фото": 3
+    }
+  },
+  "porada.it": {
+    "selectors": [
+      "a.gallery_slider_item img"
+    ],
+    "почему": "div.characteristics_dimensioni_img_w — чертежи размеров, а не фотографии; страница отдаёт ещё и всю галерею раздела, это 72 снимка при 21 нужном",
+    "эталон": {
+      "url": "https://www.porada.it/prodotto/infinity",
+      "фото": 20
+    }
+  },
+  "emmemobili.it": {
+    "selectors": [
+      "[data-testid=\"imageX\"] img"
+    ],
+    "почему": "сайт на Wix. div.gallery-item-content — каталог раздела, в alt стоят названия чужих изделий. Опираемся на data-testid самого Wix, а не на classname вида YX2qkL: тот сгенерирован и переживёт не всякую перепубликацию",
+    "эталон": {
+      "url": "https://www.emmemobili.it/en/prodotti/contenitori/fractal",
+      "фото": 11
+    }
+  },
+  "barovier.com": {
+    "selectors": [
+      "div.hero-product img",
+      "div.gallery-product img"
+    ],
+    "почему": "главный кадр и галерея; на странице 46 картинок всего. В галерею входят и шоурумные кадры с этим изделием — они относятся к нему",
+    "эталон": {
+      "url": "https://www.barovier.com/en/chandeliers/metropolis",
+      "фото": 18
+    }
+  }
+}
