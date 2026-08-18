@@ -27,6 +27,7 @@ from flask import (Flask, Response, redirect, render_template, request,
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
 import book_export  # noqa: E402
+import library  # noqa: E402
 import book_row  # noqa: E402
 import doc_parser  # noqa: E402
 import extract_agent  # noqa: E402
@@ -256,6 +257,52 @@ def project():
     нет и диска. Зато перезагрузка страницы больше ничего не теряет.
     """
     return render_template("project.html")
+
+
+@app.route("/library")
+def library_page():
+    """Собранные карточки: искать, править, отправлять в проект.
+
+    Первая страница с общими данными: карточка стоит запроса Firecrawl
+    и разбора Gemini, и второй раз платить за неё незачем — ни деньгами,
+    ни временем менеджера на выверку отделок.
+    """
+    query = (request.args.get("q") or "").strip()
+    try:
+        items = library.all_items()
+    except library.NotConfigured as exc:
+        return render_template("library.html", items=[], query=query,
+                               error=str(exc), total=0)
+    except Exception as exc:  # noqa: BLE001 — причину показываем
+        return render_template("library.html", items=[], query=query,
+                               error=f"Библиотека не открылась: {exc}", total=0)
+
+    return render_template("library.html", items=library.search(items, query),
+                           query=query, error=None, total=len(items))
+
+
+@app.route("/library/save", methods=["POST"])
+def library_save():
+    """Положить карточку в библиотеку (или обновить существующую)."""
+    item = request.get_json(silent=True) or {}
+    try:
+        saved = library.save(item)
+    except (library.NotConfigured, ValueError) as exc:
+        return {"error": str(exc)}, 400
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"Не удалось сохранить: {exc}"}, 502
+    return {"id": saved["id"], "saved_at": saved["saved_at"]}
+
+
+@app.route("/library/delete", methods=["POST"])
+def library_delete():
+    item_id = (request.get_json(silent=True) or {}).get("id", "")
+    if not re.fullmatch(r"[a-z0-9-]{1,120}", str(item_id)):
+        return {"error": "Неверный опознаватель карточки."}, 400
+    try:
+        return {"deleted": library.delete(item_id)}
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"Не удалось удалить: {exc}"}, 502
 
 
 @app.route("/settings")

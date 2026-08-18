@@ -69,6 +69,7 @@
     {% set here = request.endpoint %}
     <a href="{{ url_for('project') }}" {% if here == 'project' %}class="current"{% endif %}>Проект</a>
     <a href="{{ url_for('lookup') }}" {% if here == 'lookup' %}class="current"{% endif %}>Позиция по ссылке</a>
+    <a href="{{ url_for('library_page') }}" {% if here == 'library_page' %}class="current"{% endif %}>Библиотека</a>
     <a href="{{ url_for('settings') }}" {% if here == 'settings' %}class="current"{% endif %}>Константы</a>
     <hr class="menu__sep">
     <a href="{{ url_for('index') }}" {% if here == 'index' %}class="current"{% endif %}>Спецификация из Excel</a>

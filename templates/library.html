@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AURRUM — библиотека</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0; background: #f7f7f7; color: #2d2d2d;
+      font-family: Inter, sans-serif; font-size: 14px;
+    }
+
+    .bar {
+      position: sticky; top: 0; z-index: 10;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 24px; background: #fff; border-bottom: 1px solid #eee;
+    }
+    .bar .title { font-weight: 500; }
+
+    .wrap { max-width: 1100px; margin: 20px auto 60px; padding: 0 24px; }
+
+    .card {
+      background: #fff; border: 1px solid #eee;
+      padding: 22px; margin-bottom: 20px;
+    }
+    .card h2 { margin: 0 0 4px; font-size: 15px; font-weight: 500; }
+    .hint { margin-top: 4px; font-size: 11.5px; color: #949598; line-height: 1.5; }
+
+    .find { display: flex; gap: 10px; margin-top: 12px; }
+    .find input {
+      flex: 1; height: 36px; padding: 0 10px;
+      border: 1px solid #d9d9d9; border-radius: 0; background: #fff;
+      font-family: inherit; font-size: 14px;
+    }
+    .find input:focus { outline: none; border-color: #2d2d2d; }
+
+    button, .btn {
+      height: 36px; padding: 0 18px;
+      border: 1px solid #2d2d2d; background: #2d2d2d; color: #fff;
+      font-family: inherit; font-size: 13px; cursor: pointer; transition: 0.3s;
+      display: inline-flex; align-items: center; text-decoration: none;
+    }
+    button:hover, .btn:hover { background: #fff; color: #2d2d2d; }
+    button.ghost { background: #fff; color: #2d2d2d; border-color: #d9d9d9; }
+    button.ghost:hover { background: #2d2d2d; color: #fff; border-color: #2d2d2d; }
+    button.link {
+      border: 0; background: none; color: #949598;
+      height: auto; padding: 0; font-size: 12px;
+    }
+    button.link:hover { background: none; color: #d64545; }
+
+    .item {
+      display: grid; grid-template-columns: 96px 1fr auto;
+      gap: 16px; align-items: start;
+      padding: 16px 0; border-bottom: 1px solid #f2f2f2;
+    }
+    .item:last-child { border-bottom: 0; }
+    .item__photo {
+      width: 96px; height: 96px; object-fit: cover;
+      background: #f2f2f2; border: 1px solid #eee;
+    }
+    .item__photo.empty { display: flex; align-items: center; justify-content: center;
+      color: #c4c4c4; font-size: 11px; }
+    .item__name { font-weight: 500; }
+    .item__sub { margin-top: 3px; color: #949598; font-size: 12.5px; }
+    .item__fin { margin-top: 6px; font-size: 12.5px; line-height: 1.5; }
+    .item__sum { margin-top: 6px; font-size: 12.5px; color: #4a4a4a; line-height: 1.5; }
+    .item__acts { display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
+    .badge {
+      display: inline-block; margin-left: 5px; padding: 0 5px;
+      border: 1px solid #e0e0e0; color: #949598; font-size: 10.5px;
+    }
+    .empty { padding: 40px 0; text-align: center; color: #949598; }
+    .error {
+      margin-bottom: 20px; padding: 12px 14px;
+      border: 1px solid #d64545; color: #d64545; font-size: 13.5px;
+    }
+    .status { margin-top: 12px; font-size: 12px; color: #949598; }
+  </style>
+</head>
+
+<body>
+
+  <div class="bar">
+    <span class="title">Библиотека</span>
+  </div>
+
+  {% include "_nav.html" %}
+
+  <div class="wrap">
+
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+    <div class="card">
+      <h2>Найти товар</h2>
+      <div class="hint">
+        Ищем по всем полям сразу — бренду, модели, типу, размерам, отделкам,
+        аннотации и адресу источника. Несколько слов — найдётся то, где есть
+        все: «porada стол», «ashwood», «M11».
+      </div>
+      <form class="find" method="get">
+        <input type="search" name="q" value="{{ query }}"
+               placeholder="бренд, модель, отделка, артикул…" autofocus>
+        <button type="submit">Искать</button>
+        {% if query %}<a class="btn" href="{{ url_for('library_page') }}"
+          style="background:#fff;color:#2d2d2d;border-color:#d9d9d9">Сбросить</a>{% endif %}
+      </form>
+      <div class="hint">
+        {% if query %}Найдено {{ items|length }} из {{ total }}.
+        {% else %}Карточек в библиотеке: {{ total }}.{% endif %}
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Карточки</h2>
+      <div class="hint">
+        «В проект» кладёт позицию в текущий проект — расчёт подхватит её
+        начальными числами из констант. «Открыть» ведёт на страницу товара
+        у бренда, чтобы свериться с источником.
+      </div>
+
+      {% if not items %}
+      <div class="empty">
+        {% if query %}По запросу «{{ query }}» ничего не нашлось.
+        {% else %}Библиотека пуста. Соберите карточку на «Позиции по ссылке»
+        и нажмите там «В библиотеку».{% endif %}
+      </div>
+      {% endif %}
+
+      {% for it in items %}
+      <div class="item" data-id="{{ it.id }}">
+        {% if it.photos and it.photos[0] %}
+        <img class="item__photo" src="{{ it.photos[0] }}" alt="" loading="lazy">
+        {% else %}
+        <div class="item__photo empty">нет фото</div>
+        {% endif %}
+
+        <div>
+          <div class="item__name">{{ it.brand }} {{ it.model }}</div>
+          <div class="item__sub">
+            {{ it.type_ru or '' }}{% if it.dims_raw %} · {{ it.dims_raw }}{% endif %}
+            {%- if it.volume_m3 %} · {{ it.volume_m3 }} м³{% endif %}
+          </div>
+          {% if it.finishes %}
+          <div class="item__fin">
+            {% for f in it.finishes %}{{ f.role_ru }} — {{ f.material }}{% if f.code %}<span
+              class="badge">{{ f.code }}</span>{% endif %}{% if not loop.last %}<br>{% endif %}{% endfor %}
+          </div>
+          {% endif %}
+          {% if it.summary_ru %}<div class="item__sum">{{ it.summary_ru }}</div>{% endif %}
+        </div>
+
+        <div class="item__acts">
+          <button type="button" class="toproject"
+            data-item='{{ it | tojson }}'>В проект</button>
+          {% if it.source_url %}
+          <a class="btn" href="{{ it.source_url }}" target="_blank" rel="noopener"
+             style="background:#fff;color:#2d2d2d;border-color:#d9d9d9">Открыть</a>
+          {% endif %}
+          <button type="button" class="link del">Удалить</button>
+        </div>
+      </div>
+      {% endfor %}
+
+      <div class="status" id="status"></div>
+    </div>
+
+  </div>
+
+  <script>
+    // Проект живёт в браузере — библиотека кладёт позицию туда же,
+    // тем же способом, что и карточка после разбора.
+    const KEY = 'aurrum.project';
+    const status = document.getElementById('status');
+
+    const posDefaults = () => {
+      const base = { factory_discount: 0.5, dealer_markup: 0, assembly: 1 };
+      try { return { ...base, ...(JSON.parse(localStorage.getItem('aurrum.position_defaults')) || {}) }; }
+      catch (e) { return base; }
+    };
+
+    document.querySelectorAll('.toproject').forEach(btn =>
+      btn.addEventListener('click', () => {
+        const it = JSON.parse(btn.dataset.item);
+        let list = [];
+        try { list = JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) { list = []; }
+        list.push({ ...it, qty: 1, ...posDefaults() });
+        localStorage.setItem(KEY, JSON.stringify(list));
+        btn.textContent = 'В проекте';
+        status.textContent = 'Позиция добавлена. Всего в проекте: ' + list.length + '.';
+      }));
+
+    document.querySelectorAll('.del').forEach(btn =>
+      btn.addEventListener('click', async () => {
+        const row = btn.closest('.item');
+        const id = row.dataset.id;
+        if (!confirm('Убрать карточку из библиотеки? Проект это не тронет.')) return;
+        btn.disabled = true;
+        try {
+          const r = await fetch('{{ url_for("library_delete") }}', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id }),
+          });
+          const data = await r.json();
+          if (!r.ok) throw new Error(data.error || 'не удалось удалить');
+          row.remove();
+          status.textContent = 'Карточка удалена.';
+        } catch (e) {
+          status.textContent = e.message;
+          btn.disabled = false;
+        }
+      }));
+  </script>
+</body>
+
+</html>

@@ -502,8 +502,10 @@
           <textarea id="f_desc">{{ description }}</textarea>
           <div class="actions">
             <button type="button" id="toproject">В проект</button>
+            <button type="button" class="ghost" id="tolibrary">В библиотеку</button>
             <button type="button" class="ghost" id="copy">Скопировать описание</button>
           </div>
+          <div class="hint" id="library_status"></div>
 
           <label for="f_row">Строка в книге</label>
           <div class="grid3">
@@ -858,10 +860,55 @@
     // «В проект»: карточка со всеми правками уходит в список позиций.
     // Список живёт в браузере — базы у приложения нет, а перезагрузку
     // страницы он переживает.
+    // Карточка со всеми правками — одна сборка на оба назначения.
+    function card() {
+      const val = id => (document.getElementById(id) || {}).value || '';
+      return {
+        source_url: {{ (product.source_url if product else '') | tojson }},
+        brand: val('f_brand'),
+        model: val('f_model'),
+        type_ru: val('f_type'),
+        dims_raw: val('f_dims_raw'),
+        dims_confident: {{ (product.dims_confident if product else True) | tojson }},
+        description: val('f_desc'),
+        summary_ru: val('f_summary'),
+        note: val('f_note'),
+        width_cm: val('f_d'), depth_cm: val('f_g'), height_cm: val('f_v'),
+        volume_m3: val('f_vol'),
+        finishes: [...document.querySelectorAll('input.finpick')]
+          .filter(cb => cb.checked)
+          .map(cb => ({ role_ru: cb.dataset.role, material: cb.dataset.mat })),
+        photos: [...document.querySelectorAll('.ph')]
+          .filter(t => t.querySelector('input').checked && !t.dataset.local)
+          .map(t => t.dataset.src),
+      };
+    }
+
+    const tolibrary = document.getElementById('tolibrary');
+    if (tolibrary) {
+      tolibrary.addEventListener('click', async () => {
+        const out = document.getElementById('library_status');
+        tolibrary.disabled = true;
+        out.textContent = 'Сохраняю…';
+        try {
+          const r = await fetch('{{ url_for("library_save") }}', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(card()),
+          });
+          const data = await r.json();
+          if (!r.ok) throw new Error(data.error || 'не удалось сохранить');
+          tolibrary.textContent = '✓ в библиотеке';
+          out.textContent = 'Карточка «' + data.id + '» сохранена. Она доступна всем и переживёт браузер.';
+        } catch (e) {
+          out.textContent = e.message;
+        }
+        tolibrary.disabled = false;
+      });
+    }
+
     const toproject = document.getElementById('toproject');
     if (toproject) {
       toproject.addEventListener('click', () => {
-        const val = id => (document.getElementById(id) || {}).value || '';
         const KEY = 'aurrum.project';
         // Скидка фабрики, наценка дилера и сборка почти всегда одни и те же
         // — позиция уезжает в проект уже с ними, а не пустой. Числа задаются
@@ -874,23 +921,11 @@
         let list = [];
         try { list = JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) { list = []; }
         list.push({
-          source_url: {{ (product.source_url if product else '') | tojson }},
-          brand: val('f_brand'),
-          model: val('f_model'),
-          type_ru: val('f_type'),
-          dims_raw: val('f_dims_raw'),
-          dims_confident: {{ (product.dims_confident if product else True) | tojson }},
-          description: val('f_desc'),
-          note: val('f_note'),
-          width_cm: val('f_d'), depth_cm: val('f_g'), height_cm: val('f_v'),
-          volume_m3: val('f_vol'),
+          ...card(),
           qty: 1,
           factory_discount: start.factory_discount,
           dealer_markup: start.dealer_markup,
           assembly: start.assembly,
-          photos: [...document.querySelectorAll('.ph')]
-            .filter(t => t.querySelector('input').checked && !t.dataset.local)
-            .map(t => t.dataset.src),
         });
         localStorage.setItem(KEY, JSON.stringify(list));
         window.location = '{{ url_for("project") }}';

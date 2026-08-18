@@ -254,6 +254,64 @@ def check_download_headers() -> tuple[int, int]:
     return good, len(checks)
 
 
+def check_library() -> tuple[int, int]:
+    """Библиотека: опознаватель, поиск и вход под замком.
+
+    Сеть здесь не нужна: проверяем то, что решает судьбу карточки, —
+    как из бренда и модели получается имя файла (ошибка здесь затирает
+    чужую карточку) и находится ли товар по своим словам.
+    """
+    import library
+    print("\n БИБЛИОТЕКА")
+    print(" " + "-" * 74)
+    items = [
+        {"id": "porada-infinity", "brand": "Porada", "model": "Infinity",
+         "type_ru": "Стол", "summary_ru": "Основание из массива дерева.",
+         "finishes": [{"role_ru": "Дерево", "material": "Ashwood"}]},
+        {"id": "barovier-toso-aurora", "brand": "Barovier&Toso", "model": "Aurora",
+         "type_ru": "Настольная лампа",
+         "finishes": [{"role_ru": "Стекло", "material": "Light Pink/Crystal",
+                       "code": "AE"}]},
+    ]
+    find = lambda q: [it["id"] for it in library.search(items, q)]
+    checks = [
+        ("бренд и модель -> имя файла",
+         library.slug("Barovier&Toso", "Aurora") == "barovier-toso-aurora"),
+        # Без транслитерации кириллица выпадала целиком, и «Кресло»
+        # с «Диваном» давали одно имя — вторая карточка затирала первую.
+        ("кириллица транслитерируется, а не выбрасывается",
+         library.slug("Хенге", "Стол") == "henge-stol"
+         and library.slug("Хенге", "Кресло") != library.slug("Хенге", "Диван")),
+        ("поиск по отделке", find("ashwood") == ["porada-infinity"]),
+        ("поиск по артикулу отделки", find("AE") == ["barovier-toso-aurora"]),
+        ("поиск по аннотации", find("массива") == ["porada-infinity"]),
+        ("несколько слов — нужны все", find("porada стол") == ["porada-infinity"]
+         and find("porada лампа") == []),
+        ("пустой запрос отдаёт всё", len(find("")) == 2),
+    ]
+    good = 0
+    for label, hit in checks:
+        good += hit
+        print(f"  {OK if hit else BAD} {label}")
+
+    # Страницы библиотеки закрыты паролем, как и всё остальное.
+    import importlib
+    import os
+    os.environ.setdefault("AURRUM_PASSWORD", "проверка")
+    os.environ.setdefault("AURRUM_SECRET_KEY", "x" * 32)
+    import app as flask_app
+    importlib.reload(flask_app)
+    client = flask_app.app.test_client()
+    closed = all(client.open(path, method=method).status_code in (301, 302, 401)
+                 for path, method in (("/library", "GET"),
+                                      ("/library/save", "POST"),
+                                      ("/library/delete", "POST")))
+    good += closed
+    checks.append(("x", closed))
+    print(f"  {OK if closed else BAD} библиотека закрыта паролем")
+    return good, len(checks)
+
+
 def check_shops() -> tuple[int, int]:
     """Список магазинов: опознаём по домену, а не по форме адреса.
 
@@ -892,6 +950,7 @@ def main() -> int:
     t_ok, t_all = check_url_types()
     tn_ok, tn_all = check_type_norm()
     sh_ok, sh_all = check_shops()
+    lb_ok, lb_all = check_library()
     hd_ok, hd_all = check_header_roundtrip()
     dl_ok, dl_all = check_download_headers()
     s_ok, s_all = check_schema()
@@ -907,7 +966,7 @@ def main() -> int:
           and t_ok == t_all and g_ok == g_all and f_ok == f_all
           and b_ok == b_all and c_ok == c_all and p_ok == p_all
           and ph_ok == ph_all and tn_ok == tn_all and r_ok == r_all
-          and sh_ok == sh_all and pd_ok == pd_all and hd_ok == hd_all and dl_ok == dl_all and fb_ok == fb_all and ov_ok == ov_all
+          and sh_ok == sh_all and pd_ok == pd_all and lb_ok == lb_all and hd_ok == hd_all and dl_ok == dl_all and fb_ok == fb_all and ov_ok == ov_all
           and (gl_all is None or gl_ok == gl_all))
     print("\n" + " " + "=" * 74)
     print(f"  Размеры: {d_ok}/{d_all}   Объём: {v_ok}/{v_all}   "
@@ -916,7 +975,7 @@ def main() -> int:
           f"Начальные числа: {pd_ok}/{pd_all}   Итог: {fb_ok}/{fb_all}   Ручные: {ov_ok}/{ov_all}   Шапка: {hd_ok}/{hd_all}   "
           f"Выгрузка: {dl_ok}/{dl_all}\n"
           f"  Фото: {ph_ok}/{ph_all}   Правила галерей: {r_ok}/{r_all}   "
-          f"Источник фото: {sh_ok}/{sh_all}   "
+          f"Источник фото: {sh_ok}/{sh_all}   Библиотека: {lb_ok}/{lb_all}   "
           f"Тип по адресу: {t_ok}/{t_all}   Тип из извлечения: {tn_ok}/{tn_all}   "
           f"Схема: {s_ok}/{s_all}"
           + (f"\n  Галереи на живых страницах: {gl_ok}/{gl_all}"
