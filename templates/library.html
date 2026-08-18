@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AURRUM — библиотека</title>
+  <title>AURRUM — каталог</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" rel="stylesheet">
@@ -18,77 +18,97 @@
 
     .bar {
       position: sticky; top: 0; z-index: 10;
-      display: flex; align-items: center; justify-content: space-between;
+      display: flex; align-items: center; gap: 20px;
       padding: 12px 24px; background: #fff; border-bottom: 1px solid #eee;
     }
-    .bar .title { font-weight: 500; }
+    .bar .title { font-weight: 500; white-space: nowrap; }
+    .bar .count { color: #949598; font-size: 12.5px; white-space: nowrap; }
 
-    .wrap { max-width: 1100px; margin: 20px auto 60px; padding: 0 24px; }
+    .wrap { max-width: 1360px; margin: 20px auto 60px; padding: 0 24px; }
 
-    .card {
-      background: #fff; border: 1px solid #eee;
-      padding: 22px; margin-bottom: 20px;
+    .panel {
+      display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+      background: #fff; border: 1px solid #eee; padding: 14px 18px;
+      margin-bottom: 18px;
     }
-    .card h2 { margin: 0 0 4px; font-size: 15px; font-weight: 500; }
-    .hint { margin-top: 4px; font-size: 11.5px; color: #949598; line-height: 1.5; }
-
-    .find { display: flex; gap: 10px; margin-top: 12px; }
-    .find input {
-      flex: 1; height: 36px; padding: 0 10px;
+    .panel input[type=search] {
+      flex: 1; min-width: 220px; height: 36px; padding: 0 10px;
       border: 1px solid #d9d9d9; border-radius: 0; background: #fff;
       font-family: inherit; font-size: 14px;
     }
-    .find input:focus { outline: none; border-color: #2d2d2d; }
+    .panel input:focus, .panel select:focus { outline: none; border-color: #2d2d2d; }
+    .panel select {
+      height: 36px; padding: 0 8px; max-width: 210px;
+      border: 1px solid #d9d9d9; border-radius: 0; background: #fff;
+      font-family: inherit; font-size: 13px;
+    }
 
     button, .btn {
-      height: 36px; padding: 0 18px;
+      height: 36px; padding: 0 16px;
       border: 1px solid #2d2d2d; background: #2d2d2d; color: #fff;
       font-family: inherit; font-size: 13px; cursor: pointer; transition: 0.3s;
-      display: inline-flex; align-items: center; text-decoration: none;
+      display: inline-flex; align-items: center; justify-content: center;
+      text-decoration: none; white-space: nowrap;
     }
     button:hover, .btn:hover { background: #fff; color: #2d2d2d; }
-    button.ghost { background: #fff; color: #2d2d2d; border-color: #d9d9d9; }
-    button.ghost:hover { background: #2d2d2d; color: #fff; border-color: #2d2d2d; }
-    button.link {
-      border: 0; background: none; color: #949598;
-      height: auto; padding: 0; font-size: 12px;
-    }
-    button.link:hover { background: none; color: #d64545; }
+    .btn.ghost { background: #fff; color: #2d2d2d; border-color: #d9d9d9; }
+    .btn.ghost:hover { background: #2d2d2d; color: #fff; border-color: #2d2d2d; }
 
-    .item {
-      display: grid; grid-template-columns: 96px 1fr auto;
-      gap: 16px; align-items: start;
-      padding: 16px 0; border-bottom: 1px solid #f2f2f2;
+    /* Сетка каталога: карточка — фото, имя, тип. Всё прочее по клику. */
+    .grid {
+      display: grid; gap: 18px;
+      grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
     }
-    .item:last-child { border-bottom: 0; }
-    .item__photo {
-      width: 96px; height: 96px; object-fit: cover;
-      background: #f2f2f2; border: 1px solid #eee;
+
+    .card {
+      display: flex; flex-direction: column;
+      background: #fff; border: 1px solid #eee;
+      text-decoration: none; color: inherit; transition: 0.2s;
     }
-    .item__photo.empty { display: flex; align-items: center; justify-content: center;
-      color: #c4c4c4; font-size: 11px; }
-    .item__name { font-weight: 500; }
-    .item__sub { margin-top: 3px; color: #949598; font-size: 12.5px; }
-    .item__fin { margin-top: 6px; font-size: 12.5px; line-height: 1.5; }
-    .item__sum { margin-top: 6px; font-size: 12.5px; color: #4a4a4a; line-height: 1.5; }
-    .item__acts { display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
-    .badge {
-      display: inline-block; margin-left: 5px; padding: 0 5px;
-      border: 1px solid #e0e0e0; color: #949598; font-size: 10.5px;
+    .card:hover { border-color: #2d2d2d; }
+
+    .card__photo {
+      aspect-ratio: 4 / 3; width: 100%; object-fit: cover; background: #f2f2f2;
     }
-    .empty { padding: 40px 0; text-align: center; color: #949598; }
+    .card__photo.empty {
+      display: flex; align-items: center; justify-content: center;
+      color: #c4c4c4; font-size: 12px;
+    }
+    .card__body { padding: 12px 14px 14px; flex: 1; display: flex; flex-direction: column; }
+    .card__brand { color: #949598; font-size: 11.5px; text-transform: uppercase; }
+    .card__name { margin-top: 3px; font-weight: 500; line-height: 1.35; }
+    .card__meta { margin-top: 6px; color: #949598; font-size: 12px; }
+    .card__acts { margin-top: auto; padding-top: 12px; }
+    .card__acts button { width: 100%; height: 32px; font-size: 12.5px; }
+
+    .empty-state { padding: 60px 0; text-align: center; color: #949598; }
+
+    .pager {
+      display: flex; gap: 8px; align-items: center; justify-content: center;
+      margin-top: 26px; flex-wrap: wrap;
+    }
+    .pager .now { color: #949598; font-size: 13px; padding: 0 8px; }
+
     .error {
-      margin-bottom: 20px; padding: 12px 14px;
+      margin-bottom: 18px; padding: 12px 14px;
       border: 1px solid #d64545; color: #d64545; font-size: 13.5px;
     }
-    .status { margin-top: 12px; font-size: 12px; color: #949598; }
+    .status {
+      position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
+      background: #2d2d2d; color: #fff; padding: 10px 18px; font-size: 13px;
+      opacity: 0; transition: 0.3s; pointer-events: none; z-index: 30;
+    }
+    .status.on { opacity: 1; }
   </style>
 </head>
 
 <body>
 
   <div class="bar">
-    <span class="title">Библиотека</span>
+    <span class="title">Каталог</span>
+    <span class="count">
+      {% if found != total %}{{ found }} из {{ total }}{% else %}{{ total }} товаров{% endif %}
+    </span>
   </div>
 
   {% include "_nav.html" %}
@@ -97,87 +117,88 @@
 
     {% if error %}<div class="error">{{ error }}</div>{% endif %}
 
-    <div class="card">
-      <h2>Найти товар</h2>
-      <div class="hint">
-        Ищем по всем полям сразу — бренду, модели, типу, размерам, отделкам,
-        аннотации и адресу источника. Несколько слов — найдётся то, где есть
-        все: «porada стол», «ashwood», «M11».
-      </div>
-      <form class="find" method="get">
-        <input type="search" name="q" value="{{ query }}"
-               placeholder="бренд, модель, отделка, артикул…" autofocus>
-        <button type="submit">Искать</button>
-        {% if query %}<a class="btn" href="{{ url_for('library_page') }}"
-          style="background:#fff;color:#2d2d2d;border-color:#d9d9d9">Сбросить</a>{% endif %}
-      </form>
-      <div class="hint">
-        {% if query %}Найдено {{ items|length }} из {{ total }}.
-        {% else %}Карточек в библиотеке: {{ total }}.{% endif %}
-      </div>
-    </div>
-
-    <div class="card">
-      <h2>Карточки</h2>
-      <div class="hint">
-        «В проект» кладёт позицию в текущий проект — расчёт подхватит её
-        начальными числами из констант. «Открыть» ведёт на страницу товара
-        у бренда, чтобы свериться с источником.
-      </div>
-
-      {% if not items %}
-      <div class="empty">
-        {% if query %}По запросу «{{ query }}» ничего не нашлось.
-        {% else %}Библиотека пуста. Соберите карточку на «Позиции по ссылке»
-        и нажмите там «В библиотеку».{% endif %}
-      </div>
+    <form class="panel" method="get">
+      <input type="search" name="q" value="{{ query }}"
+             placeholder="бренд, модель, отделка, артикул, слово из описания…">
+      <select name="brand">
+        <option value="">Все бренды</option>
+        {% for b in brands %}
+        <option value="{{ b }}" {% if b==brand %}selected{% endif %}>{{ b }}</option>
+        {% endfor %}
+      </select>
+      <select name="type">
+        <option value="">Все типы</option>
+        {% for t in types %}
+        <option value="{{ t }}" {% if t==type_ru %}selected{% endif %}>{{ t }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit">Найти</button>
+      {% if query or brand or type_ru %}
+      <a class="btn ghost" href="{{ url_for('library_page') }}">Сбросить</a>
       {% endif %}
+    </form>
 
+    {% if not items %}
+    <div class="empty-state">
+      {% if query or brand or type_ru %}Ничего не нашлось. Попробуйте другое слово или снимите отбор.
+      {% else %}Каталог пуст. Соберите карточку на «Позиции по ссылке» и нажмите «В библиотеку».{% endif %}
+    </div>
+    {% endif %}
+
+    <div class="grid">
       {% for it in items %}
-      <div class="item" data-id="{{ it.id }}">
-        {% if it.photos and it.photos[0] %}
-        <img class="item__photo" src="{{ it.photos[0] }}" alt="" loading="lazy">
-        {% else %}
-        <div class="item__photo empty">нет фото</div>
-        {% endif %}
-
-        <div>
-          <div class="item__name">{{ it.brand }} {{ it.model }}</div>
-          <div class="item__sub">
-            {{ it.type_ru or '' }}{% if it.dims_raw %} · {{ it.dims_raw }}{% endif %}
-            {%- if it.volume_m3 %} · {{ it.volume_m3 }} м³{% endif %}
-          </div>
-          {% if it.finishes %}
-          <div class="item__fin">
-            {% for f in it.finishes %}{{ f.role_ru }} — {{ f.material }}{% if f.code %}<span
-              class="badge">{{ f.code }}</span>{% endif %}{% if not loop.last %}<br>{% endif %}{% endfor %}
-          </div>
+      <div class="card">
+        <a href="{{ url_for('library_item', item_id=it.id) }}" style="text-decoration:none;color:inherit">
+          {% if it.photo %}
+          <img class="card__photo" src="{{ it.photo }}" alt="" loading="lazy">
+          {% else %}
+          <div class="card__photo empty">нет фото</div>
           {% endif %}
-          {% if it.summary_ru %}<div class="item__sum">{{ it.summary_ru }}</div>{% endif %}
-        </div>
-
-        <div class="item__acts">
-          <button type="button" class="toproject"
-            data-item='{{ it | tojson }}'>В проект</button>
-          {% if it.source_url %}
-          <a class="btn" href="{{ it.source_url }}" target="_blank" rel="noopener"
-             style="background:#fff;color:#2d2d2d;border-color:#d9d9d9">Открыть</a>
-          {% endif %}
-          <button type="button" class="link del">Удалить</button>
+        </a>
+        <div class="card__body">
+          <a href="{{ url_for('library_item', item_id=it.id) }}" style="text-decoration:none;color:inherit">
+            <div class="card__brand">{{ it.brand }}</div>
+            <div class="card__name">{{ it.model }}</div>
+            <div class="card__meta">
+              {{ it.type_ru or '—' }}{% if it.dims_raw %} · {{ it.dims_raw }}{% endif %}
+            </div>
+          </a>
+          <div class="card__acts">
+            <button type="button" class="toproject" data-id="{{ it.id }}">В проект</button>
+          </div>
         </div>
       </div>
       {% endfor %}
-
-      <div class="status" id="status"></div>
     </div>
+
+    {% if pages > 1 %}
+    <div class="pager">
+      {% set args = {'q': query, 'brand': brand, 'type': type_ru} %}
+      {% if page > 1 %}
+      <a class="btn ghost" href="{{ url_for('library_page', page=page-1, **args) }}">← Назад</a>
+      {% endif %}
+      <span class="now">Страница {{ page }} из {{ pages }}</span>
+      {% if page < pages %}
+      <a class="btn ghost" href="{{ url_for('library_page', page=page+1, **args) }}">Вперёд →</a>
+      {% endif %}
+    </div>
+    {% endif %}
 
   </div>
 
+  <div class="status" id="status"></div>
+
   <script>
-    // Проект живёт в браузере — библиотека кладёт позицию туда же,
-    // тем же способом, что и карточка после разбора.
+    // Проект живёт в браузере; каталог кладёт позицию туда же. Полную
+    // карточку берём с сервера: в индексе её нет, только выжимка.
     const KEY = 'aurrum.project';
     const status = document.getElementById('status');
+
+    function say(text) {
+      status.textContent = text;
+      status.classList.add('on');
+      setTimeout(() => status.classList.remove('on'), 2600);
+    }
 
     const posDefaults = () => {
       const base = { factory_discount: 0.5, dealer_markup: 0, assembly: 1 };
@@ -186,33 +207,20 @@
     };
 
     document.querySelectorAll('.toproject').forEach(btn =>
-      btn.addEventListener('click', () => {
-        const it = JSON.parse(btn.dataset.item);
-        let list = [];
-        try { list = JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) { list = []; }
-        list.push({ ...it, qty: 1, ...posDefaults() });
-        localStorage.setItem(KEY, JSON.stringify(list));
-        btn.textContent = 'В проекте';
-        status.textContent = 'Позиция добавлена. Всего в проекте: ' + list.length + '.';
-      }));
-
-    document.querySelectorAll('.del').forEach(btn =>
       btn.addEventListener('click', async () => {
-        const row = btn.closest('.item');
-        const id = row.dataset.id;
-        if (!confirm('Убрать карточку из библиотеки? Проект это не тронет.')) return;
         btn.disabled = true;
         try {
-          const r = await fetch('{{ url_for("library_delete") }}', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id }),
-          });
-          const data = await r.json();
-          if (!r.ok) throw new Error(data.error || 'не удалось удалить');
-          row.remove();
-          status.textContent = 'Карточка удалена.';
+          const r = await fetch('/library/card/' + btn.dataset.id);
+          const it = await r.json();
+          if (!r.ok) throw new Error(it.error || 'карточка не открылась');
+          let list = [];
+          try { list = JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) { list = []; }
+          list.push({ ...it, qty: 1, ...posDefaults() });
+          localStorage.setItem(KEY, JSON.stringify(list));
+          btn.textContent = 'В проекте';
+          say('Добавлено. В проекте позиций: ' + list.length);
         } catch (e) {
-          status.textContent = e.message;
+          say(e.message);
           btn.disabled = false;
         }
       }));

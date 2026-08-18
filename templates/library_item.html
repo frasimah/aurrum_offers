@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ item.brand }} {{ item.model }} — AURRUM</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0; background: #f7f7f7; color: #2d2d2d;
+      font-family: Inter, sans-serif; font-size: 14px;
+    }
+
+    .bar {
+      position: sticky; top: 0; z-index: 10;
+      display: flex; align-items: center; gap: 16px;
+      padding: 12px 24px; background: #fff; border-bottom: 1px solid #eee;
+    }
+    .bar a { color: #2d2d2d; text-decoration: none; transition: 0.3s; }
+    .bar a:hover { color: #fff; background: #2d2d2d; }
+
+    .wrap { max-width: 1100px; margin: 22px auto 60px; padding: 0 24px; }
+    .card { background: #fff; border: 1px solid #eee; padding: 24px; }
+
+    .top { display: grid; grid-template-columns: 1.1fr 1fr; gap: 28px; }
+    @media (max-width: 820px) { .top { grid-template-columns: 1fr; } }
+
+    .shots { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .shots img { width: 100%; aspect-ratio: 4/3; object-fit: cover; background: #f2f2f2; }
+    .shots img:first-child { grid-column: 1 / -1; aspect-ratio: 16/10; }
+    .noshot {
+      display: flex; align-items: center; justify-content: center;
+      aspect-ratio: 16/10; background: #f2f2f2; color: #c4c4c4; font-size: 13px;
+    }
+
+    h1 { margin: 0; font-size: 22px; font-weight: 500; line-height: 1.25; }
+    .brand { color: #949598; font-size: 12px; text-transform: uppercase; }
+    .row { margin-top: 16px; }
+    .label { color: #949598; font-size: 11.5px; }
+    .value { margin-top: 3px; line-height: 1.55; }
+    .value.pre { white-space: pre-line; }
+    .badge {
+      display: inline-block; margin-left: 5px; padding: 0 5px;
+      border: 1px solid #e0e0e0; color: #949598; font-size: 10.5px;
+    }
+    .warn-mark {
+      display: inline-block; width: 15px; height: 15px; border-radius: 50%;
+      background: #d64545; color: #fff; font-size: 11px; font-weight: 600;
+      text-align: center; line-height: 15px; cursor: help;
+    }
+
+    .acts { display: flex; gap: 10px; margin-top: 22px; flex-wrap: wrap; align-items: center; }
+    button, .btn {
+      height: 36px; padding: 0 18px;
+      border: 1px solid #2d2d2d; background: #2d2d2d; color: #fff;
+      font-family: inherit; font-size: 13px; cursor: pointer; transition: 0.3s;
+      display: inline-flex; align-items: center; text-decoration: none;
+    }
+    button:hover, .btn:hover { background: #fff; color: #2d2d2d; }
+    .btn.ghost { background: #fff; color: #2d2d2d; border-color: #d9d9d9; }
+    .btn.ghost:hover { background: #2d2d2d; color: #fff; border-color: #2d2d2d; }
+    button.link {
+      border: 0; background: none; color: #949598; height: auto;
+      padding: 0; font-size: 12px;
+    }
+    button.link:hover { background: none; color: #d64545; }
+
+    .hint { margin-top: 14px; font-size: 11.5px; color: #949598; line-height: 1.55; }
+    .status { margin-top: 12px; font-size: 12.5px; color: #949598; }
+  </style>
+</head>
+
+<body>
+
+  <div class="bar">
+    <a href="{{ url_for('library_page') }}">← Каталог</a>
+    <span>{{ item.brand }} {{ item.model }}</span>
+  </div>
+
+  {% include "_nav.html" %}
+
+  <div class="wrap">
+    <div class="card">
+      <div class="top">
+        <div>
+          {% if item.photos %}
+          <div class="shots">
+            {% for src in item.photos[:5] %}<img src="{{ src }}" alt="" loading="lazy">{% endfor %}
+          </div>
+          {% else %}
+          <div class="noshot">нет фотографий</div>
+          {% endif %}
+        </div>
+
+        <div>
+          <div class="brand">{{ item.brand }}</div>
+          <h1>{{ item.model }}</h1>
+
+          <div class="row">
+            <div class="label">Тип</div>
+            <div class="value">{{ item.type_ru or '—' }}</div>
+          </div>
+
+          {% if item.dims_raw or item.width_cm %}
+          <div class="row">
+            <div class="label">Габариты</div>
+            <div class="value">
+              {{ item.dims_raw or '' }}
+              {%- if item.dims_confident is defined and item.dims_confident == false %}
+              <span class="warn-mark" title="Оси расставлены по порядку — пометки высоты в источнике нет">!</span>
+              {%- endif %}
+              {%- if item.width_cm %}<br>Д {{ item.width_cm }} · Г {{ item.depth_cm }} · В {{ item.height_cm }}{% endif %}
+              {%- if item.volume_m3 %}<br>Объём {{ item.volume_m3 }} м³{% endif %}
+            </div>
+          </div>
+          {% endif %}
+
+          {% if item.finishes %}
+          <div class="row">
+            <div class="label">Отделки</div>
+            <div class="value">
+              {% for f in item.finishes %}{{ f.role_ru }} — {{ f.material }}{% if f.code %}<span
+                class="badge">{{ f.code }}</span>{% endif %}{% if not loop.last %}<br>{% endif %}{% endfor %}
+            </div>
+          </div>
+          {% endif %}
+
+          {% if item.summary_ru %}
+          <div class="row">
+            <div class="label">Аннотация</div>
+            <div class="value">{{ item.summary_ru }}</div>
+          </div>
+          {% endif %}
+
+          {% if item.note %}
+          <div class="row">
+            <div class="label">Примечание</div>
+            <div class="value">{{ item.note }}</div>
+          </div>
+          {% endif %}
+
+          {% if item.description %}
+          <div class="row">
+            <div class="label">Описание для колонки «Описание»</div>
+            <div class="value pre">{{ item.description }}</div>
+          </div>
+          {% endif %}
+
+          <div class="acts">
+            <button type="button" id="toproject">В проект</button>
+            {% if item.source_url %}
+            <a class="btn ghost" href="{{ item.source_url }}" target="_blank" rel="noopener">Источник</a>
+            <a class="btn ghost" href="{{ url_for('lookup') }}">Пересобрать</a>
+            {% endif %}
+            <button type="button" class="link" id="del">Удалить из каталога</button>
+          </div>
+
+          {% if not item.dims_raw %}
+          <div class="hint">
+            Габаритов у карточки нет. «Пересобрать» открывает разбор по ссылке —
+            вставьте туда адрес источника, и карточка дополнится габаритами,
+            объёмом и отделками.
+          </div>
+          {% endif %}
+          <div class="status" id="status"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const KEY = 'aurrum.project';
+    const ITEM = {{ item | tojson }};
+    const status = document.getElementById('status');
+
+    const posDefaults = () => {
+      const base = { factory_discount: 0.5, dealer_markup: 0, assembly: 1 };
+      try { return { ...base, ...(JSON.parse(localStorage.getItem('aurrum.position_defaults')) || {}) }; }
+      catch (e) { return base; }
+    };
+
+    document.getElementById('toproject').addEventListener('click', () => {
+      let list = [];
+      try { list = JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) { list = []; }
+      list.push({ ...ITEM, qty: 1, ...posDefaults() });
+      localStorage.setItem(KEY, JSON.stringify(list));
+      status.textContent = 'Добавлено в проект. Всего позиций: ' + list.length + '.';
+    });
+
+    document.getElementById('del').addEventListener('click', async () => {
+      if (!confirm('Убрать карточку из каталога? Проект это не тронет.')) return;
+      try {
+        const r = await fetch('{{ url_for("library_delete") }}', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: ITEM.id }),
+        });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || 'не удалось удалить');
+        window.location = '{{ url_for("library_page") }}';
+      } catch (e) { status.textContent = e.message; }
+    });
+  </script>
+</body>
+
+</html>

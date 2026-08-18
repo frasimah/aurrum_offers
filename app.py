@@ -64,6 +64,9 @@ _fails: dict[str, list[float]] = defaultdict(list)
 # Роуты, доступные без пароля
 PUBLIC_ENDPOINTS = {"login", "static"}
 
+# Карточек на странице каталога: сетка 4 в ряд, шесть рядов.
+PER_PAGE = 24
+
 app = Flask(__name__)
 app.config.update(
     MAX_CONTENT_LENGTH=MAX_MB * 1024 * 1024,
@@ -268,17 +271,115 @@ def library_page():
     ни временем менеджера на выверку отделок.
     """
     query = (request.args.get("q") or "").strip()
+    brand = (request.args.get("brand") or "").strip()
+    type_ru = (request.args.get("type") or "").strip()
+    try:
+        page = max(1, int(request.args.get("page") or 1))
+    except ValueError:
+        page = 1
+
+    blank = {"items": [], "query": query, "brand": brand, "type_ru": type_ru,
+             "brands": [], "types": [], "total": 0, "found": 0,
+             "page": 1, "pages": 1}
     try:
         items = library.all_items()
     except library.NotConfigured as exc:
-        return render_template("library.html", items=[], query=query,
-                               error=str(exc), total=0)
+        return render_template("library.html", error=str(exc), **blank)
     except Exception as exc:  # noqa: BLE001 — причину показываем
-        return render_template("library.html", items=[], query=query,
-                               error=f"Библиотека не открылась: {exc}", total=0)
+        return render_template("library.html",
+                               error=f"Библиотека не открылась: {exc}", **blank)
 
-    return render_template("library.html", items=library.search(items, query),
-                           query=query, error=None, total=len(items))
+    # Списки для отбора считаем по всей библиотеке, а не по отфильтрованному:
+    # иначе выбранный бренд выкидывает из списка все остальные, и вернуться
+    # к ним можно только сбросом.
+    brands = sorted({str(it.get("brand") or "").strip()
+                     for it in items if it.get("brand")})
+    types = sorted({str(it.get("type_ru") or "").strip()
+                    for it in items if it.get("type_ru")})
+
+    found = library.search(items, query)
+    if brand:
+        found = [it for it in found if it.get("brand") == brand]
+    if type_ru:
+        found = [it for it in found if it.get("type_ru") == type_ru]
+
+    pages = max(1, (len(found) + PER_PAGE - 1) // PER_PAGE)
+    page = min(page, pages)
+    start = (page - 1) * PER_PAGE
+
+    return render_template(
+        "library.html", items=found[start:start + PER_PAGE],
+        query=query, brand=brand, type_ru=type_ru,
+        brands=brands, types=types,
+        total=len(items), found=len(found), page=page, pages=pages, error=None)
+
+
+@app.route("/library/item/<item_id>")
+def library_item(item_id: str):
+    """Полная карточка: индекс её не хранит, лежит она в своём файле."""
+    if not re.fullmatch(r"[a-z0-9-]{1,120}", item_id):
+        return render_template("library.html", error="Неверный адрес карточки.",
+                               items=[], query="", brand="", type_ru="",
+                               brands=[], types=[], total=0, found=0,
+                               page=1, pages=1), 400
+    try:
+        item = library.get(item_id)
+    except Exception as exc:  # noqa: BLE001
+        return render_template("library.html", error=f"Карточка не открылась: {exc}",
+                               items=[], query="", brand="", type_ru="",
+                               brands=[], types=[], total=0, found=0,
+                               page=1, pages=1), 502
+    if not item:
+        return redirect(url_for("library_page"))
+    return render_template("library_item.html", item=item)
+
+
+@app.route("/library/card/<item_id>")
+def library_card(item_id: str):
+    """Полная карточка в JSON — для кнопки «В проект» из каталога.
+
+    В индексе её нет: он держит выжимку, чтобы каталог открывался одним
+    запросом. За описанием, всеми фотографиями и отделками идём в файл.
+    """
+    if not re.fullmatch(r"[a-z0-9-]{1,120}", item_id):
+        return {"error": "Неверный адрес карточки."}, 400
+    try:
+        item = library.get(item_id)
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"Карточка не открылась: {exc}"}, 502
+    return item or ({"error": "Карточки нет в библиотеке."}, 404)
+
+
+@app.route("/library/save-many", methods=["POST"])
+def library_save_many():
+    """Все позиции проекта -> в каталог, одним движением.
+
+    Индекс переписывается один раз в конце: иначе на каждую позицию
+    пришлась бы полная перезапись индекса.
+    """
+    items = (request.get_json(silent=True) or {}).get("items")
+    if not isinstance(items, list) or not items:
+        return {"error": "Нечего сохранять."}, 400
+    if len(items) > 200:
+        return {"error": "Слишком много позиций за раз."}, 400
+
+    saved, skipped = [], 0
+    try:
+        for item in items:
+            if not isinstance(item, dict):
+                skipped += 1
+                continue
+            try:
+                saved.append(library.save(item, reindex=False)["id"])
+            except ValueError:      # без бренда и модели карточки нет
+                skipped += 1
+        library.rebuild_index()
+    except library.NotConfigured as exc:
+        return {"error": str(exc)}, 400
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"Не удалось сохранить: {exc}"}, 502
+
+    return {"saved": len(saved), "skipped": skipped, "ids": saved}
 
 
 @app.route("/library/save", methods=["POST"])

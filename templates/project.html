@@ -259,6 +259,7 @@
         <button type="button" class="ghost" id="copyall">Скопировать все строки</button>
         <button type="button" class="ghost" id="fromdefaults">Вставить из констант</button>
         <button type="button" class="ghost" id="saveall">Сохранить</button>
+        <button type="button" class="ghost" id="tolibrary">Всё в каталог</button>
         <a class="back" href="{{ url_for('lookup') }}">Вернуться к парсеру</a>
         <button type="button" class="link" id="clear">Очистить проект</button>
       </div>
@@ -625,6 +626,38 @@
       document.body.appendChild(form);
       form.submit();
       form.remove();
+    });
+
+    // Позиции проекта -> в каталог. Проект живёт в браузере и уходит
+    // вместе с ним; разобранная карточка стоит запроса Firecrawl и
+    // разбора Gemini, и терять её вместе с проектом незачем.
+    document.getElementById('tolibrary').addEventListener('click', async () => {
+      if (!positions.length) return;
+      const btn = document.getElementById('tolibrary');
+      const out = document.getElementById('status');
+      btn.disabled = true;
+      out.textContent = 'Сохраняю в каталог…';
+      try {
+        const r = await fetch('{{ url_for("library_save_many") }}', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          // Считанные величины позиции в каталог не идут: цена, скидка
+          // и сборка — свойства сделки, а не товара.
+          body: JSON.stringify({ items: positions.map(p => ({
+            source_url: p.source_url, brand: p.brand, model: p.model,
+            type_ru: p.type_ru, dims_raw: p.dims_raw, dims_confident: p.dims_confident,
+            description: p.description, summary_ru: p.summary_ru, note: p.note,
+            width_cm: p.width_cm, depth_cm: p.depth_cm, height_cm: p.height_cm,
+            volume_m3: p.volume_m3, finishes: p.finishes, photos: p.photos,
+          })) }),
+        });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || 'не удалось сохранить');
+        out.textContent = 'В каталоге: ' + data.saved + ' карточек' +
+          (data.skipped ? ', пропущено без бренда и модели: ' + data.skipped : '') + '.';
+      } catch (e) {
+        out.textContent = e.message;
+      }
+      btn.disabled = false;
     });
 
     // Скидка, наценка и сборка каждой позиции — из начальных чисел на

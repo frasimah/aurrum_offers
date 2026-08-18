@@ -13,9 +13,19 @@ Postgres ради нескольких сотен карточек — это о
 с миграциями и паролями. Blob — это HTTP-хранилище файлов, у которого
 есть ровно то, что нужно: положить, прочитать, перечислить, удалить.
 
-Устройство: одна карточка — один JSON по адресу `items/<id>.json`.
-Отдельного индекса нет намеренно — он немедленно разошёлся бы с
-файлами; список собирается перечислением, а поиск идёт по нему же.
+Устройство: одна карточка — один JSON по адресу `items/<id>.json`,
+плюс `index.json` — короткая выжимка всех карточек в одном файле.
+
+Хранилище доходит с задержкой: чтение сразу после записи может вернуть
+предыдущее содержимое. Отсюда правило — карточку после сохранения не
+перечитываем, а показываем ту, что сохранили.
+
+Индекса сначала не было намеренно: он способен разойтись с файлами.
+Но каталог на сотни товаров читать по файлу на карточку нельзя — это
+сотни запросов на открытие страницы. Поэтому истина по-прежнему в
+файлах карточек, а индекс — их кэш: пишется вместе с карточкой и
+пересобирается из файлов по требованию (`rebuild_index`), если
+разошёлся. Список и поиск идут по индексу, полная карточка — по файлу.
 """
 
 from __future__ import annotations
@@ -23,6 +33,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 import unicodedata
 from datetime import datetime, timezone
 from urllib.parse import quote
@@ -38,10 +49,15 @@ API = "https://vercel.com/api/blob"
 API_VERSION = "12"
 ACCESS = "private"
 PREFIX = "items/"
+INDEX = "index.json"
 TIMEOUT = 30
-# Больше тысячи карточек — уже повод для настоящей базы, а не для
-# перечисления на каждый запрос. Предел стоит, чтобы это заметить.
-MAX_ITEMS = 1000
+# Поля выжимки: всё, по чему каталог ищет и что показывает списком.
+# Полное описание и фотографии сверх первой остаются в файле карточки.
+INDEX_FIELDS = ("id", "brand", "model", "type_ru", "dims_raw", "volume_m3",
+                "source_url", "summary_ru", "saved_at", "collection")
+# Предел на перечисление файлов. Читает их только пересборка
+# индекса; каталог обходится одним запросом за индексом.
+MAX_ITEMS = 5000
 
 
 class NotConfigured(RuntimeError):
@@ -84,8 +100,81 @@ def slug(brand: str, model: str) -> str:
     return text or "item"
 
 
-def save(item: dict) -> dict:
-    """Кладём карточку. Тот же бренд и модель — та же запись, не копия."""
+def _put(pathname: str, payload) -> None:
+    got = httpx.put(
+        f"{API}/", params={"pathname": pathname},
+        headers={**_headers(),
+                 "content-type": "application/json",
+                 "x-vercel-blob-access": ACCESS,
+                 # Иначе Blob дописывает к имени случайный хвост, и
+                 # повторное сохранение плодит копии вместо замены.
+                 "x-add-random-suffix": "0",
+                 # Пересохранение карточки — обычное дело: менеджер
+                 # поправил отделки и положил обратно.
+                 "x-allow-overwrite": "1",
+                 "x-cache-control-max-age": "0"},
+        content=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        timeout=TIMEOUT,
+    )
+    got.raise_for_status()
+
+
+def brief(item: dict) -> dict:
+    """Карточка -> строка индекса: то, что видно списком и по чему ищут."""
+    out = {k: item.get(k) for k in INDEX_FIELDS if item.get(k) not in (None, "")}
+    photos = item.get("photos") or []
+    if photos:
+        out["photo"] = photos[0]
+    # Отделки в выжимке нужны: по ним ищут не реже, чем по названию.
+    out["finishes"] = [{"role_ru": f.get("role_ru"), "material": f.get("material"),
+                        "code": f.get("code")}
+                       for f in (item.get("finishes") or []) if isinstance(f, dict)]
+    return out
+
+
+def _index_blob() -> dict | None:
+    for blob in _list_blobs(INDEX):
+        if blob.get("pathname") == INDEX:
+            return blob
+    return None
+
+
+def read_index() -> list[dict]:
+    """Индекс читаем всегда свежим, без оглядки на кэш.
+
+    Это то, что видно в каталоге, и то, поверх чего пишется следующая
+    правка: устаревший индекс не просто показал бы старое, а затёр бы
+    чужую только что сохранённую карточку. Один лишний запрос против
+    такой цены — дёшево.
+    """
+    if not _index_blob():
+        return []
+    data = _read(_url(INDEX))
+    items = (data or {}).get("items") if isinstance(data, dict) else None
+    return items if isinstance(items, list) else []
+
+
+def _write_index(items: list[dict]) -> None:
+    items = sorted(items, key=lambda it: str(it.get("saved_at") or ""), reverse=True)
+    _put(INDEX, {"items": items,
+                 "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds")})
+
+
+def rebuild_index() -> int:
+    """Пересобрать индекс из файлов карточек — они и есть истина."""
+    items = [it for it in (_read(b["url"])
+                           for b in _list_blobs(PREFIX))
+             if it and it.get("id")]
+    _write_index([brief(it) for it in items])
+    return len(items)
+
+
+def save(item: dict, reindex: bool = True) -> dict:
+    """Кладём карточку. Тот же бренд и модель — та же запись, не копия.
+
+    `reindex=False` — для пакетной загрузки: индекс переписывается один
+    раз в конце, а не после каждой из сотен карточек.
+    """
     brand = str(item.get("brand") or "").strip()
     model = str(item.get("model") or "").strip()
     if not (brand or model):
@@ -95,32 +184,20 @@ def save(item: dict) -> dict:
     item["id"] = item.get("id") or slug(brand, model)
     item["saved_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
-    got = httpx.put(
-        f"{API}/",
-        params={"pathname": f"{PREFIX}{item['id']}.json"},
-        headers={**_headers(),
-                 "content-type": "application/json",
-                 "x-vercel-blob-access": ACCESS,
-                 # Иначе Blob дописывает к имени случайный хвост, и
-                 # повторное сохранение плодит копии вместо замены.
-                 "x-add-random-suffix": "0",
-                 # Пересохранение карточки — обычное дело: менеджер
-                 # поправил отделки и положил обратно. Без этого Blob
-                 # отвечает «blob already exists».
-                 "x-allow-overwrite": "1",
-                 "x-cache-control-max-age": "0"},
-        content=json.dumps(item, ensure_ascii=False).encode("utf-8"),
-        timeout=TIMEOUT,
-    )
-    got.raise_for_status()
+    _put(f"{PREFIX}{item['id']}.json", item)
+
+    if reindex:
+        rows = [it for it in read_index() if it.get("id") != item["id"]]
+        rows.append(brief(item))
+        _write_index(rows)
     return item
 
 
-def _list_blobs() -> list[dict]:
+def _list_blobs(prefix: str = PREFIX) -> list[dict]:
     out: list[dict] = []
     cursor = None
     while True:
-        params = {"prefix": PREFIX, "limit": "1000"}
+        params = {"prefix": prefix, "limit": "1000"}
         if cursor:
             params["cursor"] = cursor
         got = httpx.get(f"{API}/", headers=_headers(), params=params, timeout=TIMEOUT)
@@ -132,17 +209,53 @@ def _list_blobs() -> list[dict]:
             return out[:MAX_ITEMS]
 
 
+_HOST: str | None = None
+
+
+def _host() -> str:
+    """Адрес хранилища — постоянный, узнаётся один раз из любого блоба.
+
+    Нужен, чтобы обращаться к карточке по имени, не спрашивая список:
+    список отстаёт от записи, и только что созданной карточки в нём
+    может не быть.
+    """
+    global _HOST
+    if _HOST:
+        return _HOST
+    for blob in _list_blobs(""):
+        url = blob.get("url") or ""
+        if "://" in url:
+            _HOST = url.split("/", 3)[0] + "//" + url.split("/", 3)[2]
+            return _HOST
+    raise NotConfigured("Хранилище пустое — адрес карточки не из чего собрать.")
+
+
+def _url(pathname: str) -> str:
+    return f"{_host()}/{pathname}"
+
+
 def _read(url: str, stamp: str = "") -> dict | None:
     """Читаем карточку. `stamp` — метка версии, она же сбиватель кэша.
 
     Адрес карточки постоянный (иначе правка плодила бы копии), поэтому
     CDN отдаёт по нему прежнее содержимое: поправленная карточка
-    показывалась старой, и это невозможно было объяснить глазами.
-    Метка загрузки из списка меняется при каждой записи и заставляет
-    отдать свежее.
+    показывалась старой, и объяснить это глазами было невозможно.
+
+    Меткой служит время запроса, а не версия из списка. Пробовал по
+    очереди `uploadedAt` и `etag` — обе врут: список отстаёт от самих
+    файлов (видел uploadedAt 11:26:24 при last-modified 11:27:53), метка
+    повторялась, и CDN честно отдавал прежнее с пометкой HIT. Заголовок
+    no-cache он игнорирует, так что разный адрес — единственное, что
+    помогает против кэша.
+
+    Против чего он не помогает: само хранилище доходит с задержкой.
+    Проверено пятью записями подряд — чтение сразу после записи иногда
+    возвращает предыдущее содержимое даже по заведомо новому адресу.
+    Поэтому список и поиск идут по индексу (его пишем мы и рядом), а
+    файл карточки читается при открытии — через секунды после правки,
+    когда запись уже дошла.
     """
-    if stamp:
-        url += ("&" if "?" in url else "?") + "v=" + quote(str(stamp), safe="")
+    url += ("&" if "?" in url else "?") + "v=" + quote(stamp or str(time.time_ns()), safe="")
     try:
         got = httpx.get(url, headers={**_headers(), "cache-control": "no-cache"},
                         timeout=TIMEOUT, follow_redirects=True)
@@ -154,32 +267,32 @@ def _read(url: str, stamp: str = "") -> dict | None:
 
 
 def all_items() -> list[dict]:
-    """Все карточки, новые сверху."""
-    # Чужие файлы в том же префиксе пропускаем: карточка без опознавателя
-    # не карточка, а список не должен падать из-за постороннего блоба.
-    items = [it for it in (_read(b["url"], b.get("uploadedAt", ""))
-                          for b in _list_blobs())
-             if it and it.get("id")]
-    items.sort(key=lambda it: str(it.get("saved_at") or ""), reverse=True)
-    return items
+    """Выжимки всех карточек, новые сверху — одним запросом за индексом."""
+    items = read_index()
+    if items:
+        return items
+    # Индекса нет (первый запуск или его снесли) — собираем из файлов.
+    return [brief(it) for it in
+            sorted((it for it in (_read(b["url"])
+                                  for b in _list_blobs())
+                    if it and it.get("id")),
+                   key=lambda it: str(it.get("saved_at") or ""), reverse=True)]
 
 
 def get(item_id: str) -> dict | None:
-    for blob in _list_blobs():
-        if blob.get("pathname") == f"{PREFIX}{item_id}.json":
-            return _read(blob["url"], blob.get("uploadedAt", ""))
-    return None
+    """Карточка по имени — прямым адресом, без обращения к списку."""
+    return _read(_url(f"{PREFIX}{item_id}.json"))
 
 
 def delete(item_id: str) -> bool:
-    for blob in _list_blobs():
-        if blob.get("pathname") == f"{PREFIX}{item_id}.json":
-            httpx.post(f"{API}/delete", headers={**_headers(),
-                                                 "content-type": "application/json"},
-                       content=json.dumps({"urls": [blob["url"]]}).encode(),
-                       timeout=TIMEOUT).raise_for_status()
-            return True
-    return False
+    """Убрать карточку. Адрес строим сами: в списке её может ещё не быть."""
+    got = httpx.post(f"{API}/delete",
+                     headers={**_headers(), "content-type": "application/json"},
+                     content=json.dumps({"urls": [_url(f"{PREFIX}{item_id}.json")]}).encode(),
+                     timeout=TIMEOUT)
+    got.raise_for_status()
+    _write_index([it for it in read_index() if it.get("id") != item_id])
+    return True
 
 
 def search(items: list[dict], query: str) -> list[dict]:
