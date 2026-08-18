@@ -79,7 +79,12 @@ def pricing_row(fields: dict, row: int) -> list[str]:
         f"=T{r}-T{r}*V{r}",                           # W  цена со скидкой
         fields.get("dealer_markup") or 0,             # X  наценка дилера
         f"=W{r}+W{r}*X{r}",                           # Y  ЗАКУП AURRUM
-        f"=Y{r}*($Z$1+0)/100",                        # Z  РЕНТАБ
+        # РЕНТАБ: своя величина позиции выигрывает у общей ставки $Z$1.
+        # Процент остаётся формулой, евро уходит числом.
+        (float(fields["margin_eur"]) if fields.get("margin_eur") not in (None, "")
+         else f"=Y{r}*{float(fields['margin_pct'])}/100"
+         if fields.get("margin_pct") not in (None, "")
+         else f"=Y{r}*($Z$1+0)/100"),                  # Z  РЕНТАБ
         f"=W{r}*$AA$1/100",                           # AA ТРАНШ
         # В форме SWIFT стоит числом в каждой строке, а не ссылкой на
         # первую, — поэтому подставляем сюда заданную величину.

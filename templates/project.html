@@ -114,6 +114,11 @@
     }
     td.editable:hover .pen { opacity: 1; }
     td.editable input { width: 74px; }
+    td.editable select.unit {
+      height: 30px; margin-left: 3px; padding: 0 2px;
+      border: 1px solid #d9d9d9; border-radius: 0; background: #fff;
+      font-family: inherit; font-size: 12px;
+    }
     /* Ручное значение помечено пунктиром: видно, что это не расчёт. */
     td.editable .overridden { border-bottom: 1px dashed #b58900; }
 
@@ -223,7 +228,7 @@
               <th>Цена прайса</th>
               <th>Скидка</th>
               <th>Наценка</th>
-              <th>Сборка</th>
+              <th title="Надбавка за сборку. Работает делением, как в форме: 5 % превращает сумму в СУММА ÷ 0,95">Сборка, %</th>
               <th>Закуп</th>
               <th>Рентаб</th>
               <th>Транш</th>
@@ -434,11 +439,13 @@
             title="Пусто при ручном закупе — серым показана выведенная арифметикой"></td>
           ${cell('factory_discount', p.factory_discount, 'short')}
           ${cell('dealer_markup', p.dealer_markup, 'short')}
-          ${cell('assembly', p.assembly, 'short')}
+          ${cell('assembly_pct', Math.round((1 - (p.assembly == null ? 1 : p.assembly)) * 1000) / 10, 'short')}
           <td class="num muted editable" data-edit="purchase" data-i="${i}"
             title="Закуп — из инвойса, вводится руками; цена прайса выведется арифметически">
             <span${p.purchase != null && p.purchase !== '' ? ' class="overridden"' : ''}>${rub(c.purchase)}</span><span class="pen">✎</span></td>
-          <td class="num muted">${rub(c.margin)}</td>
+          <td class="num muted editable" data-edit="margin" data-i="${i}"
+            title="Рентабельность этой позиции — процентом или евро; пустое поле возвращает ставку из констант">
+            <span${(p.margin_pct != null || p.margin_eur != null) ? ' class="overridden"' : ''}>${rub(c.margin)}</span><span class="pen">✎</span></td>
           <td class="num muted">${rub(c.transfer)}</td>
           <td class="num muted editable" data-edit="swift" data-i="${i}" title="SWIFT этой позиции — в форме он числом в каждой строке">
             <span${p.swift != null && p.swift !== '' ? ' class="overridden"' : ''}>${rub(c.swift)}</span><span class="pen">✎</span></td>
@@ -477,7 +484,14 @@
 
       body.querySelectorAll('input[data-k]').forEach(el =>
         el.addEventListener('change', () => {
-          positions[el.dataset.i][el.dataset.k] = el.value;
+          if (el.dataset.k === 'assembly_pct') {
+            // В поле процент, в позиции — коэффициент книги: 5 % -> 0,95.
+            // Формула формы AE = СУММА ÷ коэффициент остаётся нетронутой.
+            const pct = parseFloat((el.value || '0').replace(',', '.')) || 0;
+            positions[el.dataset.i].assembly = Math.round((1 - pct / 100) * 1000) / 1000;
+          } else {
+            positions[el.dataset.i][el.dataset.k] = el.value;
+          }
           save(positions);
           recalc();
         }));
@@ -489,18 +503,38 @@
           if (td.querySelector('input')) return;
           const i = +td.dataset.i;
           const key = td.dataset.edit;
-          const current = positions[i][key];
+          // У рентаба две единицы: процент от закупа или евро напрямую.
+          // Хранятся раздельно, ненулевое евро выигрывает — правило то же,
+          // что в итоге компреда, и живёт оно на сервере.
+          const twoUnits = key === 'margin';
+          const current = twoUnits
+            ? (positions[i].margin_eur != null ? positions[i].margin_eur : positions[i].margin_pct)
+            : positions[i][key];
           td.innerHTML = '';
           const field = document.createElement('input');
           field.className = 'manual';
           field.value = current == null ? '' : current;
           field.placeholder = 'расчёт';
           td.appendChild(field);
+          let unit = null;
+          if (twoUnits) {
+            unit = document.createElement('select');
+            unit.className = 'unit';
+            unit.innerHTML = '<option value="pct">%</option><option value="eur">€</option>';
+            unit.value = positions[i].margin_eur != null ? 'eur' : 'pct';
+            td.appendChild(unit);
+          }
           field.focus();
           field.select();
           const commit = () => {
             const raw = (field.value || '').replace(',', '.').trim();
-            if (raw === '') {
+            if (twoUnits) {
+              delete positions[i].margin_pct;
+              delete positions[i].margin_eur;
+              if (raw !== '' && isFinite(parseFloat(raw))) {
+                positions[i][unit.value === 'eur' ? 'margin_eur' : 'margin_pct'] = parseFloat(raw);
+              }
+            } else if (raw === '') {
               delete positions[i][key];
             } else if (isFinite(parseFloat(raw))) {
               positions[i][key] = parseFloat(raw);
@@ -508,7 +542,13 @@
             save(positions);
             recalc();
           };
-          field.addEventListener('blur', commit);
+          field.addEventListener('blur', (e) => {
+            // Уход в селектор единицы — не завершение правки.
+            if (unit && e.relatedTarget === unit) return;
+            commit();
+          });
+          if (unit) unit.addEventListener('blur', commit);
+          if (unit) unit.addEventListener('change', () => field.focus());
           field.addEventListener('keydown', e => {
             if (e.key === 'Enter') field.blur();
             if (e.key === 'Escape') { field.value = current == null ? '' : current; field.blur(); }
@@ -585,7 +625,7 @@
       await recalc();
       document.getElementById('status').textContent =
         'Подставлено из констант: скидка ' + d.factory_discount +
-        ', наценка ' + d.dealer_markup + ', сборка ' + d.assembly +
+        ', наценка ' + d.dealer_markup + ', сборка ' + (Math.round((1 - d.assembly) * 1000) / 10) + ' % ' +
         '. Ставки расчёта (РЕНТАБ, ТРАНШ и остальные) применяются пересчётом сами.';
     });
 

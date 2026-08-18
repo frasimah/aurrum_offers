@@ -89,7 +89,8 @@ def _num(value, default: float = 0.0) -> float:
 
 def line(list_price, volume_m3, *, factory_discount=None, dealer_markup=None,
          assembly=None, qty=1, rates: dict | None = None,
-         swift=None, purchase=None) -> Line:
+         swift=None, purchase=None,
+         margin_pct=None, margin_eur=None) -> Line:
     """Цена прайса и объём -> вся цепочка книги.
 
     Не заданное поле берёт значение из `DEFAULT_POSITION`, пустая строка —
@@ -119,7 +120,15 @@ def line(list_price, volume_m3, *, factory_discount=None, dealer_markup=None,
     else:
         return Line()
 
-    margin = purchase * r["margin"] / 100
+    # Рентабельность своя у позиции выигрывает у общей ставки: евро
+    # сильнее процента, процент сильнее константы. Ноль здесь законен —
+    # «без рентаба» задаётся явно, а пустое поле возвращает ставку.
+    if margin_eur not in (None, ""):
+        margin = _num(margin_eur)
+    elif margin_pct not in (None, ""):
+        margin = purchase * _num(margin_pct) / 100
+    else:
+        margin = purchase * r["margin"] / 100
     transfer = discounted * r["transfer"] / 100
     # SWIFT в форме стоит числом в каждой строке — заданное позицией
     # значение выигрывает у общей ставки.
@@ -226,6 +235,8 @@ def project(positions: list[dict], rates: dict | None = None,
             rates=rates,
             swift=p.get("swift"),
             purchase=p.get("purchase"),
+            margin_pct=p.get("margin_pct"),
+            margin_eur=p.get("margin_eur"),
         )
         price = _num(p.get("price")) or computed.price
         lines.append({

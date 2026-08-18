@@ -474,7 +474,15 @@ def check_overrides() -> tuple[int, int]:
     by_list = pricing.project([{"list_price": 6500, "volume_m3": 0.4, "qty": 1,
                                 "factory_discount": 0.5, "dealer_markup": 0,
                                 "assembly": 1}])["lines"][0]
+    base2 = {"purchase": 3250, "volume_m3": 0.4, "qty": 1,
+             "dealer_markup": 0, "assembly": 1}
     checks += [
+        ("рентаб процентом: 20 % от закупа",
+         pricing.project([{**base2, "margin_pct": 20}])["lines"][0]["margin"] == 650.0),
+        ("рентаб евро выигрывает у процента",
+         pricing.project([{**base2, "margin_pct": 20, "margin_eur": 1500}])["lines"][0]["margin"] == 1500.0),
+        ("нулевой процент законен — «без рентаба»",
+         pricing.project([{**base2, "margin_pct": 0}])["lines"][0]["margin"] == 0.0),
         ("закуп руками 3250 -> прайс выведен 6500",
          by_purchase["list_price"] == 6500.0 and by_purchase["purchase"] == 3250.0),
         ("обе дороги дают одну цепочку",

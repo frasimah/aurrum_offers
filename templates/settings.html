@@ -216,7 +216,9 @@
     const POS_FIELDS = [
       ['factory_discount', 'СКИДКА ФАБРИКИ', 'доля', 'от цены прайса',     'V'],
       ['dealer_markup',    'НАЦЕНКА ДИЛЕРА', 'доля', 'к цене со скидкой',  'X'],
-      ['assembly',         'СБОРКА',         'коэф.', 'делитель СУММЫ',    'AE'],
+      // В поле процент, хранится коэффициент книги: 5 % -> 0,95.
+      // Форма считает делением, AE = СУММА ÷ (1 − %/100).
+      ['assembly',         'СБОРКА',         '%', 'надбавка через деление', 'AE'],
     ];
 
     const POS_DEFAULTS = {{ position_defaults | tojson }};
@@ -226,11 +228,13 @@
       catch (e) { return { ...POS_DEFAULTS }; }
     };
 
+    const asmToPct = v => Math.round((1 - v) * 1000) / 10;
+
     function posRender(values) {
       document.getElementById('rows_position').innerHTML = POS_FIELDS.map(
         ([key, name, unit, base, column]) => `<tr>
           <td class="name">${name}</td>
-          <td class="field"><input id="p_${key}" value="${values[key]}"></td>
+          <td class="field"><input id="p_${key}" value="${key === 'assembly' ? asmToPct(values[key]) : values[key]}"></td>
           <td class="unit">${unit}</td>
           <td class="base">${base}</td>
           <td class="col">колонка ${column}</td>
@@ -248,7 +252,7 @@
           document.getElementById('saved_position').textContent = 'Проверьте значения — нужны числа.';
           return;
         }
-        out[key] = number;
+        out[key] = key === 'assembly' ? Math.round((1 - number / 100) * 1000) / 1000 : number;
       }
       localStorage.setItem(POS_KEY, JSON.stringify(out));
       document.getElementById('saved_position').textContent =
