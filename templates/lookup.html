@@ -135,6 +135,12 @@
       cursor: default;
     }
 
+    .fin {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 10px; margin-top: 6px;
+    }
+    .fin button { flex-shrink: 0; }
+
     button.ghost {
       background: #fff;
       color: #2d2d2d;
@@ -565,6 +571,25 @@
     // выбранное в поля карточки. Молча ничего не заменяем.
     const out = document.getElementById('parse_result');
 
+    // Отделка из техлиста -> строка описания. В колонки M/N/O книга отделки
+    // не пишет (там нули во всех живых позициях формы) — они живут текстом
+    // в «Описании», в том же формате, что собирает to_excel_description:
+    // «Роль - МАТЕРИАЛ + МАТЕРИАЛ». Сюда и вставляем.
+    function addFinish(f) {
+      const desc = document.getElementById('f_desc');
+      const material = (f.material || '').trim().toUpperCase();
+      if (!desc || !material) return;
+      const role = (f.role_ru || 'Отделка').trim();
+      const lines = desc.value ? desc.value.split('\n') : [];
+      const at = lines.findIndex(l => l.startsWith(role + ' - '));
+      if (at >= 0) {
+        if (!lines[at].toUpperCase().includes(material)) lines[at] += ' + ' + material;
+      } else {
+        lines.push(role + ' - ' + material);
+      }
+      desc.value = lines.join('\n');
+    }
+
     function fill(c) {
       const set = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };
       // Пустое поле заполняем, заполненное не трогаем: из карточки данные
@@ -616,9 +641,12 @@
             out.innerHTML = warns || '<div class="warn" style="margin-top:12px">'
               + 'Размеров в документе не нашлось — проверьте его вручную.</div>';
           } else {
-            const fins = (data.finishes || []).map(f =>
-              '<div class="hint" style="font-size:12.5px;color:#2d2d2d">' + esc(f.role_ru)
+            const fins = (data.finishes || []).map((f, j) =>
+              '<div class="fin">'
+              + '<span class="hint" style="font-size:12.5px;color:#2d2d2d">' + esc(f.role_ru)
               + ' — ' + esc(f.material) + (f.code ? ' <span class="badge">' + esc(f.code) + '</span>' : '')
+              + '</span>'
+              + '<button type="button" class="ghost" data-f="' + j + '">В описание</button>'
               + '</div>').join('');
 
             out.innerHTML = warns
@@ -637,6 +665,11 @@
               b.addEventListener('click', () => {
                 fill(data.candidates[b.dataset.i]);
                 b.textContent = 'Подставлено';
+              }));
+            out.querySelectorAll('button[data-f]').forEach(b =>
+              b.addEventListener('click', () => {
+                addFinish(data.finishes[b.dataset.f]);
+                b.textContent = 'В описании';
               }));
           }
         } catch (e) {
