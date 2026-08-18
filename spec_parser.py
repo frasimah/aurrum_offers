@@ -191,7 +191,11 @@ def _extract_photos(data: bytes) -> dict[int, str]:
                 rels = {}
                 if rels_path in names:
                     for r in ET.fromstring(z.read(rels_path)):
-                        rels[r.get("Id")] = r.get("Target", "").replace("../", "xl/")
+                        # Excel пишет путь относительным (../media/…),
+                        # openpyxl — абсолютным (/xl/media/…). Обе формы
+                        # приводим к имени внутри архива.
+                        rels[r.get("Id")] = (r.get("Target", "")
+                                             .replace("../", "xl/").lstrip("/"))
                 for anchor in ET.fromstring(z.read(d)):
                     frm = anchor.find(f"{NS_XDR}from")
                     blip = anchor.find(f".//{NS_A}blip")

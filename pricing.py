@@ -135,7 +135,55 @@ def line(list_price, volume_m3, *, factory_discount=None, dealer_markup=None,
     )
 
 
-def project(positions: list[dict], rates: dict | None = None) -> dict:
+# Итоговый блок компреда — из спецификации 2867 (строки 17-28):
+#
+#   Сумма                      =SUM(позиции)
+#   Дополнительные услуги      =Сумма × %          (в книге 0)
+#   Доставка по Москве         =Сумма × %          (в книге 0 — ВКЛЮЧЕН)
+#   Сборка/Монтаж              =Сумма × 5 %        (M20 =M17*0.05+4)
+#   Всего                      =сумма четырёх
+#   Персональная скидка        =−Всего × 30 %      (M22 =-M21*0.3-75)
+#   Под-Итог                   =Всего − скидка
+#   Дополнительная скидка, €   руками              (в книге −4300)
+#   ИТОГО К ОПЛАТЕ             =Под-Итог − доп.скидка
+#
+# «+4» и «−75» в книге — ручная доводка итога до круглого числа
+# (39999,75 ≈ 40000). В формулы её не тащим: для того же есть поле
+# дополнительной скидки.
+DEFAULT_FINAL = {
+    "services_pct": 0.0,     # дополнительные услуги
+    "delivery_pct": 0.0,     # доставка по Москве: ВКЛЮЧЕН — ноль
+    "assembly_pct": 5.0,     # сборка/монтаж
+    "personal_pct": 30.0,    # исключительная персональная скидка
+    "extra_eur": 0.0,        # дополнительная скидка, евро
+}
+
+
+def final_block(items_sum: float, fin: dict | None = None) -> dict:
+    """Сумма позиций -> итог компреда по цепочке книги."""
+    f = {**DEFAULT_FINAL, **{k: _num(v) for k, v in (fin or {}).items()}}
+    services = items_sum * f["services_pct"] / 100
+    delivery = items_sum * f["delivery_pct"] / 100
+    assembly = items_sum * f["assembly_pct"] / 100
+    total = items_sum + services + delivery + assembly
+    personal = -total * f["personal_pct"] / 100
+    subtotal = total + personal
+    payable = subtotal - f["extra_eur"]
+    return {
+        "услуги": round(services, 2),
+        "доставка": round(delivery, 2),
+        "сборка": round(assembly, 2),
+        "всего": round(total, 2),
+        "скидка": round(personal, 2),
+        "подытог": round(subtotal, 2),
+        "доп_скидка": round(-f["extra_eur"], 2),
+        "к_оплате": round(payable, 2),
+        "параметры": f,
+    }
+
+
+def project(positions: list[dict], rates: dict | None = None,
+            final: dict | None = None) -> dict:
     """Позиции проекта -> расчёт по каждой и итоги."""
     lines, total_sum, total_volume = [], 0.0, 0.0
     levels_sum: dict[str, float] = {}
@@ -170,4 +218,5 @@ def project(positions: list[dict], rates: dict | None = None) -> dict:
         "volume_m3": round(total_volume, 2),
         "count": len(positions),
         "levels": {k: round(v, 2) for k, v in levels_sum.items()},
+        "final": final_block(total_sum, final),
     }

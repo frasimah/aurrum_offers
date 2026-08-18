@@ -135,6 +135,8 @@
       cursor: default;
     }
 
+    .muted { color: #949598; font-weight: 400; font-size: 12px; }
+
     .warn-mark {
       display: inline-block; width: 16px; height: 16px;
       border-radius: 50%; background: #d64545; color: #fff;
@@ -473,6 +475,21 @@
 
           <label for="f_note">Примечание</label>
           <input id="f_note" value="{{ product.tech_note }}">
+
+          <label for="f_summary">Аннотация — факты по-русски
+            <span class="muted" id="summary_count"></span></label>
+          <textarea id="f_summary" rows="4"
+            placeholder="Появится, если на странице есть описание">{{ product.summary_ru }}</textarea>
+          <div class="actions" style="margin-top:6px">
+            <button type="button" class="ghost" id="summary_to_desc">В описание</button>
+          </div>
+          <div class="hint">
+            Модель выбирает из описания бренда конкретику — материалы,
+            конструкцию, механизмы — и пересказывает по-русски, до 400 знаков.
+            Названия отделок остаются на языке оригинала. Это единственное
+            поле, которое пишет модель, а не источник, — прочитайте перед
+            вставкой.
+          </div>
         </div>
 
         <div>
@@ -871,6 +888,28 @@
         }
         rowcopy.disabled = false;
         setTimeout(() => (rowcopy.textContent = label), 2500);
+      });
+    }
+
+    // Аннотация: счётчик и вставка в описание отдельным абзацем.
+    const summaryField = document.getElementById('f_summary');
+    if (summaryField) {
+      const counter = document.getElementById('summary_count');
+      const count = () => {
+        counter.textContent = summaryField.value.trim()
+          ? summaryField.value.trim().length + ' / 400' : '';
+      };
+      summaryField.addEventListener('input', count);
+      count();
+      document.getElementById('summary_to_desc').addEventListener('click', () => {
+        const desc = document.getElementById('f_desc');
+        const text = summaryField.value.trim();
+        const btn = document.getElementById('summary_to_desc');
+        if (!desc || !text) return;
+        if (desc.value.includes(text)) { btn.textContent = '✓ в описании'; return; }
+        desc.value = desc.value.trimEnd() + '\n\n' + text;
+        btn.textContent = '✓ в описании';
+        setTimeout(() => (btn.textContent = 'В описание'), 2500);
       });
     }
 

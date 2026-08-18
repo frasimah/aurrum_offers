@@ -50,7 +50,7 @@ _ASK = (
     '"variants": [{"sku": …, "dims_raw": …, "variant_note": …, '
     '"packed_volume_m3": …}], '
     '"finishes": [{"role_ru": …, "material": …, "code": …}], '
-    '"tech_note": …}]}. '
+    '"summary_ru": …, "tech_note": …}]}. '
     "Неизвестное оставляй пустым."
 )
 

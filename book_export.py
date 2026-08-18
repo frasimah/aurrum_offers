@@ -136,8 +136,15 @@ def _header(ws, head: dict) -> None:
 
 
 def build(positions: list[dict], rates: dict | None = None,
-          header: dict | None = None) -> bytes:
-    """Позиции проекта -> содержимое файла .xlsx."""
+          header: dict | None = None, final: dict | None = None,
+          values: bool = False) -> bytes:
+    """Позиции проекта -> содержимое файла .xlsx.
+
+    `values=True` — те же ячейки числами вместо формул: печать разбирает
+    книгу тут же, а формулы в свежем файле ещё никем не вычислены, и
+    разбор увидел бы пустоту. Числа считает тот же `pricing` — правда
+    одна, отличается только форма записи.
+    """
     r = {**pricing.DEFAULT_RATES, **(rates or {})}
 
     wb = openpyxl.Workbook()
@@ -176,6 +183,13 @@ def build(positions: list[dict], rates: dict | None = None,
                   "price": position.get("price") or computed.price or ""}
 
         cells = book_row.visible_row(fields, row) + book_row.pricing_row(fields, row)
+        if values:
+            qty = max(1, int(pricing._num(position.get("qty"), 1)))
+            price = pricing._num(fields.get("price"))
+            volume = pricing._num(position.get("volume_m3"))
+            cells[5] = round(price * qty, 2)      # F  Сумма
+            cells[17] = volume or ""              # R  м3
+            cells[18] = round(volume * qty, 2) if volume else ""   # S  м3 всего
         for index, value in enumerate(cells, start=1):
             ws.cell(row, index, _number(value))
 
@@ -188,13 +202,55 @@ def build(positions: list[dict], rates: dict | None = None,
             if image is not None:
                 ws.add_image(image, f"I{row}")
 
-    # Итоги — теми же формулами, что в форме.
+    # Итоговый блок компреда — формулами, цепочка из спецификации 2867:
+    # проценты вписаны в формулы числами, как делает сама книга
+    # (=M17*0.05), поэтому файл пересчитывается в Excel без нас.
     last = FIRST_ITEM_ROW + max(0, len(positions)) - 1
     totals_row = last + 2
     if positions:
-        ws.cell(totals_row, 5, "Сумма, Евро").font = Font(bold=True)
-        ws.cell(totals_row, 6, f"=SUM(F{FIRST_ITEM_ROW}:F{last})").font = Font(bold=True)
-        ws.cell(totals_row, 19, f"=SUM(S{FIRST_ITEM_ROW}:S{last})")
+        f = {**pricing.DEFAULT_FINAL,
+             **{k: v for k, v in (final or {}).items() if isinstance(v, (int, float))}}
+        t = totals_row
+        if values:
+            items_sum = sum(
+                pricing._num(p.get("price")) * max(1, int(pricing._num(p.get("qty"), 1)))
+                for p in positions) or sum(
+                pricing.line(p.get("list_price"), p.get("volume_m3"),
+                             factory_discount=p.get("factory_discount"),
+                             dealer_markup=p.get("dealer_markup"),
+                             assembly=p.get("assembly"), rates=r).price
+                * max(1, int(pricing._num(p.get("qty"), 1))) for p in positions)
+            fb = pricing.final_block(items_sum, f)
+            rows = [
+                ("Сумма, Евро", round(items_sum, 2), True),
+                ("Дополнительные услуги, Евро", fb["услуги"], False),
+                ("Доставка по Москве/МО, Евро", fb["доставка"], False),
+                ("Сборка/Монтаж, Евро", fb["сборка"], False),
+                ("Всего, Евро", fb["всего"], True),
+                ("Исключительная Персональная Скидка, Евро", fb["скидка"], False),
+                ("Под-Итог, Евро", fb["подытог"], True),
+                ("Дополнительная Скидка, Евро", fb["доп_скидка"], False),
+                ("ИТОГО К ОПЛАТЕ, Евро", fb["к_оплате"], True),
+            ]
+        else:
+            rows = [
+                ("Сумма, Евро", f"=SUM(F{FIRST_ITEM_ROW}:F{last})", True),
+                ("Дополнительные услуги, Евро", f"=F{t}*{f['services_pct'] / 100}", False),
+                ("Доставка по Москве/МО, Евро", f"=F{t}*{f['delivery_pct'] / 100}", False),
+                ("Сборка/Монтаж, Евро", f"=F{t}*{f['assembly_pct'] / 100}", False),
+                ("Всего, Евро", f"=F{t}+F{t + 1}+F{t + 2}+F{t + 3}", True),
+                ("Исключительная Персональная Скидка, Евро",
+                 f"=-F{t + 4}*{f['personal_pct'] / 100}", False),
+                ("Под-Итог, Евро", f"=F{t + 4}+F{t + 5}", True),
+                ("Дополнительная Скидка, Евро", -abs(f["extra_eur"]) or 0, False),
+                ("ИТОГО К ОПЛАТЕ, Евро", f"=F{t + 6}+F{t + 7}", True),
+            ]
+        for offset, (label, value, strong) in enumerate(rows):
+            row = t + offset
+            ws.cell(row, 3, label).font = Font(bold=strong)
+            cell = ws.cell(row, 6, _number(value))
+            cell.font = Font(bold=strong)
+        ws.cell(t, 19, f"=SUM(S{FIRST_ITEM_ROW}:S{last})")
 
     # Служебные колонки прячем, как в рабочей форме.
     for column in ("G", "R"):

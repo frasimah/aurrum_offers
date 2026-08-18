@@ -85,6 +85,10 @@
               }
             }
           },
+          "summary_ru": {
+            "type": ["string", "null"],
+            "description": "Russian summary of the product description, 400 characters MAXIMUM — hard limit, count them. Only concrete facts: materials, construction, mechanisms, what is coordinated with what, available finishes as a fact (not the full list — finishes go to their own field). Keep material/finish/colour names in the ORIGINAL language inside the Russian text, e.g. 'фасады из лакированного дерева Quartz Grey'. NO marketing epithets: drop 'harmonious', 'perfect proportions', 'craftsmanship with style' and the like entirely. Null if the page has no descriptive text."
+          },
           "materials_note": {
             "type": ["string", "null"],
             "description": "Construction description as printed (frame, padding, base, cover, feet), in the original language. Copy the sentences, do not summarise or translate."

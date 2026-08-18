@@ -440,6 +440,48 @@ def check_pricing() -> tuple[int, int]:
     return good, len(cases)
 
 
+def check_final_block() -> tuple[int, int]:
+    """Итог компреда — против спецификации 2867.
+
+    В книге два ручных подгона до круглого числа: «+4» в сборке и «−75»
+    в скидке. Наши формулы их не содержат — сверяем тождеством: наши
+    числа с приложенными подгонами обязаны дать книжные до копейки.
+    """
+    import pricing
+    print("\n ИТОГ КОМПРЕДА ПРОТИВ КНИГИ 2867")
+    print(" " + "-" * 74)
+    f = pricing.final_block(60370, {"assembly_pct": 5, "personal_pct": 30})
+    checks = [
+        ("сборка 5 %: 3018.5 (в книге 3022.5 = +4)", f["сборка"] == 3018.5),
+        ("всего + подгон 4 = книжные 63392.5", f["всего"] + 4 == 63392.5),
+        ("(всего+4)×0.7 − 75 = книжный под-итог 44299.75",
+         round((f["всего"] + 4) * 0.7 - 75, 2) == 44299.75),
+        ("доп.скидка 4300 доводит до книжных 39999.75",
+         round((f["всего"] + 4) * 0.7 - 75 - 4300, 2) == 39999.75),
+    ]
+    good = 0
+    for label, hit in checks:
+        good += hit
+        print(f"  {OK if hit else BAD} {label}")
+
+    # Блок в выгрузке: формулы ссылаются друг на друга, а не на числа.
+    import io
+    import book_export
+    import openpyxl
+    content = book_export.build(
+        [{"brand": "X", "model": "Y", "qty": 1, "list_price": 100}],
+        final={"assembly_pct": 5, "personal_pct": 30})
+    ws = openpyxl.load_workbook(io.BytesIO(content)).active
+    labels = [ws.cell(r, 3).value for r in range(14, 28)]
+    formulas = [str(ws.cell(r, 6).value) for r in range(14, 28)]
+    hit = ("ИТОГО К ОПЛАТЕ, Евро" in labels
+           and any(str(v).startswith("=-F") for v in formulas))
+    good += hit
+    checks.append(("x", hit))
+    print(f"  {OK if hit else BAD} блок уходит в файл формулами, включая скидку")
+    return good, len(checks)
+
+
 def check_position_defaults() -> tuple[int, int]:
     """Не заданное поле — число формы, очищенное — ноль.
 
@@ -773,6 +815,7 @@ def main() -> int:
     c_ok, c_all = check_columns()
     p_ok, p_all = check_pricing()
     pd_ok, pd_all = check_position_defaults()
+    fb_ok, fb_all = check_final_block()
     r_ok, r_all = check_gallery_rules()
     l_ok, l_all = check_login()
     ph_ok, ph_all = check_photos()
@@ -794,13 +837,13 @@ def main() -> int:
           and t_ok == t_all and g_ok == g_all and f_ok == f_all
           and b_ok == b_all and c_ok == c_all and p_ok == p_all
           and ph_ok == ph_all and tn_ok == tn_all and r_ok == r_all
-          and sh_ok == sh_all and pd_ok == pd_all and hd_ok == hd_all and dl_ok == dl_all
+          and sh_ok == sh_all and pd_ok == pd_all and hd_ok == hd_all and dl_ok == dl_all and fb_ok == fb_all
           and (gl_all is None or gl_ok == gl_all))
     print("\n" + " " + "=" * 74)
     print(f"  Размеры: {d_ok}/{d_all}   Объём: {v_ok}/{v_all}   "
           f"Сверка: {g_ok}/{g_all}   Техлист: {f_ok}/{f_all}   "
           f"Строка: {b_ok}/{b_all}   Колонки: {c_ok}/{c_all}   Расчёт: {p_ok}/{p_all}   "
-          f"Начальные числа: {pd_ok}/{pd_all}   Шапка: {hd_ok}/{hd_all}   "
+          f"Начальные числа: {pd_ok}/{pd_all}   Итог: {fb_ok}/{fb_all}   Шапка: {hd_ok}/{hd_all}   "
           f"Выгрузка: {dl_ok}/{dl_all}\n"
           f"  Фото: {ph_ok}/{ph_all}   Правила галерей: {r_ok}/{r_all}   "
           f"Источник фото: {sh_ok}/{sh_all}   "

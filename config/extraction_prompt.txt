@@ -73,6 +73,17 @@ RULES
    stays "NOCE CANALETTO". Only the role of the finish is mapped to the
    Russian list.
 
+RUSSIAN SUMMARY (summary_ru)
+
+When the page carries a descriptive paragraph, distil it into Russian:
+400 characters MAXIMUM, facts only. Keep what the manager can verify —
+materials, construction, mechanisms, coordinated parts. Drop every
+marketing epithet: "harmonious", "perfect proportions", "accentuates
+its craftsmanship" carry no fact and must not survive. Material,
+finish and colour names stay in their ORIGINAL language inside the
+Russian sentence. If the page has no descriptive text, return null —
+never compose a summary from the specification alone.
+
 WHAT A GOOD ANSWER LOOKS LIKE
 
 For a bed offered in five mattress sizes, `variants` has five entries:

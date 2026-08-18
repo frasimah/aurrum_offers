@@ -67,6 +67,7 @@ class Product:
     package_note: str = ""
     finishes: list[dict] = field(default_factory=list)
     tech_note: str = ""
+    summary_ru: str = ""             # русское саммари фактов, до 400 знаков
     photo_urls: list[str] = field(default_factory=list)
     doc_urls: list[str] = field(default_factory=list)
     spec_pdf_url: str = ""
@@ -649,6 +650,18 @@ def lookup(url: str) -> Product:
             )
 
     p.tech_note = str(page.get("tech_note") or "").strip()
+
+    # Саммари — единственное поле, которое модель пишет сама, а не
+    # переписывает из источника. Держим его коротким принудительно:
+    # просьба в промпте — не гарантия, а 400 знаков — обещание интерфейса.
+    summary = str(page.get("summary_ru") or "").strip()
+    if len(summary) > 400:
+        cut = summary[:400]
+        # По границе предложения, если она есть в хвосте; иначе по слову.
+        dot = cut.rfind(". ")
+        summary = cut[:dot + 1] if dot > 200 else cut[:cut.rfind(" ")]
+        p.warnings.append("Саммари пришло длиннее 400 знаков — обрезано.")
+    p.summary_ru = summary
     p.finishes = [_as_dict(f) for f in (page.get("finishes") or [])]
     p.variants = [v for v in (_as_dict(x) for x in (page.get("variants") or []))
                   if str(v.get("dims_raw") or "").strip()]

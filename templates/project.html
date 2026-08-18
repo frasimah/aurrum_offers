@@ -89,6 +89,15 @@
        остальное посчитано и правке не подлежит. */
     input.manual { background: #fffdf2; border-color: #e6d9a8; }
 
+    .fintable { max-width: 560px; border-collapse: collapse; }
+    .fintable td { padding: 7px 8px; border-bottom: 1px solid #f2f2f2; }
+    .fintable td.name { color: #4a4a4a; }
+    .fintable td.field { width: 110px; white-space: nowrap; color: #949598; font-size: 12px; }
+    .fintable td.field input { width: 64px; display: inline-block; }
+    .fintable td.fnum { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .fintable tr.strongrow td { font-weight: 500; }
+    .fintable tr.payable td { font-size: 15px; border-bottom: 0; }
+
     .warn-mark {
       display: inline-block; width: 15px; height: 15px;
       border-radius: 50%; background: #d64545; color: #fff;
@@ -220,12 +229,46 @@
       <div class="actions">
         <button type="button" class="ghost" id="recalc">Пересчитать</button>
         <button type="button" id="export">Скачать файлом Excel</button>
+        <button type="button" id="printdoc">Сформировать компред</button>
         <button type="button" class="ghost" id="copyall">Скопировать все строки</button>
+        <button type="button" class="ghost" id="fromdefaults">Вставить из констант</button>
         <button type="button" class="ghost" id="saveall">Сохранить</button>
         <a class="back" href="{{ url_for('lookup') }}">Вернуться к парсеру</a>
         <button type="button" class="link" id="clear">Очистить проект</button>
       </div>
       <div class="hint" id="status"></div>
+    </div>
+
+    <div class="card">
+      <h2>Итог компреда</h2>
+      <div class="hint" style="margin-bottom:12px">
+        Цепочка из рабочей спецификации: сумма позиций, услуги, доставка и
+        сборка процентами, затем персональная скидка и дополнительная —
+        евро, для доводки до круглого числа. Проценты жёлтые — правятся.
+      </div>
+      <table class="fintable">
+        <tbody>
+          <tr><td class="name">Сумма позиций</td><td class="field"></td><td class="fnum" id="fin_sum">0</td></tr>
+          <tr><td class="name">Дополнительные услуги</td>
+              <td class="field"><input class="manual" id="fin_services_pct" value="0"> %</td>
+              <td class="fnum" id="fin_services">0</td></tr>
+          <tr><td class="name">Доставка по Москве/МО</td>
+              <td class="field"><input class="manual" id="fin_delivery_pct" value="0"> %</td>
+              <td class="fnum" id="fin_delivery">0</td></tr>
+          <tr><td class="name">Сборка/Монтаж</td>
+              <td class="field"><input class="manual" id="fin_assembly_pct" value="5"> %</td>
+              <td class="fnum" id="fin_assembly">0</td></tr>
+          <tr class="strongrow"><td class="name">Всего</td><td class="field"></td><td class="fnum" id="fin_total">0</td></tr>
+          <tr><td class="name">Персональная скидка</td>
+              <td class="field"><input class="manual" id="fin_personal_pct" value="30"> %</td>
+              <td class="fnum" id="fin_personal">0</td></tr>
+          <tr class="strongrow"><td class="name">Под-Итог</td><td class="field"></td><td class="fnum" id="fin_subtotal">0</td></tr>
+          <tr><td class="name">Дополнительная скидка, €</td>
+              <td class="field"><input class="manual" id="fin_extra_eur" value="0"></td>
+              <td class="fnum" id="fin_extra">0</td></tr>
+          <tr class="strongrow payable"><td class="name">ИТОГО К ОПЛАТЕ</td><td class="field"></td><td class="fnum" id="fin_payable">0</td></tr>
+        </tbody>
+      </table>
     </div>
 
   </div>
@@ -248,6 +291,31 @@
       const base = { factory_discount: 0.5, dealer_markup: 0, assembly: 1 };
       try { return { ...base, ...(JSON.parse(localStorage.getItem('aurrum.position_defaults')) || {}) }; }
       catch (e) { return base; }
+    })();
+
+    // Параметры итога компреда: проценты и доп.скидка, свои у проекта.
+    const FIN_KEY = 'aurrum.final';
+    const FIN_FIELDS = ['services_pct', 'delivery_pct', 'assembly_pct', 'personal_pct', 'extra_eur'];
+
+    const finParams = () => {
+      const out = {};
+      for (const key of FIN_FIELDS) {
+        out[key] = parseFloat((document.getElementById('fin_' + key).value || '0').replace(',', '.')) || 0;
+      }
+      return out;
+    };
+
+    (() => {
+      let saved = {};
+      try { saved = JSON.parse(localStorage.getItem(FIN_KEY)) || {}; } catch (e) { /* значения формы */ }
+      for (const key of FIN_FIELDS) {
+        const el = document.getElementById('fin_' + key);
+        if (saved[key] != null) el.value = saved[key];
+        el.addEventListener('change', () => {
+          localStorage.setItem(FIN_KEY, JSON.stringify(finParams()));
+          recalc();
+        });
+      }
     })();
 
     const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) { return []; } };
@@ -332,6 +400,18 @@
         </tr>`;
       }).join('');
 
+      const fin = calc && calc.final;
+      const setf = (id, v) => { document.getElementById(id).textContent = rub(v); };
+      setf('fin_sum', calc ? calc.sum : 0);
+      setf('fin_services', fin ? fin['услуги'] : 0);
+      setf('fin_delivery', fin ? fin['доставка'] : 0);
+      setf('fin_assembly', fin ? fin['сборка'] : 0);
+      setf('fin_total', fin ? fin['всего'] : 0);
+      setf('fin_personal', fin ? fin['скидка'] : 0);
+      setf('fin_subtotal', fin ? fin['подытог'] : 0);
+      setf('fin_extra', fin ? fin['доп_скидка'] : 0);
+      setf('fin_payable', fin ? fin['к_оплате'] : 0);
+
       if (calc) {
         document.getElementById('totals').hidden = false;
         document.getElementById('t_count').textContent = calc.count;
@@ -364,7 +444,7 @@
       try {
         const r = await fetch('{{ url_for("calc") }}', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ positions, rates: rates() }),
+          body: JSON.stringify({ positions, rates: rates(), final: finParams() }),
         });
         const data = await r.json();
         // Ответ с ошибкой — это JSON без lines: показать его как расчёт
@@ -380,6 +460,43 @@
     }
 
     document.getElementById('recalc').addEventListener('click', recalc);
+
+    // Компред в фирменном дизайне: та же книга, что уходит файлом,
+    // но отданная печати. Обычная форма, а не fetch: страница должна
+    // открыться новой вкладкой, а не прийти блобом.
+    document.getElementById('printdoc').addEventListener('click', () => {
+      if (!positions.length) return;
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = '{{ url_for("project_print") }}';
+      form.target = '_blank';
+      const field = document.createElement('input');
+      field.type = 'hidden';
+      field.name = 'payload';
+      field.value = JSON.stringify({ positions, rates: rates(), header: header(), final: finParams() });
+      form.appendChild(field);
+      document.body.appendChild(form);
+      form.submit();
+      form.remove();
+    });
+
+    // Скидка, наценка и сборка каждой позиции — из начальных чисел на
+    // странице «Константы». Кнопка нужна, когда числа поменяли после
+    // того, как позиции уже легли в проект: разово применить ко всем.
+    document.getElementById('fromdefaults').addEventListener('click', async () => {
+      if (!positions.length) return;
+      if (!confirm('Заменить скидку, наценку и сборку у всех позиций числами со страницы «Константы»?')) return;
+      for (const p of positions) {
+        for (const key of Object.keys(POS_DEFAULTS)) p[key] = POS_DEFAULTS[key];
+      }
+      save(positions);
+      // Сначала пересчёт, потом сообщение: recalc по успеху чистит статус,
+      // и написанное до него исчезало, не успев показаться.
+      await recalc();
+      document.getElementById('status').textContent =
+        'Подставлено из констант: скидка ' + POS_DEFAULTS.factory_discount +
+        ', наценка ' + POS_DEFAULTS.dealer_markup + ', сборка ' + POS_DEFAULTS.assembly + '.';
+    });
 
     // Проект и шапка сохраняются сами на каждую правку. Кнопка нужна не
     // механизму, а человеку: явное действие и подтверждение словами.
@@ -410,7 +527,7 @@
       try {
         const r = await fetch('{{ url_for("project_export") }}', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ positions, rates: rates(), header: header() }),
+          body: JSON.stringify({ positions, rates: rates(), header: header(), final: finParams() }),
         });
         if (!r.ok) {
           // Тело ошибки не всегда JSON: на сбое сервера прилетает страница,

@@ -7,6 +7,7 @@ AURRUM — конвертер спецификаций: Excel на входе, �
 from __future__ import annotations
 
 import hmac
+import json
 import os
 import re
 import secrets
@@ -279,7 +280,8 @@ def calc():
     if len(positions) > 500:
         return {"error": "Слишком много позиций за раз."}, 400
 
-    return pricing.project(positions, rates=data.get("rates"))
+    return pricing.project(positions, rates=data.get("rates"),
+                           final=data.get("final"))
 
 
 @app.route("/project/export", methods=["POST"])
@@ -294,7 +296,8 @@ def project_export():
 
     try:
         content = book_export.build(positions, rates=data.get("rates"),
-                                    header=data.get("header"))
+                                    header=data.get("header"),
+                                    final=data.get("final"))
     except Exception as exc:  # noqa: BLE001 — причину показываем пользователю
         return {"error": f"Не удалось собрать файл: {exc}"}, 500
 
@@ -368,6 +371,38 @@ def photo():
     return Response(got.content, mimetype=mime, headers={
         "Content-Disposition": f'attachment; filename="{name}"',
     })
+
+
+@app.route("/project/print", methods=["POST"])
+def project_print():
+    """Проект -> компред в фирменном дизайне, минуя файл.
+
+    Путь нарочно тот же, что у загруженного Excel: проект складывается
+    в книгу в памяти (`book_export`), и её разбирает та же печать
+    (`spec_parser` -> spec.html). Одна правда: что ушло бы в файл,
+    то и на печати — вплоть до формул итога и фотографий.
+    """
+    try:
+        data = json.loads(request.form.get("payload") or "{}")
+    except ValueError:
+        return render_template("index.html", error="Не разобран запрос печати."), 400
+    positions = data.get("positions")
+    if not isinstance(positions, list) or not positions:
+        return render_template("index.html", error="В проекте нет позиций."), 400
+    if len(positions) > 200:
+        return render_template("index.html", error="Слишком много позиций за раз."), 400
+
+    try:
+        content = book_export.build(positions, rates=data.get("rates"),
+                                    header=data.get("header"),
+                                    final=data.get("final"), values=True)
+        spec = spec_parser.parse(content)
+    except Exception as exc:  # noqa: BLE001 — причину показываем пользователю
+        return render_template(
+            "index.html", error=f"Не удалось собрать компред: {exc}"
+        ), 400
+
+    return render_template("spec.html", spec=spec)
 
 
 @app.route("/convert", methods=["POST"])
