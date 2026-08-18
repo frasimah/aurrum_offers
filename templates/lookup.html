@@ -441,14 +441,14 @@
           <input id="f_model" value="{{ product.model }}">
 
           <label for="f_type">Тип</label>
-          <select id="f_type">
-            {# Без пустого пункта неопознанный тип молча показывался бы
-               первым в списке — «Кресло» вместо честного «не определён». #}
-            <option value="" {% if not product.type_ru %}selected{% endif %}>— не определён —</option>
-            {% for t in types %}
-            <option value="{{ t }}" {% if t==product.type_ru %}selected{% endif %}>{{ t }}</option>
-            {% endfor %}
-          </select>
+          {# Поле со списком-подсказкой, а не select: словарь остаётся
+             в один клик, но руками можно вписать тип, которого в нём
+             нет — «Диван-кровать» не обязан превращаться в «Другое». #}
+          <input id="f_type" list="type_list" value="{{ product.type_ru }}"
+                 placeholder="не определён — выберите или впишите">
+          <datalist id="type_list">
+            {% for t in types %}<option value="{{ t }}">{% endfor %}
+          </datalist>
 
           <label for="f_dims_raw">Размеры (строкой, как в источнике)</label>
           <input id="f_dims_raw" value="{{ product.dims_raw }}">
@@ -648,10 +648,7 @@
       set('f_dims_raw', c.value);
       fillIfEmpty('f_brand', c.brand);
       fillIfEmpty('f_model', c.model);
-      const type = document.getElementById('f_type');
-      if (type && c.type_ru && [...type.options].some(o => o.value === c.type_ru)) {
-        type.value = c.type_ru;
-      }
+      fillIfEmpty('f_type', c.type_ru);
       const desc = document.getElementById('f_desc');
       if (desc) {
         const lines = desc.value.split('\n');
