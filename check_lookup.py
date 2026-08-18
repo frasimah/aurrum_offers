@@ -440,6 +440,39 @@ def check_pricing() -> tuple[int, int]:
     return good, len(cases)
 
 
+def check_overrides() -> tuple[int, int]:
+    """Ручные значения позиции: цена и SWIFT.
+
+    Ровно две ручки, и обе — из формы: цена клиенту в книге округлена
+    менеджером (5752,2 -> 5750), SWIFT стоит числом в каждой строке.
+    Пустое значение возвращает расчёт.
+    """
+    import pricing
+    print("\n РУЧНЫЕ ЗНАЧЕНИЯ ПОЗИЦИИ")
+    print(" " + "-" * 74)
+    base = {"list_price": 2550, "volume_m3": 0.2, "qty": 1, "assembly": 0.95}
+    plain = pricing.project([base])["lines"][0]
+    manual = pricing.project([{**base, "price": 2150, "swift": 0}])["lines"][0]
+    cleared = pricing.project([{**base, "price": "", "swift": ""}])["lines"][0]
+    checks = [
+        ("расчётная цена 2190 — предложение", plain["price"] == 2190),
+        ("цена руками 2150 заменяет расчёт", manual["price"] == 2150.0),
+        ("сумма считается от ручной цены", manual["sum"] == 2150.0),
+        ("SWIFT позиции 0 выигрывает у ставки", manual["swift"] == 0.0),
+        # Сравниваем при одинаковом SWIFT: уровни законно зависят от него
+        # через СУММУ, а вот ручная цена менять их не должна.
+        ("уровни оплаты от ручной цены не зависят",
+         manual["levels"] == pricing.project([{**base, "swift": 0}])["lines"][0]["levels"]),
+        ("пустое значение возвращает расчёт",
+         cleared["price"] == 2190 and cleared["swift"] == 200.0),
+    ]
+    good = 0
+    for label, hit in checks:
+        good += hit
+        print(f"  {OK if hit else BAD} {label}")
+    return good, len(checks)
+
+
 def check_final_block() -> tuple[int, int]:
     """Итог компреда — против спецификации 2867.
 
@@ -816,6 +849,7 @@ def main() -> int:
     p_ok, p_all = check_pricing()
     pd_ok, pd_all = check_position_defaults()
     fb_ok, fb_all = check_final_block()
+    ov_ok, ov_all = check_overrides()
     r_ok, r_all = check_gallery_rules()
     l_ok, l_all = check_login()
     ph_ok, ph_all = check_photos()
@@ -837,13 +871,13 @@ def main() -> int:
           and t_ok == t_all and g_ok == g_all and f_ok == f_all
           and b_ok == b_all and c_ok == c_all and p_ok == p_all
           and ph_ok == ph_all and tn_ok == tn_all and r_ok == r_all
-          and sh_ok == sh_all and pd_ok == pd_all and hd_ok == hd_all and dl_ok == dl_all and fb_ok == fb_all
+          and sh_ok == sh_all and pd_ok == pd_all and hd_ok == hd_all and dl_ok == dl_all and fb_ok == fb_all and ov_ok == ov_all
           and (gl_all is None or gl_ok == gl_all))
     print("\n" + " " + "=" * 74)
     print(f"  Размеры: {d_ok}/{d_all}   Объём: {v_ok}/{v_all}   "
           f"Сверка: {g_ok}/{g_all}   Техлист: {f_ok}/{f_all}   "
           f"Строка: {b_ok}/{b_all}   Колонки: {c_ok}/{c_all}   Расчёт: {p_ok}/{p_all}   "
-          f"Начальные числа: {pd_ok}/{pd_all}   Итог: {fb_ok}/{fb_all}   Шапка: {hd_ok}/{hd_all}   "
+          f"Начальные числа: {pd_ok}/{pd_all}   Итог: {fb_ok}/{fb_all}   Ручные: {ov_ok}/{ov_all}   Шапка: {hd_ok}/{hd_all}   "
           f"Выгрузка: {dl_ok}/{dl_all}\n"
           f"  Фото: {ph_ok}/{ph_all}   Правила галерей: {r_ok}/{r_all}   "
           f"Источник фото: {sh_ok}/{sh_all}   "

@@ -103,6 +103,16 @@
     .fintable tr.strongrow td { font-weight: 500; }
     .fintable tr.payable td { font-size: 15px; border-bottom: 0; }
 
+    td.editable { cursor: pointer; white-space: nowrap; }
+    td.editable .pen {
+      opacity: 0; margin-left: 3px; font-size: 11px; color: #949598;
+      transition: 0.15s;
+    }
+    td.editable:hover .pen { opacity: 1; }
+    td.editable input { width: 74px; }
+    /* Ручное значение помечено пунктиром: видно, что это не расчёт. */
+    td.editable .overridden { border-bottom: 1px dashed #b58900; }
+
     .warn-mark {
       display: inline-block; width: 15px; height: 15px;
       border-radius: 50%; background: #d64545; color: #fff;
@@ -420,10 +430,12 @@
           <td class="num muted">${rub(c.purchase)}</td>
           <td class="num muted">${rub(c.margin)}</td>
           <td class="num muted">${rub(c.transfer)}</td>
-          <td class="num muted">${rub(c.swift)}</td>
+          <td class="num muted editable" data-edit="swift" data-i="${i}" title="SWIFT этой позиции — в форме он числом в каждой строке">
+            <span${p.swift != null && p.swift !== '' ? ' class="overridden"' : ''}>${rub(c.swift)}</span><span class="pen">✎</span></td>
           <td class="num muted">${rub(c.freight)}</td>
           <td class="num">${rub(c.total)}</td>
-          <td class="num strong">${rub(c.price)}</td>
+          <td class="num strong editable" data-edit="price" data-i="${i}" title="Цена клиенту — предложение расчёта; в книге её округляет менеджер">
+            <span${p.price != null && p.price !== '' ? ' class="overridden"' : ''}>${rub(c.price)}</span><span class="pen">✎</span></td>
           <td class="num strong">${rub(c.sum)}</td>
           <td><button class="link" data-del="${i}">убрать</button></td>
         </tr>`;
@@ -459,6 +471,40 @@
           save(positions);
           recalc();
         }));
+      // Карандаш: значение правится на месте. Пустое поле возвращает
+      // расчёт — ручное значение хранится в позиции и потому переживает
+      // перезагрузку, а снятое — исчезает из неё же.
+      body.querySelectorAll('td[data-edit]').forEach(td =>
+        td.addEventListener('click', () => {
+          if (td.querySelector('input')) return;
+          const i = +td.dataset.i;
+          const key = td.dataset.edit;
+          const current = positions[i][key];
+          td.innerHTML = '';
+          const field = document.createElement('input');
+          field.className = 'manual';
+          field.value = current == null ? '' : current;
+          field.placeholder = 'расчёт';
+          td.appendChild(field);
+          field.focus();
+          field.select();
+          const commit = () => {
+            const raw = (field.value || '').replace(',', '.').trim();
+            if (raw === '') {
+              delete positions[i][key];
+            } else if (isFinite(parseFloat(raw))) {
+              positions[i][key] = parseFloat(raw);
+            }
+            save(positions);
+            recalc();
+          };
+          field.addEventListener('blur', commit);
+          field.addEventListener('keydown', e => {
+            if (e.key === 'Enter') field.blur();
+            if (e.key === 'Escape') { field.value = current == null ? '' : current; field.blur(); }
+          });
+        }));
+
       body.querySelectorAll('button[data-del]').forEach(el =>
         el.addEventListener('click', () => {
           positions.splice(+el.dataset.del, 1);

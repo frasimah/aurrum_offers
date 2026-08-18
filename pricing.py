@@ -87,7 +87,8 @@ def _num(value, default: float = 0.0) -> float:
 
 
 def line(list_price, volume_m3, *, factory_discount=None, dealer_markup=None,
-         assembly=None, qty=1, rates: dict | None = None) -> Line:
+         assembly=None, qty=1, rates: dict | None = None,
+         swift=None) -> Line:
     """Цена прайса и объём -> вся цепочка книги.
 
     Не заданное поле берёт значение из `DEFAULT_POSITION`, пустая строка —
@@ -108,7 +109,9 @@ def line(list_price, volume_m3, *, factory_discount=None, dealer_markup=None,
 
     margin = purchase * r["margin"] / 100
     transfer = discounted * r["transfer"] / 100
-    swift = r["swift"]
+    # SWIFT в форме стоит числом в каждой строке — заданное позицией
+    # значение выигрывает у общей ставки.
+    swift = _num(swift) if swift not in (None, "") else r["swift"]
     freight = _num(volume_m3) * r["freight"]
     total = purchase + margin + transfer + swift + freight
 
@@ -208,17 +211,19 @@ def project(positions: list[dict], rates: dict | None = None,
             dealer_markup=p.get("dealer_markup"),
             assembly=p.get("assembly"),
             rates=rates,
+            swift=p.get("swift"),
         )
+        price = _num(p.get("price")) or computed.price
         lines.append({
             "purchase": computed.purchase, "margin": computed.margin,
             "transfer": computed.transfer, "swift": computed.swift,
             "freight": computed.freight, "total": computed.total,
             "with_assembly": computed.with_assembly,
-            "price": computed.price, "sum": round(computed.price * qty, 2),
+            "price": price, "sum": round(price * qty, 2),
             "levels": computed.levels,
             "qty": qty,
         })
-        total_sum += computed.price * qty
+        total_sum += price * qty
         total_volume += _num(p.get("volume_m3")) * qty
         # Уровни цены тоже умножаем на количество — иначе итог «безнал»
         # считается за штуку, а «сумма» за всё, и они не сходятся.

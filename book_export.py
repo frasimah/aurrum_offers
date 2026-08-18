@@ -183,7 +183,10 @@ def build(positions: list[dict], rates: dict | None = None,
             dealer_markup=position.get("dealer_markup"),
             assembly=position.get("assembly"), rates=r,
         )
-        fields = {**position, "number": offset + 1, "swift": r["swift"],
+        fields = {**position, "number": offset + 1,
+                  # SWIFT в форме числом в каждой строке: своё значение
+                  # позиции выигрывает у общей ставки.
+                  "swift": position.get("swift") or r["swift"],
                   # Цена клиенту — предложение расчёта; менеджер правит в файле.
                   "price": position.get("price") or computed.price or ""}
 
