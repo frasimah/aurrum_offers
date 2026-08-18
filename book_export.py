@@ -182,8 +182,14 @@ def build(positions: list[dict], rates: dict | None = None,
             factory_discount=position.get("factory_discount"),
             dealer_markup=position.get("dealer_markup"),
             assembly=position.get("assembly"), rates=r,
+            swift=position.get("swift"), purchase=position.get("purchase"),
         )
         fields = {**position, "number": offset + 1,
+                  # Ручной закуп первичен: в T уходит выведенная цена
+                  # прайса, и формулы книги воспроизводят тот же закуп.
+                  "list_price": (computed.list_price
+                                 if pricing._num(position.get("purchase")) > 0
+                                 else position.get("list_price")),
                   # SWIFT в форме числом в каждой строке: своё значение
                   # позиции выигрывает у общей ставки.
                   "swift": position.get("swift") or r["swift"],

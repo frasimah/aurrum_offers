@@ -103,6 +103,10 @@
     .fintable tr.strongrow td { font-weight: 500; }
     .fintable tr.payable td { font-size: 15px; border-bottom: 0; }
 
+    /* Короткие числа — узкие поля: кол-во, м³, скидка, наценка, сборка.
+       Иначе ряд не помещался и уползал в прокрутку. */
+    input.short { min-width: 44px; width: 56px; }
+
     td.editable { cursor: pointer; white-space: nowrap; }
     td.editable .pen {
       opacity: 0; margin-left: 3px; font-size: 11px; color: #949598;
@@ -200,8 +204,9 @@
     <div class="card">
       <h2>Позиции <span class="muted" id="count"></span></h2>
       <div class="hint" style="margin-bottom:12px">
-        Жёлтым — то, что вводится руками: цена прайса, скидка фабрики, наценка дилера
-        и коэффициент сборки. Их со страницы бренда не узнать. Остальное считается.
+        Жёлтым — то, что вводится руками. Закуп тоже вводится напрямую —
+        карандаш по наведению: тогда цена прайса выводится арифметикой
+        Закуп ÷ (1+наценка) ÷ (1−скидка) и показывается серым. Остальное считается.
       </div>
 
       <div id="empty" class="empty" hidden>
@@ -421,13 +426,18 @@
             <div class="name">${esc(p.brand)} ${esc(p.model)}</div>
             <div class="sub">${esc(p.type_ru || '')}${p.dims_raw ? ' · ' + esc(p.dims_raw) : ''}${p.dims_confident === false ? ' <span class="warn-mark" title="Оси расставлены по порядку — пометки высоты в источнике нет. Проверьте объём.">!</span>' : ''}</div>
           </td>
-          ${cell('qty', p.qty == null ? 1 : p.qty)}
-          ${cell('volume_m3', p.volume_m3 == null ? '' : p.volume_m3)}
-          ${cell('list_price', p.list_price == null ? '' : p.list_price)}
-          ${cell('factory_discount', p.factory_discount)}
-          ${cell('dealer_markup', p.dealer_markup)}
-          ${cell('assembly', p.assembly)}
-          <td class="num muted">${rub(c.purchase)}</td>
+          ${cell('qty', p.qty == null ? 1 : p.qty, 'short')}
+          ${cell('volume_m3', p.volume_m3 == null ? '' : p.volume_m3, 'short')}
+          <td><input class="manual" data-i="${i}" data-k="list_price"
+            value="${esc(p.list_price == null ? '' : p.list_price)}"
+            placeholder="${p.purchase != null && c.list_price ? '≈ ' + rub(c.list_price) : ''}"
+            title="Пусто при ручном закупе — серым показана выведенная арифметикой"></td>
+          ${cell('factory_discount', p.factory_discount, 'short')}
+          ${cell('dealer_markup', p.dealer_markup, 'short')}
+          ${cell('assembly', p.assembly, 'short')}
+          <td class="num muted editable" data-edit="purchase" data-i="${i}"
+            title="Закуп — из инвойса, вводится руками; цена прайса выведется арифметически">
+            <span${p.purchase != null && p.purchase !== '' ? ' class="overridden"' : ''}>${rub(c.purchase)}</span><span class="pen">✎</span></td>
           <td class="num muted">${rub(c.margin)}</td>
           <td class="num muted">${rub(c.transfer)}</td>
           <td class="num muted editable" data-edit="swift" data-i="${i}" title="SWIFT этой позиции — в форме он числом в каждой строке">

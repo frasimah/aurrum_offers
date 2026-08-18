@@ -466,6 +466,20 @@ def check_overrides() -> tuple[int, int]:
         ("пустое значение возвращает расчёт",
          cleared["price"] == 2190 and cleared["swift"] == 200.0),
     ]
+    # Закуп первичен: менеджер знает его из инвойса, а цена прайса
+    # выводится обратной арифметикой той же цепочки.
+    by_purchase = pricing.project([{"purchase": 3250, "volume_m3": 0.4, "qty": 1,
+                                    "factory_discount": 0.5, "dealer_markup": 0,
+                                    "assembly": 1}])["lines"][0]
+    by_list = pricing.project([{"list_price": 6500, "volume_m3": 0.4, "qty": 1,
+                                "factory_discount": 0.5, "dealer_markup": 0,
+                                "assembly": 1}])["lines"][0]
+    checks += [
+        ("закуп руками 3250 -> прайс выведен 6500",
+         by_purchase["list_price"] == 6500.0 and by_purchase["purchase"] == 3250.0),
+        ("обе дороги дают одну цепочку",
+         by_purchase["sum"] == by_list["sum"] and by_purchase["margin"] == by_list["margin"]),
+    ]
     good = 0
     for label, hit in checks:
         good += hit

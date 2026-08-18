@@ -66,6 +66,7 @@ PRICE_STEP = 10
 @dataclass
 class Line:
     """Расчёт одной позиции. Пустые поля означают «нечего считать»."""
+    list_price: float = 0.0      # T  цена прайса: заданная или выведенная
     purchase: float = 0.0        # Y  ЗАКУП
     margin: float = 0.0          # Z  РЕНТАБ
     transfer: float = 0.0        # AA ТРАНШ
@@ -88,7 +89,7 @@ def _num(value, default: float = 0.0) -> float:
 
 def line(list_price, volume_m3, *, factory_discount=None, dealer_markup=None,
          assembly=None, qty=1, rates: dict | None = None,
-         swift=None) -> Line:
+         swift=None, purchase=None) -> Line:
     """Цена прайса и объём -> вся цепочка книги.
 
     Не заданное поле берёт значение из `DEFAULT_POSITION`, пустая строка —
@@ -97,15 +98,26 @@ def line(list_price, volume_m3, *, factory_discount=None, dealer_markup=None,
     """
     r = {**DEFAULT_RATES, **(rates or {})}
 
-    t = _num(list_price)
-    if t <= 0:
-        return Line()
-
     def own(value, key):
         return DEFAULT_POSITION[key] if value is None else _num(value)
 
-    discounted = t * (1 - own(factory_discount, "factory_discount"))
-    purchase = discounted * (1 + own(dealer_markup, "dealer_markup"))
+    disc = own(factory_discount, "factory_discount")
+    markup = own(dealer_markup, "dealer_markup")
+    t = _num(list_price)
+    manual_purchase = _num(purchase)
+
+    if manual_purchase > 0:
+        # Закуп менеджер знает из инвойса — он первичен. Цена прайса
+        # выводится обратной арифметикой той же цепочки:
+        # T = Закуп / (1+наценка) / (1−скидка).
+        purchase = manual_purchase
+        discounted = purchase / (1 + markup) if (1 + markup) else purchase
+        t = discounted / (1 - disc) if disc < 1 else 0.0
+    elif t > 0:
+        discounted = t * (1 - disc)
+        purchase = discounted * (1 + markup)
+    else:
+        return Line()
 
     margin = purchase * r["margin"] / 100
     transfer = discounted * r["transfer"] / 100
@@ -125,6 +137,7 @@ def line(list_price, volume_m3, *, factory_discount=None, dealer_markup=None,
         levels[key] = round(running, 2)
 
     return Line(
+        list_price=round(t, 2),
         purchase=round(purchase, 2),
         margin=round(margin, 2),
         transfer=round(transfer, 2),
@@ -212,9 +225,11 @@ def project(positions: list[dict], rates: dict | None = None,
             assembly=p.get("assembly"),
             rates=rates,
             swift=p.get("swift"),
+            purchase=p.get("purchase"),
         )
         price = _num(p.get("price")) or computed.price
         lines.append({
+            "list_price": computed.list_price,
             "purchase": computed.purchase, "margin": computed.margin,
             "transfer": computed.transfer, "swift": computed.swift,
             "freight": computed.freight, "total": computed.total,
