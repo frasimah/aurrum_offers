@@ -162,7 +162,8 @@ DEFAULT_FINAL = {
     "delivery_eur": 0.0,
     "assembly_eur": 0.0,
     "personal_eur": 0.0,
-    "extra_eur": 0.0,        # дополнительная скидка, евро
+    "extra_pct": 0.0,        # дополнительная скидка: обычно процентом
+    "extra_eur": 0.0,        #   …но книга знает и евро (−4300 в 2867)
 }
 
 
@@ -179,7 +180,8 @@ def final_block(items_sum: float, fin: dict | None = None) -> dict:
     total = items_sum + services + delivery + assembly
     personal = -part("personal", total)
     subtotal = total + personal
-    payable = subtotal - f["extra_eur"]
+    extra = part("extra", subtotal)
+    payable = subtotal - extra
     return {
         "услуги": round(services, 2),
         "доставка": round(delivery, 2),
@@ -187,7 +189,7 @@ def final_block(items_sum: float, fin: dict | None = None) -> dict:
         "всего": round(total, 2),
         "скидка": round(personal, 2),
         "подытог": round(subtotal, 2),
-        "доп_скидка": round(-f["extra_eur"], 2),
+        "доп_скидка": round(-extra, 2),
         "к_оплате": round(payable, 2),
         "параметры": f,
     }

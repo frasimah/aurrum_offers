@@ -247,9 +247,9 @@
     <div class="card">
       <h2>Итог компреда</h2>
       <div class="hint" style="margin-bottom:12px">
-        Цепочка из рабочей спецификации: сумма позиций, услуги, доставка и
-        сборка процентами, затем персональная скидка и дополнительная —
-        евро, для доводки до круглого числа. Проценты жёлтые — правятся.
+        Цепочка из рабочей спецификации: сумма позиций, услуги, доставка,
+        сборка, затем две скидки. Каждая строка задаётся процентом от своей
+        базы или евро напрямую — переключатель у поля. Жёлтое — правится.
       </div>
       <table class="fintable">
         <tbody>
@@ -272,8 +272,9 @@
                 <select class="unit" id="fin_personal_unit"><option value="pct">%</option><option value="eur">€</option></select></td>
               <td class="fnum" id="fin_personal">0</td></tr>
           <tr class="strongrow"><td class="name">Под-Итог</td><td class="field"></td><td class="fnum" id="fin_subtotal">0</td></tr>
-          <tr><td class="name">Дополнительная скидка, €</td>
-              <td class="field"><input class="manual" id="fin_extra_eur" value="0"></td>
+          <tr><td class="name">Дополнительная скидка</td>
+              <td class="field"><input class="manual" id="fin_extra_val" value="0">
+                <select class="unit" id="fin_extra_unit"><option value="pct">%</option><option value="eur">€</option></select></td>
               <td class="fnum" id="fin_extra">0</td></tr>
           <tr class="strongrow payable"><td class="name">ИТОГО К ОПЛАТЕ</td><td class="field"></td><td class="fnum" id="fin_payable">0</td></tr>
         </tbody>
@@ -312,7 +313,7 @@
     // Каждая строка задаётся процентом от базы или евро напрямую —
     // доставка чаще известна суммой. Ненулевое евро выигрывает у процента,
     // это правило сервера (pricing.final_block), здесь только ввод.
-    const FIN_ROWS = ['services', 'delivery', 'assembly', 'personal'];
+    const FIN_ROWS = ['services', 'delivery', 'assembly', 'personal', 'extra'];
 
     const finParams = () => {
       const out = {};
@@ -322,7 +323,6 @@
         out[key + '_pct'] = unit === 'pct' ? value : 0;
         out[key + '_eur'] = unit === 'eur' ? value : 0;
       }
-      out.extra_eur = parseFloat((document.getElementById('fin_extra_eur').value || '0').replace(',', '.')) || 0;
       return out;
     };
 
@@ -339,8 +339,7 @@
           document.getElementById('fin_' + key + '_val').value = saved[key + '_pct'];
         }
       }
-      if (saved.extra_eur != null) document.getElementById('fin_extra_eur').value = saved.extra_eur;
-      for (const el of document.querySelectorAll('[id^="fin_"][id$="_val"], [id^="fin_"][id$="_unit"], #fin_extra_eur')) {
+      for (const el of document.querySelectorAll('[id^="fin_"][id$="_val"], [id^="fin_"][id$="_unit"]')) {
         el.addEventListener('change', () => {
           localStorage.setItem(FIN_KEY, JSON.stringify(finParams()));
           recalc();

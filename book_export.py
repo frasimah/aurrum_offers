@@ -254,7 +254,7 @@ def build(positions: list[dict], rates: dict | None = None,
                 ("Исключительная Персональная Скидка, Евро",
                  part("personal", f"F{t + 4}", sign="-"), False),
                 ("Под-Итог, Евро", f"=F{t + 4}+F{t + 5}", True),
-                ("Дополнительная Скидка, Евро", -abs(f["extra_eur"]) or 0, False),
+                ("Дополнительная Скидка, Евро", part("extra", f"F{t + 6}", sign="-"), False),
                 ("ИТОГО К ОПЛАТЕ, Евро", f"=F{t + 6}+F{t + 7}", True),
             ]
         for offset, (label, value, strong) in enumerate(rows):
