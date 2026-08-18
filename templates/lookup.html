@@ -819,10 +819,23 @@
           });
           const data = await r.json();
           if (!r.ok) throw new Error(data.error || 'не удалось собрать строку');
-          await navigator.clipboard.writeText(data.tsv);
+          try {
+            await navigator.clipboard.writeText(data.tsv);
+          } catch (nope) {
+            // Буфер бывает недоступен (нет фокуса, http). Запасной путь —
+            // временное поле, как у «Скопировать описание». Без него на
+            // кнопке оказывалась сырая ошибка «Failed to execute…».
+            const t = document.createElement('textarea');
+            t.value = data.tsv;
+            document.body.appendChild(t);
+            t.select();
+            document.execCommand('copy');
+            t.remove();
+          }
           rowcopy.textContent = 'Строка ' + data.row + ' скопирована';
         } catch (e) {
-          rowcopy.textContent = e.message.slice(0, 40);
+          // Сюда доходят только наши ошибки сервера — они уже по-русски.
+          rowcopy.textContent = e.message.slice(0, 60);
         }
         rowcopy.disabled = false;
         setTimeout(() => (rowcopy.textContent = label), 2500);

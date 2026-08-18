@@ -343,11 +343,25 @@
     // в браузере — верный способ развести две правды.
     async function recalc() {
       if (!positions.length) { render(null); return; }
-      const r = await fetch('{{ url_for("calc") }}', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ positions, rates: rates() }),
-      });
-      render(r.ok ? await r.json() : null);
+      // Ошибка расчёта не должна прятать позиции: без try страница
+      // показывала «Пока пусто» при живом проекте в хранилище — например,
+      // когда сессия истекла и вместо JSON пришла страница входа.
+      try {
+        const r = await fetch('{{ url_for("calc") }}', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ positions, rates: rates() }),
+        });
+        const data = await r.json();
+        // Ответ с ошибкой — это JSON без lines: показать его как расчёт
+        // значило бы упасть внутри render и снова спрятать позиции.
+        render(data && data.lines ? data : null);
+        document.getElementById('status').textContent =
+          data && data.lines ? '' : (data && data.error) || 'Расчёт не ответил.';
+      } catch (e) {
+        render(null);
+        document.getElementById('status').textContent =
+          'Расчёт не ответил — позиции показаны без цен. Перезайдите и нажмите «Пересчитать».';
+      }
     }
 
     document.getElementById('recalc').addEventListener('click', recalc);
