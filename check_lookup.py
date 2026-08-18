@@ -489,6 +489,14 @@ def check_overrides() -> tuple[int, int]:
          pricing.project([{**base2, "margin_pct": 20, "margin_eur": 1500}])["lines"][0]["margin"] == 1500.0),
         ("нулевой процент законен — «без рентаба»",
          pricing.project([{**base2, "margin_pct": 0}])["lines"][0]["margin"] == 0.0),
+        # База транша — цена со скидкой W: при ручном закупе 3250 и
+        # наценке 0 это те же 3250, а не выведенный прайс 6500.
+        ("транш процентом и евро",
+         pricing.project([{**base2, "transfer_pct": 2}])["lines"][0]["transfer"] == 65.0
+         and pricing.project([{**base2, "transfer_eur": 50}])["lines"][0]["transfer"] == 50.0),
+        ("транспорт ставкой за м³ и евро целиком",
+         pricing.project([{**base2, "freight_rate": 300}])["lines"][0]["freight"] == 120.0
+         and pricing.project([{**base2, "freight_eur": 1000}])["lines"][0]["freight"] == 1000.0),
         ("закуп руками 3250 -> прайс выведен 6500",
          by_purchase["list_price"] == 6500.0 and by_purchase["purchase"] == 3250.0),
         ("обе дороги дают одну цепочку",

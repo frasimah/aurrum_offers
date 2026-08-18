@@ -149,6 +149,11 @@
       gap: 10px; margin-top: 6px;
     }
     .fin button { flex-shrink: 0; }
+    .fin__pick {
+      display: flex; align-items: center; gap: 8px; cursor: pointer;
+      margin: 0; font-weight: 400;
+    }
+    .fin__pick input { width: auto; height: auto; }
 
     button.ghost {
       background: #fff;
@@ -525,12 +530,23 @@
           {% endif %}
 
           {% if product.finishes %}
-          <label>Отделки</label>
+          <label>Отделки — галочка держит отделку в описании</label>
           {% for f in product.finishes %}
-          <div class="hint" style="font-size:12.5px;color:#2d2d2d">
-            {{ f.role_ru }} — {{ f.material }}{% if f.code %}<span class="badge">{{ f.code }}</span>{% endif %}
+          <div class="fin">
+            <label class="fin__pick">
+              <input type="checkbox" checked class="finpick"
+                     data-role="{{ f.role_ru }}" data-mat="{{ f.material }}">
+              <span class="hint" style="font-size:12.5px;color:#2d2d2d">
+                {{ f.role_ru }} — {{ f.material }}{% if f.code %}<span class="badge">{{ f.code }}</span>{% endif %}
+              </span>
+            </label>
           </div>
           {% endfor %}
+          <div class="hint">
+            Снимите лишние — строка отделок в описании перестроится, и в
+            проект уйдёт только выбранное. Ручная правка описания двигает
+            галочки сама.
+          </div>
           {% endif %}
         </div>
       </div>
@@ -608,7 +624,12 @@
       const lines = desc.value ? desc.value.split('\n') : [];
       const at = lines.findIndex(l => l.startsWith(role + ' - '));
       if (at >= 0) {
-        if (!lines[at].toUpperCase().includes(material)) lines[at] += ' + ' + material;
+        // Сравниваем целыми элементами списка « + », не подстрокой:
+        // CRYSTAL — подстрока CRYSTAL/GREY/OLIVE, и includes считал её
+        // уже вставленной.
+        const parts = lines[at].slice((role + ' - ').length).split(' + ')
+          .map(part => part.trim().toUpperCase());
+        if (!parts.includes(material)) lines[at] += ' + ' + material;
       } else {
         lines.push(role + ' - ' + material);
       }
@@ -618,11 +639,45 @@
     // Галочка на кнопке, когда материал уже стоит в строке своей роли.
     // Считается заново после каждой вставки и при ручной правке описания —
     // удалил строку руками, кнопка снова предложит вставить.
+    // Обратная операция к addFinish: вынуть материал из строки роли.
+    // Опустевшая строка убирается целиком.
+    function removeFinish(role, material) {
+      const desc = document.getElementById('f_desc');
+      const mat = (material || '').trim().toUpperCase();
+      if (!desc || !mat) return;
+      const prefix = (role || 'Отделка').trim() + ' - ';
+      const lines = desc.value.split('\n');
+      const at = lines.findIndex(l => l.startsWith(prefix));
+      if (at < 0) return;
+      const rest = lines[at].slice(prefix.length).split(' + ')
+        .filter(part => part.trim().toUpperCase() !== mat);
+      if (rest.length) lines[at] = prefix + rest.join(' + ');
+      else lines.splice(at, 1);
+      desc.value = lines.join('\n');
+    }
+
+    function syncFinishChecks() {
+      document.querySelectorAll('input.finpick').forEach(cb => {
+        cb.checked = finishInDesc(cb.dataset.role, cb.dataset.mat);
+      });
+    }
+
+    document.querySelectorAll('input.finpick').forEach(cb =>
+      cb.addEventListener('change', () => {
+        const f = { role_ru: cb.dataset.role, material: cb.dataset.mat };
+        if (cb.checked) addFinish(f);
+        else removeFinish(f.role_ru, f.material);
+      }));
+
     function finishInDesc(role, material) {
       const desc = document.getElementById('f_desc');
       if (!desc || !material) return false;
-      const line = desc.value.split('\n').find(l => l.startsWith(role + ' - ')) || '';
-      return line.toUpperCase().includes(material.toUpperCase());
+      const prefix = role + ' - ';
+      const line = desc.value.split('\n').find(l => l.startsWith(prefix));
+      if (!line) return false;
+      const mat = material.trim().toUpperCase();
+      return line.slice(prefix.length).split(' + ')
+        .some(part => part.trim().toUpperCase() === mat);
     }
 
     function syncFinishButtons() {
@@ -911,7 +966,10 @@
     }
 
     const descField = document.getElementById('f_desc');
-    if (descField) descField.addEventListener('input', syncFinishButtons);
+    if (descField) descField.addEventListener('input', () => {
+      syncFinishButtons();
+      syncFinishChecks();
+    });
 
     const copy = document.getElementById('copy');
     if (copy) {

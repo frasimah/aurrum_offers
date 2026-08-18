@@ -446,10 +446,14 @@
           <td class="num muted editable" data-edit="margin" data-i="${i}"
             title="Рентабельность этой позиции — процентом или евро; пустое поле возвращает ставку из констант">
             <span${(p.margin_pct != null || p.margin_eur != null) ? ' class="overridden"' : ''}>${rub(c.margin)}</span><span class="pen">✎</span></td>
-          <td class="num muted">${rub(c.transfer)}</td>
+          <td class="num muted editable" data-edit="transfer" data-i="${i}"
+            title="Транш этой позиции — процентом от цены со скидкой или евро; пусто возвращает ставку">
+            <span${(p.transfer_pct != null || p.transfer_eur != null) ? ' class="overridden"' : ''}>${rub(c.transfer)}</span><span class="pen">✎</span></td>
           <td class="num muted editable" data-edit="swift" data-i="${i}" title="SWIFT этой позиции — в форме он числом в каждой строке">
             <span${p.swift != null && p.swift !== '' ? ' class="overridden"' : ''}>${rub(c.swift)}</span><span class="pen">✎</span></td>
-          <td class="num muted">${rub(c.freight)}</td>
+          <td class="num muted editable" data-edit="freight" data-i="${i}"
+            title="Транспорт этой позиции — ставкой за м³ или евро целиком; пусто возвращает ставку">
+            <span${(p.freight_rate != null || p.freight_eur != null) ? ' class="overridden"' : ''}>${rub(c.freight)}</span><span class="pen">✎</span></td>
           <td class="num">${rub(c.total)}</td>
           <td class="num strong editable" data-edit="price" data-i="${i}" title="Цена клиенту — предложение расчёта; в книге её округляет менеджер">
             <span${p.price != null && p.price !== '' ? ' class="overridden"' : ''}>${rub(c.price)}</span><span class="pen">✎</span></td>
@@ -503,12 +507,19 @@
           if (td.querySelector('input')) return;
           const i = +td.dataset.i;
           const key = td.dataset.edit;
-          // У рентаба две единицы: процент от закупа или евро напрямую.
-          // Хранятся раздельно, ненулевое евро выигрывает — правило то же,
-          // что в итоге компреда, и живёт оно на сервере.
-          const twoUnits = key === 'margin';
-          const current = twoUnits
-            ? (positions[i].margin_eur != null ? positions[i].margin_eur : positions[i].margin_pct)
+          // У части колонок две единицы: относительная и евро напрямую.
+          // Хранятся раздельно, евро выигрывает — правило живёт на сервере.
+          const TWO_UNITS = {
+            margin:   [['pct', '%'], ['eur', '€']],
+            transfer: [['pct', '%'], ['eur', '€']],
+            freight:  [['rate', '€/м³'], ['eur', '€']],
+          };
+          const units = TWO_UNITS[key];
+          const keyOf = suffix => key + '_' + suffix;
+          const current = units
+            ? (positions[i][keyOf(units[1][0])] != null
+               ? positions[i][keyOf(units[1][0])]
+               : positions[i][keyOf(units[0][0])])
             : positions[i][key];
           td.innerHTML = '';
           const field = document.createElement('input');
@@ -517,22 +528,22 @@
           field.placeholder = 'расчёт';
           td.appendChild(field);
           let unit = null;
-          if (twoUnits) {
+          if (units) {
             unit = document.createElement('select');
             unit.className = 'unit';
-            unit.innerHTML = '<option value="pct">%</option><option value="eur">€</option>';
-            unit.value = positions[i].margin_eur != null ? 'eur' : 'pct';
+            unit.innerHTML = units.map(([v, label]) =>
+              '<option value="' + v + '">' + label + '</option>').join('');
+            unit.value = positions[i][keyOf(units[1][0])] != null ? units[1][0] : units[0][0];
             td.appendChild(unit);
           }
           field.focus();
           field.select();
           const commit = () => {
             const raw = (field.value || '').replace(',', '.').trim();
-            if (twoUnits) {
-              delete positions[i].margin_pct;
-              delete positions[i].margin_eur;
+            if (units) {
+              for (const [suffix] of units) delete positions[i][keyOf(suffix)];
               if (raw !== '' && isFinite(parseFloat(raw))) {
-                positions[i][unit.value === 'eur' ? 'margin_eur' : 'margin_pct'] = parseFloat(raw);
+                positions[i][keyOf(unit.value)] = parseFloat(raw);
               }
             } else if (raw === '') {
               delete positions[i][key];

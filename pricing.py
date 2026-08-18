@@ -90,7 +90,9 @@ def _num(value, default: float = 0.0) -> float:
 def line(list_price, volume_m3, *, factory_discount=None, dealer_markup=None,
          assembly=None, qty=1, rates: dict | None = None,
          swift=None, purchase=None,
-         margin_pct=None, margin_eur=None) -> Line:
+         margin_pct=None, margin_eur=None,
+         transfer_pct=None, transfer_eur=None,
+         freight_rate=None, freight_eur=None) -> Line:
     """Цена прайса и объём -> вся цепочка книги.
 
     Не заданное поле берёт значение из `DEFAULT_POSITION`, пустая строка —
@@ -129,11 +131,23 @@ def line(list_price, volume_m3, *, factory_discount=None, dealer_markup=None,
         margin = purchase * _num(margin_pct) / 100
     else:
         margin = purchase * r["margin"] / 100
-    transfer = discounted * r["transfer"] / 100
+    # Транш и транспорт правятся так же, как рентаб: своя величина
+    # позиции сильнее ставки, абсолютные евро сильнее относительной.
+    if transfer_eur not in (None, ""):
+        transfer = _num(transfer_eur)
+    elif transfer_pct not in (None, ""):
+        transfer = discounted * _num(transfer_pct) / 100
+    else:
+        transfer = discounted * r["transfer"] / 100
     # SWIFT в форме стоит числом в каждой строке — заданное позицией
     # значение выигрывает у общей ставки.
     swift = _num(swift) if swift not in (None, "") else r["swift"]
-    freight = _num(volume_m3) * r["freight"]
+    if freight_eur not in (None, ""):
+        freight = _num(freight_eur)
+    elif freight_rate not in (None, ""):
+        freight = _num(volume_m3) * _num(freight_rate)
+    else:
+        freight = _num(volume_m3) * r["freight"]
     total = purchase + margin + transfer + swift + freight
 
     coefficient = own(assembly, "assembly") or 1.0
@@ -237,6 +251,10 @@ def project(positions: list[dict], rates: dict | None = None,
             purchase=p.get("purchase"),
             margin_pct=p.get("margin_pct"),
             margin_eur=p.get("margin_eur"),
+            transfer_pct=p.get("transfer_pct"),
+            transfer_eur=p.get("transfer_eur"),
+            freight_rate=p.get("freight_rate"),
+            freight_eur=p.get("freight_eur"),
         )
         price = _num(p.get("price")) or computed.price
         lines.append({
