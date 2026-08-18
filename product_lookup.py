@@ -220,11 +220,25 @@ def _photos_from(markdown: str, links: list[str]) -> list[str]:
 
 
 def _docs_from(links: list[str]) -> list[str]:
+    """Документы изделия. Бумаги сайта сюда не попадают.
+
+    На каждой странице магазина висит заявление о доступности, у BAROVIER —
+    политика информирования о нарушениях. К предмету они отношения не имеют
+    и в списке документов только мешают.
+
+    Инструкция по сборке при этом остаётся: она про изделие, просто
+    не техлист (см. `_pick_spec_pdf`).
+    """
     seen, out = set(), []
     for u in links:
-        if u.split("?")[0].lower().endswith(".pdf") and u not in seen:
-            seen.add(u)
-            out.append(u)
+        path = u.split("?")[0].lower()
+        if not path.endswith(".pdf") or u in seen:
+            continue
+        name = path.rsplit("/", 1)[-1]
+        if any(token in name for token in _SITE_PAPERS):
+            continue
+        seen.add(u)
+        out.append(u)
     return out
 
 
@@ -281,8 +295,15 @@ def _verify_finishes(finishes: list[dict], sources: str) -> tuple[list[dict], li
 # каждой странице висит заявление о доступности, у BAROVIER — политика
 # информирования о нарушениях. Взять «первый PDF» означает искать
 # габариты в юридическом тексте.
-_NOT_A_SPEC = ("accessibility", "privacy", "cookie", "policy", "whistleblowing",
-               "terms", "warranty", "assembly", "instruction", "montaggio", "manual")
+# Бумаги самого сайта: к изделию отношения не имеют, в список документов
+# не попадают вовсе.
+_SITE_PAPERS = ("accessibility", "privacy", "cookie", "policy",
+                "whistleblowing", "terms", "gdpr")
+
+# Документы изделия, которые техлистом не являются: инструкцию по сборке
+# показываем, но габариты ищем не в ней.
+_NOT_A_SPEC = _SITE_PAPERS + ("warranty", "assembly", "instruction",
+                              "montaggio", "manual")
 _LOOKS_LIKE_SPEC = ("fact_sheet", "fact-sheet", "spec", "scheda", "technical",
                     "datasheet", "tech")
 

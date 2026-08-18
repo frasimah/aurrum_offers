@@ -302,15 +302,25 @@
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ positions, rates: rates() }),
         });
-        if (!r.ok) throw new Error((await r.json()).error || 'не удалось собрать файл');
+        if (!r.ok) {
+          // Тело ошибки не всегда JSON: на сбое сервера прилетает страница,
+          // и разбор её как JSON давал непонятное «The string did not match…».
+          let reason = 'не удалось собрать файл';
+          try { reason = (await r.json()).error || reason; } catch (e) { /* оставим общее */ }
+          throw new Error(reason);
+        }
         const url = URL.createObjectURL(await r.blob());
         const a = document.createElement('a');
         a.href = url;
-        a.download = 'AURRUM-проект.xlsx';
+        // Имя латиницей: кириллицу в download некоторые браузеры не берут.
+        // Правильное имя всё равно приходит заголовком Content-Disposition.
+        a.download = 'AURRUM-project.xlsx';
         document.body.appendChild(a);
         a.click();
         a.remove();
-        URL.revokeObjectURL(url);
+        // Отзывать ссылку сразу нельзя: Safari отменяет скачивание,
+        // если адрес исчез до того, как он успел его прочитать.
+        setTimeout(() => URL.revokeObjectURL(url), 30000);
         document.getElementById('status').textContent =
           'Файл собран: позиций ' + positions.length + ', формулы и фотографии на местах.';
       } catch (e) {

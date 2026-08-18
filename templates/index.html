@@ -30,6 +30,61 @@
       max-width: 520px;
     }
 
+    /* Меню в углу: страницы разошлись, и с главной до них было не добраться */
+    .menu {
+      position: fixed;
+      top: 18px;
+      right: 20px;
+      z-index: 20;
+    }
+
+    .menu__toggle {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 4px;
+      width: 38px;
+      height: 38px;
+      padding: 0 9px;
+      border: 1px solid #e6e6e6;
+      background: #fff;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+
+    .menu__toggle:hover { border-color: #2d2d2d; }
+    .menu__toggle span {
+      display: block;
+      height: 1.5px;
+      background: #2d2d2d;
+    }
+
+    .menu__list {
+      position: absolute;
+      top: 44px;
+      right: 0;
+      min-width: 210px;
+      padding: 6px 0;
+      border: 1px solid #e6e6e6;
+      background: #fff;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.07);
+    }
+
+    .menu__list[hidden] { display: none; }
+
+    .menu__list a {
+      display: block;
+      padding: 9px 16px;
+      color: #2d2d2d;
+      font-size: 14px;
+      text-decoration: none;
+      transition: 0.2s;
+    }
+
+    .menu__list a:hover { color: #fff; background: #2d2d2d; }
+    .menu__list a.current { color: #949598; pointer-events: none; }
+    .menu__sep { margin: 6px 0; border: 0; border-top: 1px solid #f0f0f0; }
+
     .logo {
       width: 150px;
       margin-bottom: 40px;
@@ -138,6 +193,21 @@
 </head>
 
 <body>
+  <nav class="menu">
+    <button class="menu__toggle" id="menu" type="button" aria-label="Меню" aria-expanded="false">
+      <span></span><span></span><span></span>
+    </button>
+    <div class="menu__list" id="menu_list" hidden>
+      <a href="{{ url_for('project') }}">Проект</a>
+      <a href="{{ url_for('lookup') }}">Позиция по ссылке</a>
+      <a href="{{ url_for('settings') }}">Константы</a>
+      <hr class="menu__sep">
+      <a class="current" href="{{ url_for('index') }}">Спецификация из Excel</a>
+      <hr class="menu__sep">
+      <a href="{{ url_for('logout') }}">Выйти</a>
+    </div>
+  </nav>
+
   <div class="box">
     <img class="logo" src="{{ url_for('static', filename='aurrum-logo.svg') }}" alt="AURRUM">
 
@@ -160,14 +230,21 @@
       В документ попадают только те строки, которые видны в книге. Скрытые
       строки и служебные колонки (внутренние расчёты) не выгружаются.
     </p>
-    <p class="note">
-      <a href="{{ url_for('project') }}">Проект →</a>
-      <a href="{{ url_for('lookup') }}" style="margin-left:16px">Позиция по ссылке →</a>
-      <a class="logout" href="{{ url_for('logout') }}" style="margin-left:16px">Выйти</a>
-    </p>
   </div>
 
   <script>
+    const menu = document.getElementById('menu');
+    const menuList = document.getElementById('menu_list');
+    menu.addEventListener('click', (e) => {
+      e.stopPropagation();
+      menuList.hidden = !menuList.hidden;
+      menu.setAttribute('aria-expanded', String(!menuList.hidden));
+    });
+    document.addEventListener('click', () => { menuList.hidden = true; });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') menuList.hidden = true;
+    });
+
     const drop = document.getElementById('drop');
     const file = document.getElementById('file');
     const name = document.getElementById('name');

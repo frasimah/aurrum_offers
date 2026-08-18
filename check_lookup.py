@@ -362,6 +362,42 @@ def check_book_row() -> tuple[int, int]:
     return good, len(expected) + 1
 
 
+def check_docs_list() -> tuple[int, int]:
+    """Список документов: бумаги сайта в него не попадают.
+
+    На каждой странице магазина висит заявление о доступности, у BAROVIER —
+    политика информирования. Инструкция по сборке при этом остаётся:
+    она про изделие, просто не техлист.
+    """
+    print("\n СПИСОК ДОКУМЕНТОВ")
+    print(" " + "-" * 74)
+    links = [
+        "https://cdn.shopify.com/s/files/Accessibility_Statement_LANG_EN.pdf?v=176",
+        "https://x/cdn/shop/files/VIBES_bed_GUEST.pdf?v=674412",
+        "https://venicem.com/Venicem_Assembly_Instructions_Circle_Floor.pdf",
+        "https://venicem.com/Venicem_product_fact_sheet_circle-floor.pdf",
+        "https://barovier.com/files/policy-whistleblowing-barovier-toso_0.pdf",
+        "https://x/page.html",
+    ]
+    docs = pl._docs_from(links)
+    names = [d.rsplit("/", 1)[-1].split("?")[0] for d in docs]
+    checks = [
+        ("заявление о доступности скрыто",
+         not any("Accessibility" in n for n in names)),
+        ("политика информирования скрыта",
+         not any("whistleblowing" in n for n in names)),
+        ("инструкция по сборке осталась",
+         any("Assembly" in n for n in names)),
+        ("техлист остался", any("fact_sheet" in n for n in names)),
+        ("не-PDF отсеян", all(n.endswith(".pdf") for n in names)),
+    ]
+    good = 0
+    for note, hit in checks:
+        good += hit
+        print(f"  {OK if hit else BAD} {note}")
+    return good, len(checks)
+
+
 def check_spec_pdf() -> tuple[int, int]:
     """Отбор техлиста среди прочих PDF страницы."""
     print("\n ОТБОР ТЕХЛИСТА")
@@ -528,6 +564,7 @@ def main() -> int:
     v_ok, v_all = check_volume()
     g_ok, g_all = check_dims_grounding()
     f_ok, f_all = check_spec_pdf()
+    d_ok, d_all = check_docs_list()
     b_ok, b_all = check_book_row()
     c_ok, c_all = check_columns()
     p_ok, p_all = check_pricing()
