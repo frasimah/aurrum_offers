@@ -48,6 +48,7 @@ DIMS_CASES = [
     ("Altezza 120 cm, Diametro 127 cm",
                                "Люстра",                (127, 127, 120), "то же по-итальянски"),
     ("72x76x75H cm",           "Кресло",                (72, 76, 75),   "BENTLEY MERE, сайт"),
+    ("300x90x75(h)cm",         "Стол",                  (300, 90, 75),  "HENGE SISMA, пометка в скобках"),
     # Тот же BAROVIER, но извлечение подписало размеры после числа
     ("90 cm (высота), 127 cm (диаметр)",
                                "Люстра",                (127, 127, 90), "подпись в скобках"),
@@ -76,10 +77,23 @@ URL_TYPE_CASES = [
     ("https://www.brand.it/prodotti/comodini/x",     "Тумбочка прикроватная"),
     ("https://www.porada.it/en/products/side-coffee-tables",      "Стол"),
     # «chairs» лежит внутри «armchairs» — раздел смешанный, тип не навязываем
-    ("https://www.henge07.com/products/sofas-and-armchairs/radical", ""),
+    ("https://www.henge07.com/products/sofas-and-armchairs/cohiba/", ""),
     ("https://www.porada.it/prodotto/infinity",                   ""),
     # У света тип задаёт способ монтажа, а не раздел
     ("https://flos.com/en/us/ic-lights-floor/M-ic-lights-floor.html", ""),
+]
+
+# --- Тип из извлечения -> тип из нашего списка --------------------------
+# Модель отвечает не только словом из списка: LONGHI вернул «Банкетка / пуф»,
+# HENGE — «Стол обеденный». Оба уезжали в «Другое», хотя нужное слово в них
+# есть. «Диван-кровать» остаётся «Другим» намеренно: это не диван.
+TYPE_NORM_CASES = [
+    ("Кресло",         "Кресло"),
+    ("Банкетка / пуф", "Банкетка"),
+    ("Стол обеденный", "Стол"),
+    ("Пуф",            "Пуф"),
+    ("Диван-кровать",  "Другое"),
+    ("",               ""),
 ]
 
 # --- Живые ссылки: что ожидаем увидеть ---------------------------------
@@ -157,6 +171,34 @@ def check_dims_grounding() -> tuple[int, int]:
     return good, len(cases)
 
 
+def check_gallery_live() -> tuple[int, int]:
+    """Эталонный товар каждого бренда: столько ли снимков отдаёт правило.
+
+    Это единственная проверка, которая ловит переверстку сайта. Дорогая —
+    запрос Firecrawl на бренд, — поэтому идёт по ключу `--galleries`,
+    а не в каждом прогоне.
+    """
+    import gallery
+    print("\n ГАЛЕРЕИ НА ЖИВЫХ СТРАНИЦАХ")
+    print(" " + "-" * 74)
+    fc = pl._client()
+    good = 0
+    rules = gallery._rules()
+    for domain, rule in rules.items():
+        ref = rule.get("эталон") or {}
+        url, want = ref.get("url"), ref.get("фото")
+        try:
+            _, _, html = pl._scrape(fc, url)
+            got = len(gallery.photos(html, url) or [])
+        except Exception as exc:  # noqa: BLE001
+            print(f"  {BAD} {domain:16} ошибка: {exc}")
+            continue
+        hit = got == want
+        good += hit
+        print(f"  {OK if hit else BAD} {domain:16} снимков {got}, ждали {want}")
+    return good, len(rules)
+
+
 def check_login() -> tuple[int, int]:
     """Вход не должен падать на нелатинском пароле.
 
@@ -194,9 +236,9 @@ def check_login() -> tuple[int, int]:
 def check_gallery_rules() -> tuple[int, int]:
     """Правила галерей: разбираются ли селекторы и на месте ли эталоны.
 
-    Саму выборку проверяет живой прогон (`check_lookup.py` без --offline):
-    число снимков у эталонного товара записано в правиле, и переверстка
-    сайта роняет проверку, а не остаётся незамеченной.
+    Здесь только форма правила. Саму выборку проверяет `--galleries`:
+    он ходит на эталонный товар и сверяет число снимков с записанным.
+    Отдельным ключом, потому что это запрос Firecrawl на каждый бренд.
     """
     import gallery
     from bs4 import BeautifulSoup
@@ -437,6 +479,20 @@ def check_url_types() -> tuple[int, int]:
     return good, len(URL_TYPE_CASES)
 
 
+def check_type_norm() -> tuple[int, int]:
+    print("\n ТИП ИЗ ИЗВЛЕЧЕНИЯ")
+    print(" " + "-" * 74)
+    good = 0
+    for raw, expected in TYPE_NORM_CASES:
+        got, _ = pl.normalize_type(raw)
+        hit = got == expected
+        good += hit
+        print(f"  {OK if hit else BAD} {(raw or '—'):20} -> {got or '—'}")
+        if not hit:
+            print(f"      ожидали {expected or '—'}")
+    return good, len(TYPE_NORM_CASES)
+
+
 def check_schema() -> tuple[int, int]:
     """Схема извлечения дублирует списки из кода — стережём расхождение.
 
@@ -572,21 +628,30 @@ def main() -> int:
     l_ok, l_all = check_login()
     ph_ok, ph_all = check_photos()
     t_ok, t_all = check_url_types()
+    tn_ok, tn_all = check_type_norm()
     s_ok, s_all = check_schema()
 
-    if "--offline" not in args:
+    gl_ok = gl_all = None
+    if "--galleries" in args:
+        gl_ok, gl_all = check_gallery_live()
+
+    if "--offline" not in args and "--galleries" not in args:
         check_live()
 
     ok = (d_ok == d_all and v_ok == v_all and s_ok == s_all
           and t_ok == t_all and g_ok == g_all and f_ok == f_all
           and b_ok == b_all and c_ok == c_all and p_ok == p_all
-          and ph_ok == ph_all)
+          and ph_ok == ph_all and tn_ok == tn_all and r_ok == r_all
+          and (gl_all is None or gl_ok == gl_all))
     print("\n" + " " + "=" * 74)
     print(f"  Размеры: {d_ok}/{d_all}   Объём: {v_ok}/{v_all}   "
           f"Сверка: {g_ok}/{g_all}   Техлист: {f_ok}/{f_all}   "
           f"Строка: {b_ok}/{b_all}   Колонки: {c_ok}/{c_all}   Расчёт: {p_ok}/{p_all}\n"
-          f"  Фото: {ph_ok}/{ph_all}   "
-          f"Тип по адресу: {t_ok}/{t_all}   Схема: {s_ok}/{s_all}")
+          f"  Фото: {ph_ok}/{ph_all}   Правила галерей: {r_ok}/{r_all}   "
+          f"Тип по адресу: {t_ok}/{t_all}   Тип из извлечения: {tn_ok}/{tn_all}   "
+          f"Схема: {s_ok}/{s_all}"
+          + (f"\n  Галереи на живых страницах: {gl_ok}/{gl_all}"
+             if gl_all is not None else ""))
     if ok:
         print("  Разбор совпадает с книгой, схема согласована с кодом.")
     else:

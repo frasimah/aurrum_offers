@@ -72,7 +72,7 @@
               "properties": {
                 "role_ru": {
                   "type": "string",
-                  "description": "NO JSON-Schema enum here on purpose — see the note on type_ru. Which part of the item this finish applies to, chosen ONLY from this list: Обивка, Отделка, Металл, Топ, Кант, Камень, Стекло, Дерево, Ножки, Каркас, Фасады. Hints:upholstery/cover/fabric/leather -> Обивка, piping -> Кант, metal/brass/nickel -> Металл, top -> Топ, marble/stone -> Камень, glass -> Стекло, wood/veneer -> Дерево, feet/legs -> Ножки, frame/structure -> Каркас, fronts/doors -> Фасады. Anything else -> Отделка."
+                  "description": "NO JSON-Schema enum here on purpose — see the note on type_ru. Which part of the item this finish applies to, chosen ONLY from this list: Обивка, Отделка, Металл, Топ, Кант, Камень, Стекло, Дерево, Ножки, Каркас, Фасады, Основание, Полки. Hints:upholstery/cover/fabric/leather -> Обивка, piping -> Кант, metal/brass/nickel -> Металл, top -> Топ, marble/stone -> Камень, glass -> Стекло, wood/veneer -> Дерево, feet/legs -> Ножки, frame/structure -> Каркас, fronts/doors -> Фасады, base/plinth -> Основание, shelves -> Полки. Anything else -> Отделка."
                 },
                 "material": {
                   "type": "string",
