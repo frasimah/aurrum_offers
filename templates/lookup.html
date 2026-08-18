@@ -730,6 +730,14 @@
       toproject.addEventListener('click', () => {
         const val = id => (document.getElementById(id) || {}).value || '';
         const KEY = 'aurrum.project';
+        // Скидка фабрики, наценка дилера и сборка почти всегда одни и те же
+        // — позиция уезжает в проект уже с ними, а не пустой. Числа задаются
+        // на странице «Константы».
+        const START = { factory_discount: 0.5, dealer_markup: 0, assembly: 1 };
+        let start = START;
+        try {
+          start = { ...START, ...(JSON.parse(localStorage.getItem('aurrum.position_defaults')) || {}) };
+        } catch (e) { /* оставим значения формы */ }
         let list = [];
         try { list = JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) { list = []; }
         list.push({
@@ -742,7 +750,10 @@
           note: val('f_note'),
           width_cm: val('f_d'), depth_cm: val('f_g'), height_cm: val('f_v'),
           volume_m3: val('f_vol'),
-          qty: 1, assembly: 1,
+          qty: 1,
+          factory_discount: start.factory_discount,
+          dealer_markup: start.dealer_markup,
+          assembly: start.assembly,
           photos: [...document.querySelectorAll('.ph')]
             .filter(t => t.querySelector('input').checked && !t.dataset.local)
             .map(t => t.dataset.src),

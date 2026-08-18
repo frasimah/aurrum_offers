@@ -363,6 +363,40 @@ def check_pricing() -> tuple[int, int]:
     return good, len(cases)
 
 
+def check_position_defaults() -> tuple[int, int]:
+    """Не заданное поле — число формы, очищенное — ноль.
+
+    Разница дорогая: у нетронутой позиции скидка фабрики обычные 50 %,
+    а у очищенной руками её нет вовсе. Если перепутать, цена вырастет
+    вдвое или упадёт вдвое — молча, без единого предупреждения.
+    """
+    import pricing
+    print("\n НАЧАЛЬНЫЕ ЧИСЛА ПОЗИЦИИ")
+    print(" " + "-" * 74)
+    d = pricing.DEFAULT_POSITION
+    # Цена 10 000, объём 0: закуп = 10000 x (1 - скидка).
+    cases = [
+        ("поле не задано -> скидка формы", dict(factory_discount=None),
+         10_000 * (1 - d["factory_discount"])),
+        ("поле очищено -> без скидки",     dict(factory_discount=""), 10_000.0),
+        ("задано число -> оно и берётся",  dict(factory_discount=0.45), 5_500.0),
+    ]
+    good = 0
+    for label, kw, want in cases:
+        got = pricing.line(10_000, 0, **kw).purchase
+        hit = abs(got - want) < 0.01
+        good += hit
+        print(f"  {OK if hit else BAD} {label:34} закуп {got:9.1f}, ждали {want:9.1f}")
+
+    # Числа формы: строки 16, 18, 20, 22, 23 рабочего файла.
+    hit = (d["factory_discount"], d["dealer_markup"], d["assembly"]) == (0.5, 0.0, 1.0)
+    good += hit
+    print(f"  {OK if hit else BAD} значения по умолчанию совпадают с формой: "
+          f"скидка {d['factory_discount']}, наценка {d['dealer_markup']}, "
+          f"сборка {d['assembly']}")
+    return good, len(cases) + 1
+
+
 def check_columns() -> tuple[int, int]:
     """Колонки книги ищутся по подписям, а не по буквам.
 
@@ -661,6 +695,7 @@ def main() -> int:
     b_ok, b_all = check_book_row()
     c_ok, c_all = check_columns()
     p_ok, p_all = check_pricing()
+    pd_ok, pd_all = check_position_defaults()
     r_ok, r_all = check_gallery_rules()
     l_ok, l_all = check_login()
     ph_ok, ph_all = check_photos()
@@ -680,12 +715,13 @@ def main() -> int:
           and t_ok == t_all and g_ok == g_all and f_ok == f_all
           and b_ok == b_all and c_ok == c_all and p_ok == p_all
           and ph_ok == ph_all and tn_ok == tn_all and r_ok == r_all
-          and sh_ok == sh_all
+          and sh_ok == sh_all and pd_ok == pd_all
           and (gl_all is None or gl_ok == gl_all))
     print("\n" + " " + "=" * 74)
     print(f"  Размеры: {d_ok}/{d_all}   Объём: {v_ok}/{v_all}   "
           f"Сверка: {g_ok}/{g_all}   Техлист: {f_ok}/{f_all}   "
-          f"Строка: {b_ok}/{b_all}   Колонки: {c_ok}/{c_all}   Расчёт: {p_ok}/{p_all}\n"
+          f"Строка: {b_ok}/{b_all}   Колонки: {c_ok}/{c_all}   Расчёт: {p_ok}/{p_all}   "
+          f"Начальные числа: {pd_ok}/{pd_all}\n"
           f"  Фото: {ph_ok}/{ph_all}   Правила галерей: {r_ok}/{r_all}   "
           f"Источник фото: {sh_ok}/{sh_all}   "
           f"Тип по адресу: {t_ok}/{t_all}   Тип из извлечения: {tn_ok}/{tn_all}   "

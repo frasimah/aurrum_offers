@@ -46,13 +46,18 @@
 
     table { width: 100%; border-collapse: collapse; margin-top: 14px; }
     td { padding: 9px 8px; border-bottom: 1px solid #f2f2f2; vertical-align: middle; }
-    td.name { font-weight: 500; white-space: nowrap; }
+    /* Без nowrap: «СКИДКА ФАБРИКИ» в одну строку выталкивала таблицу
+       за край экрана на узком окне. Короткие подписи не переносятся сами. */
+    td.name { font-weight: 500; }
     td.base { color: #949598; font-size: 12.5px; }
     td.col { color: #c4c4c4; font-size: 11px; text-align: right; white-space: nowrap; }
     td.field { width: 118px; }
 
     input {
-      width: 100%; height: 32px; padding: 0 9px;
+      /* min-width обязателен: ширина td в таблице с автораскладкой —
+         пожелание, и от длинной подписи слева поле схлопывалось
+         до полосы, в которой не видно самого числа. */
+      width: 100%; min-width: 96px; height: 32px; padding: 0 9px;
       border: 1px solid #d9d9d9; border-radius: 0; background: #fffdf2;
       font-family: inherit; font-size: 14px; text-align: right;
       appearance: none; -webkit-appearance: none;
@@ -101,6 +106,27 @@
         <button type="button" id="save">Сохранить</button>
         <button type="button" class="link" id="reset">Вернуть значения формы</button>
         <span class="saved" id="saved"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Новая позиция начинается с этих значений</h2>
+      <div class="hint">
+        Три величины у каждой позиции свои, но набираются они почти всегда
+        одинаковые — числа сняты с рабочей формы. Подставляются в позицию,
+        когда она попадает в проект; дальше правятся прямо в таблице.
+        Очищенное поле — это не «не задано», а осознанный ноль: пустая
+        скидка означает работу без скидки.
+      </div>
+
+      <table>
+        <tbody id="rows_position"></tbody>
+      </table>
+
+      <div class="actions">
+        <button type="button" id="save_position">Сохранить</button>
+        <button type="button" class="link" id="reset_position">Вернуть значения формы</button>
+        <span class="saved" id="saved_position"></span>
       </div>
     </div>
 
@@ -179,6 +205,60 @@
       localStorage.removeItem(KEY);
       render(load());
       document.getElementById('saved').textContent = 'Возвращены значения из рабочей формы.';
+    });
+
+    // --- значения новой позиции ------------------------------------------
+    // Отдельный ключ: ставки одни на все проекты и уходят в файл первой
+    // строкой, а эти три — лишь стартовые числа позиции, в файл они
+    // попадают уже как её собственные.
+    const POS_KEY = 'aurrum.position_defaults';
+
+    const POS_FIELDS = [
+      ['factory_discount', 'СКИДКА ФАБРИКИ', 'доля', 'от цены прайса',     'V'],
+      ['dealer_markup',    'НАЦЕНКА ДИЛЕРА', 'доля', 'к цене со скидкой',  'X'],
+      ['assembly',         'СБОРКА',         'коэф.', 'делитель СУММЫ',    'AE'],
+    ];
+
+    const POS_DEFAULTS = {{ position_defaults | tojson }};
+
+    const posLoad = () => {
+      try { return { ...POS_DEFAULTS, ...(JSON.parse(localStorage.getItem(POS_KEY)) || {}) }; }
+      catch (e) { return { ...POS_DEFAULTS }; }
+    };
+
+    function posRender(values) {
+      document.getElementById('rows_position').innerHTML = POS_FIELDS.map(
+        ([key, name, unit, base, column]) => `<tr>
+          <td class="name">${name}</td>
+          <td class="field"><input id="p_${key}" value="${values[key]}"></td>
+          <td class="unit">${unit}</td>
+          <td class="base">${base}</td>
+          <td class="col">колонка ${column}</td>
+        </tr>`).join('');
+    }
+
+    posRender(posLoad());
+
+    document.getElementById('save_position').addEventListener('click', () => {
+      const out = {};
+      for (const [key] of POS_FIELDS) {
+        const raw = (document.getElementById('p_' + key).value || '').replace(',', '.');
+        const number = parseFloat(raw);
+        if (!isFinite(number) || number < 0) {
+          document.getElementById('saved_position').textContent = 'Проверьте значения — нужны числа.';
+          return;
+        }
+        out[key] = number;
+      }
+      localStorage.setItem(POS_KEY, JSON.stringify(out));
+      document.getElementById('saved_position').textContent =
+        'Сохранено. С этих чисел начнётся следующая позиция.';
+    });
+
+    document.getElementById('reset_position').addEventListener('click', () => {
+      localStorage.removeItem(POS_KEY);
+      posRender(posLoad());
+      document.getElementById('saved_position').textContent = 'Возвращены значения из рабочей формы.';
     });
   </script>
 </body>

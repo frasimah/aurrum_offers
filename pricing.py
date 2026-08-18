@@ -40,6 +40,22 @@ DEFAULT_RATES = {
     "finserv": 18.0,       # AI  безнал
 }
 
+# Три величины у каждой позиции свои, но начинаются с одних и тех же
+# чисел — снято с рабочей формы, строки 16, 18, 20, 22, 23:
+#
+#   скидка фабрики   0,45  0,5  0,5  0,5  0,5   -> норма 0,5
+#   наценка дилера   0     0,12 0    0    0     -> норма 0
+#   сборка           1     1    0,95 0,95 1     -> норма 1
+#
+# Подставляются в новую позицию, чтобы менеджер правил отклонения, а не
+# набирал одно и то же пять раз. Пустое поле — это не «нет значения»,
+# а осознанный ноль: очищенная скидка означает работу без скидки.
+DEFAULT_POSITION = {
+    "factory_discount": 0.5,   # V  скидка фабрики
+    "dealer_markup": 0.0,      # X  наценка дилера
+    "assembly": 1.0,           # делитель AE, коэффициент сборки
+}
+
 # Цена клиенту — округлённая AE, но правила округления нет: в книге
 # встречаются 5752,2 -> 5750 (вниз), 2194,7 -> 2200 (вверх) и
 # 15593,7 -> 15590 (вниз). Это решение менеджера, а не формула, поэтому
@@ -70,17 +86,25 @@ def _num(value, default: float = 0.0) -> float:
         return default
 
 
-def line(list_price, volume_m3, *, factory_discount=0.0, dealer_markup=0.0,
-         assembly=1.0, qty=1, rates: dict | None = None) -> Line:
-    """Цена прайса и объём -> вся цепочка книги."""
+def line(list_price, volume_m3, *, factory_discount=None, dealer_markup=None,
+         assembly=None, qty=1, rates: dict | None = None) -> Line:
+    """Цена прайса и объём -> вся цепочка книги.
+
+    Не заданное поле берёт значение из `DEFAULT_POSITION`, пустая строка —
+    ноль. Разница существенная: у позиции, которую ещё не трогали, скидка
+    фабрики должна быть обычные 50 %, а у очищенной руками — её нет.
+    """
     r = {**DEFAULT_RATES, **(rates or {})}
 
     t = _num(list_price)
     if t <= 0:
         return Line()
 
-    discounted = t * (1 - _num(factory_discount))
-    purchase = discounted * (1 + _num(dealer_markup))
+    def own(value, key):
+        return DEFAULT_POSITION[key] if value is None else _num(value)
+
+    discounted = t * (1 - own(factory_discount, "factory_discount"))
+    purchase = discounted * (1 + own(dealer_markup, "dealer_markup"))
 
     margin = purchase * r["margin"] / 100
     transfer = discounted * r["transfer"] / 100
@@ -88,7 +112,7 @@ def line(list_price, volume_m3, *, factory_discount=0.0, dealer_markup=0.0,
     freight = _num(volume_m3) * r["freight"]
     total = purchase + margin + transfer + swift + freight
 
-    coefficient = _num(assembly, 1.0) or 1.0
+    coefficient = own(assembly, "assembly") or 1.0
     with_assembly = total / coefficient
 
     levels = {}

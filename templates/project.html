@@ -201,10 +201,32 @@
     };
     const rub = n => (n || 0).toLocaleString('ru-RU', { maximumFractionDigits: 0 });
 
+    // Начальные числа позиции. Задаются на странице «Константы», запасные
+    // значения здесь — из рабочей формы, те же, что в pricing.py.
+    const POS_DEFAULTS = (() => {
+      const base = { factory_discount: 0.5, dealer_markup: 0, assembly: 1 };
+      try { return { ...base, ...(JSON.parse(localStorage.getItem('aurrum.position_defaults')) || {}) }; }
+      catch (e) { return base; }
+    })();
+
     const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) { return []; } };
     const save = list => localStorage.setItem(KEY, JSON.stringify(list));
 
     let positions = load();
+
+    // Позиции, сохранённые до появления начальных чисел, дополняем сразу
+    // и один раз. Иначе таблица показывала бы одно, а расчёт на сервере
+    // считал по своему запасному значению — и итог разошёлся бы с тем,
+    // что видно глазами.
+    (() => {
+      let filled = false;
+      for (const p of positions) {
+        for (const key of Object.keys(POS_DEFAULTS)) {
+          if (p[key] == null) { p[key] = POS_DEFAULTS[key]; filled = true; }
+        }
+      }
+      if (filled) save(positions);
+    })();
 
     const esc = s => String(s == null ? '' : s)
       .replace(/[&<>"]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
@@ -230,9 +252,9 @@
           ${cell('qty', p.qty == null ? 1 : p.qty)}
           ${cell('volume_m3', p.volume_m3 == null ? '' : p.volume_m3)}
           ${cell('list_price', p.list_price == null ? '' : p.list_price)}
-          ${cell('factory_discount', p.factory_discount == null ? '' : p.factory_discount)}
-          ${cell('dealer_markup', p.dealer_markup == null ? '' : p.dealer_markup)}
-          ${cell('assembly', p.assembly == null ? 1 : p.assembly)}
+          ${cell('factory_discount', p.factory_discount)}
+          ${cell('dealer_markup', p.dealer_markup)}
+          ${cell('assembly', p.assembly)}
           <td class="num muted">${rub(c.purchase)}</td>
           <td class="num muted">${rub(c.margin)}</td>
           <td class="num muted">${rub(c.transfer)}</td>

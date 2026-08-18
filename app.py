@@ -260,7 +260,9 @@ def project():
 @app.route("/settings")
 def settings():
     """Величины расчёта — одни на все проекты."""
-    return render_template("settings.html", defaults=pricing.DEFAULT_RATES)
+    return render_template("settings.html",
+                           defaults=pricing.DEFAULT_RATES,
+                           position_defaults=pricing.DEFAULT_POSITION)
 
 
 @app.route("/calc", methods=["POST"])
