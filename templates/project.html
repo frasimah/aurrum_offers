@@ -105,6 +105,17 @@
 
     .actions { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
 
+    /* Шапка предложения: четыре подписанных поля в ряд, на узком окне
+       переносятся. Ввод текстовый, поэтому по левому краю, а не по правому,
+       как числа позиций. */
+    .head { display: flex; flex-wrap: wrap; gap: 14px; }
+    .head label { display: block; flex: 1; min-width: 150px; }
+    .head span {
+      display: block; margin-bottom: 5px;
+      font-size: 11.5px; color: #949598;
+    }
+    .head input { height: 34px; text-align: left; background: #fffdf2; border-color: #e6d9a8; }
+
     .add { display: flex; gap: 10px; }
     .add input {
       flex: 1; height: 34px; text-align: left; min-width: 0;
@@ -121,6 +132,21 @@
   {% include "_nav.html" %}
 
   <div class="wrap">
+
+    <div class="card">
+      <h2>Шапка предложения</h2>
+      <div class="hint" style="margin-bottom:12px">
+        Попадают в выгружаемый файл в те же ячейки, откуда их читает печать
+        документа. Пустые оставлять можно — тогда в документе будут прочерки,
+        как сейчас.
+      </div>
+      <div class="head">
+        <label><span>Спецификация №</span><input id="h_number" placeholder="2867/3"></label>
+        <label><span>Договор</span><input id="h_contract" placeholder="2867"></label>
+        <label><span>Покупатель</span><input id="h_buyer" placeholder="Иванов И. И."></label>
+        <label><span>Дата</span><input id="h_date" placeholder="12.03.2026"></label>
+      </div>
+    </div>
 
     <div class="card">
       <h2>Добавить позицию</h2>
@@ -228,6 +254,30 @@
       if (filled) save(positions);
     })();
 
+    // Шапка своя у каждого проекта — в отличие от ставок, которые одни
+    // на все. Лежит рядом с позициями и так же переживает перезагрузку.
+    const HEAD_KEY = 'aurrum.header';
+    const HEAD_FIELDS = ['number', 'contract', 'buyer', 'date'];
+
+    const header = () => {
+      const out = {};
+      for (const key of HEAD_FIELDS) {
+        out[key] = (document.getElementById('h_' + key).value || '').trim();
+      }
+      return out;
+    };
+
+    (() => {
+      let saved = {};
+      try { saved = JSON.parse(localStorage.getItem(HEAD_KEY)) || {}; } catch (e) { /* пусто */ }
+      for (const key of HEAD_FIELDS) {
+        const el = document.getElementById('h_' + key);
+        if (saved[key]) el.value = saved[key];
+        el.addEventListener('input', () =>
+          localStorage.setItem(HEAD_KEY, JSON.stringify(header())));
+      }
+    })();
+
     const esc = s => String(s == null ? '' : s)
       .replace(/[&<>"]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
 
@@ -320,7 +370,7 @@
       try {
         const r = await fetch('{{ url_for("project_export") }}', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ positions, rates: rates() }),
+          body: JSON.stringify({ positions, rates: rates(), header: header() }),
         });
         if (!r.ok) {
           // Тело ошибки не всегда JSON: на сбое сервера прилетает страница,

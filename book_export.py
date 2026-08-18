@@ -33,6 +33,20 @@ RATES_ROW = 1
 HEADER_ROW = 13
 FIRST_ITEM_ROW = HEADER_ROW + 1
 
+# Шапка — ровно там, где её ищет обратный разбор (`spec_parser`), а он
+# писан с живой книги `samples/2867_Спецификация_…`:
+#
+#   A5 «Покупатель»   H5 «Договор»   M5 «Дата»
+#   A6  значение      H6  значение   M6  значение
+#   A8 «Спецификация №… к Договору …»              N8 дата
+#
+# Строка 8 дублирует номер и договор нарочно: так сделано в книге, и
+# разбор берёт их оттуда первым делом. Без этих ячеек напечатанный
+# документ выходил с пустым номером и прочерками в покупателе и дате.
+HEAD_LABEL_ROW = 5
+HEAD_VALUE_ROW = 6
+HEAD_TITLE_ROW = 8
+
 # Ячейки ставок — те же, на которые ссылаются формулы позиции.
 RATE_CELLS = {
     "Z": ("margin", "РЕНТАБ, %"),
@@ -96,7 +110,33 @@ def _photo(url: str) -> XLImage | None:
         return None
 
 
-def build(positions: list[dict], rates: dict | None = None) -> bytes:
+def _header(ws, head: dict) -> None:
+    """Покупатель, договор, номер и дата — в ячейки разметки книги."""
+    number = str(head.get("number") or "").strip()
+    contract = str(head.get("contract") or "").strip()
+    buyer = str(head.get("buyer") or "").strip()
+    day = str(head.get("date") or "").strip()
+
+    for column, label, value in (("A", "Покупатель", buyer),
+                                 ("H", "Договор", contract),
+                                 ("M", "Дата", day)):
+        ws[f"{column}{HEAD_LABEL_ROW}"] = label
+        ws[f"{column}{HEAD_LABEL_ROW}"].font = Font(size=9, color="949598")
+        ws[f"{column}{HEAD_VALUE_ROW}"] = value
+
+    # Строку заголовка собираем, только если есть номер: пустое
+    # «Спецификация № к Договору» хуже, чем его отсутствие.
+    if number:
+        title = f"Спецификация №{number}"
+        if contract:
+            title += f" к Договору {contract}"
+        ws[f"A{HEAD_TITLE_ROW}"] = title
+        ws[f"A{HEAD_TITLE_ROW}"].font = Font(size=11, bold=True)
+        ws[f"N{HEAD_TITLE_ROW}"] = day
+
+
+def build(positions: list[dict], rates: dict | None = None,
+          header: dict | None = None) -> bytes:
     """Позиции проекта -> содержимое файла .xlsx."""
     r = {**pricing.DEFAULT_RATES, **(rates or {})}
 
@@ -109,6 +149,8 @@ def build(positions: list[dict], rates: dict | None = None) -> bytes:
         ws[f"{column}{RATES_ROW}"] = r[key]
         ws[f"{column}{RATES_ROW + 1}"] = label
         ws[f"{column}{RATES_ROW + 1}"].font = Font(size=8, color="949598")
+
+    _header(ws, header or {})
 
     ws["A9"] = "Коммерческое предложение по решению интерьера"
     ws["A9"].font = Font(size=13, bold=True)

@@ -293,7 +293,8 @@ def project_export():
         return {"error": "Слишком много позиций за раз."}, 400
 
     try:
-        content = book_export.build(positions, rates=data.get("rates"))
+        content = book_export.build(positions, rates=data.get("rates"),
+                                    header=data.get("header"))
     except Exception as exc:  # noqa: BLE001 — причину показываем пользователю
         return {"error": f"Не удалось собрать файл: {exc}"}, 500
 

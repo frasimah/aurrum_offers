@@ -171,6 +171,38 @@ def check_dims_grounding() -> tuple[int, int]:
     return good, len(cases)
 
 
+def check_header_roundtrip() -> tuple[int, int]:
+    """Шапка проекта переживает выгрузку и обратный разбор.
+
+    Две половины писались порознь: выгрузка складывает книгу, печать её
+    разбирает. Пока шапки не было, документ выходил с пустым номером и
+    прочерками — и заметить это можно было только глазами на печати.
+    """
+    import book_export
+    import spec_parser
+    print("\n ШАПКА: ВЫГРУЗКА -> ПЕЧАТЬ")
+    print(" " + "-" * 74)
+    head = {"number": "2867/3", "contract": "2867",
+            "buyer": "Иванов И. И.", "date": "12.03.2026"}
+    position = [{"brand": "VENICEM", "model": "CIRCLE", "qty": 1,
+                 "description": "CIRCLE\nТоршер"}]
+    spec = spec_parser.parse(book_export.build(position, header=head))
+    good = 0
+    for key, got in (("number", spec.number), ("contract", spec.contract),
+                     ("buyer", spec.buyer), ("date", spec.date)):
+        hit = got == head[key]
+        good += hit
+        print(f"  {OK if hit else BAD} {key:9} -> {got!r}")
+
+    # Пустая шапка не должна порождать «Спецификация № к Договору».
+    bare = spec_parser.parse(book_export.build(position))
+    hit = not (bare.number or bare.buyer or bare.date)
+    good += hit
+    print(f"  {OK if hit else BAD} без шапки документ остаётся пустым, "
+          f"а не «Спецификация №»")
+    return good, 5
+
+
 def check_shops() -> tuple[int, int]:
     """Список магазинов: опознаём по домену, а не по форме адреса.
 
@@ -702,6 +734,7 @@ def main() -> int:
     t_ok, t_all = check_url_types()
     tn_ok, tn_all = check_type_norm()
     sh_ok, sh_all = check_shops()
+    hd_ok, hd_all = check_header_roundtrip()
     s_ok, s_all = check_schema()
 
     gl_ok = gl_all = None
@@ -715,13 +748,13 @@ def main() -> int:
           and t_ok == t_all and g_ok == g_all and f_ok == f_all
           and b_ok == b_all and c_ok == c_all and p_ok == p_all
           and ph_ok == ph_all and tn_ok == tn_all and r_ok == r_all
-          and sh_ok == sh_all and pd_ok == pd_all
+          and sh_ok == sh_all and pd_ok == pd_all and hd_ok == hd_all
           and (gl_all is None or gl_ok == gl_all))
     print("\n" + " " + "=" * 74)
     print(f"  Размеры: {d_ok}/{d_all}   Объём: {v_ok}/{v_all}   "
           f"Сверка: {g_ok}/{g_all}   Техлист: {f_ok}/{f_all}   "
           f"Строка: {b_ok}/{b_all}   Колонки: {c_ok}/{c_all}   Расчёт: {p_ok}/{p_all}   "
-          f"Начальные числа: {pd_ok}/{pd_all}\n"
+          f"Начальные числа: {pd_ok}/{pd_all}   Шапка: {hd_ok}/{hd_all}\n"
           f"  Фото: {ph_ok}/{ph_all}   Правила галерей: {r_ok}/{r_all}   "
           f"Источник фото: {sh_ok}/{sh_all}   "
           f"Тип по адресу: {t_ok}/{t_all}   Тип из извлечения: {tn_ok}/{tn_all}   "
