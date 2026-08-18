@@ -76,6 +76,12 @@ URL_TYPE_CASES = [
     ("https://www.brand.it/en/products/chairs/pin",               "Стул"),
     ("https://www.brand.it/prodotti/comodini/x",     "Тумбочка прикроватная"),
     ("https://www.porada.it/en/products/side-coffee-tables",      "Стол"),
+    # Живой промах: настольная лампа BAROVIER стала «Столом» — голый
+    # токен «table» совпадал с table-lamps и перекрывал извлечение.
+    ("https://www.barovier.com/en/table-lamps/aurora",  "Настольная лампа"),
+    ("https://www.barovier.com/en/chandeliers/metropolis",        "Люстра"),
+    ("https://www.barovier.com/en/floor-lamps/lume",              "Торшер"),
+    ("https://brand.it/lampade-da-tavolo/x",            "Настольная лампа"),
     # «chairs» лежит внутри «armchairs» — раздел смешанный, тип не навязываем
     ("https://www.henge07.com/products/sofas-and-armchairs/cohiba/", ""),
     ("https://www.porada.it/prodotto/infinity",                   ""),

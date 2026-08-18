@@ -100,8 +100,13 @@ def normalize_type(value: str) -> tuple[str, str | None]:
 
 # Раздел сайта — сильный сигнал о типе, и он не используется извлечением:
 # у EMMEMOBILI страница /prodotti/contenitori/ («Storage units», в тексте
-# прямо «sideboard») приезжала как «Стол». Список нарочно короткий — только
-# однозначные разделы; свет сюда не годится, там тип задаёт способ монтажа.
+# прямо «sideboard») приезжала как «Стол». Список нарочно короткий —
+# только однозначные разделы. Токены — регулярные выражения: голое
+# «table» совпадало с /table-lamps/, и настольная лампа BAROVIER AURORA
+# становилась «Столом» — раздел перекрывал верное извлечение.
+#
+# Свет здесь есть, но только разделы с способом монтажа в имени:
+# chandeliers, table-lamps, floor-lamps, wall-lamps однозначны сами.
 _URL_TYPES = {
     "Комод": ("contenitori", "storage", "sideboard", "credenz", "madia", "dresser"),
     "Кровать": ("letti", "bed", "beds"),
@@ -109,10 +114,15 @@ _URL_TYPES = {
     "Кресло": ("poltrone", "armchair", "armchairs"),
     "Стеллаж": ("librerie", "bookcase", "shelving"),
     "Диван": ("divani", "sofa", "sofas"),
-    "Стол": ("tavoli", "table", "tables"),
+    # «table» — только не перед «-lamp»; «tavolo» — только не после «da-»
+    "Стол": (r"(?<!da-)tavol", r"tables?(?!-?lamps?)"),
     "Тумбочка прикроватная": ("comodini", "bedside", "nightstand"),
     "Ковёр": ("tappeti", "rug", "rugs", "carpet"),
     "Зеркало": ("specchi", "mirror", "mirrors"),
+    "Люстра": ("chandelier", "sospensioni", "suspension"),
+    "Настольная лампа": ("table-lamp", "lampade-da-tavolo"),
+    "Торшер": ("floor-lamp", "lampade-da-terra"),
+    "Бра": ("wall-lamp", "applique"),
 }
 
 
