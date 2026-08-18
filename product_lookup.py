@@ -415,10 +415,16 @@ def parse_dims(raw: str, type_ru: str = "") -> tuple[float | None, float | None,
             return horizontal[0], horizontal[0], height, True
         return None, None, height, False
 
-    # Пометки высоты нет — приходится догадываться.
+    # Пометки высоты нет. Числа при этом настоящие — со страницы, их
+    # стережёт _dims_grounded, — вопрос только в раскладке по осям.
+    # Когда все числа, кроме одного, помечены диаметрами, оставшемуся
+    # больше нечем быть, кроме высоты: это вывод, а не догадка.
     rest = [n for n in all_nums if n not in diameters]
+    if diameters and len(rest) == 1:
+        d = max(diameters)
+        return d, d, rest[0], True
     if diameters and rest:
-        d = max(diameters + [n for n in rest if n < max(rest)]) if len(rest) > 1 else max(diameters)
+        d = max(diameters + [n for n in rest if n < max(rest)])
         return d, d, max(rest), False
     if len(all_nums) >= 3:
         w, dep, h = all_nums[0], all_nums[1], all_nums[2]
@@ -734,8 +740,8 @@ def lookup(url: str) -> Product:
         p.warnings.append("Габариты найдены не полностью — проверьте по источнику.")
     elif not p.dims_confident:
         p.warnings.append(
-            "В источнике нет пометки высоты — Д/Г/В расставлены предположительно, "
-            "сверьте со строкой размеров."
+            "Числа взяты из источника, но пометки высоты там нет — оси "
+            "расставлены по порядку и помечены знаком «!». Проверьте раскладку."
         )
     if not p.photo_urls:
         p.warnings.append("Фотографии не найдены.")

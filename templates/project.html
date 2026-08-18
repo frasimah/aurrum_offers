@@ -89,6 +89,13 @@
        остальное посчитано и правке не подлежит. */
     input.manual { background: #fffdf2; border-color: #e6d9a8; }
 
+    .warn-mark {
+      display: inline-block; width: 15px; height: 15px;
+      border-radius: 50%; background: #d64545; color: #fff;
+      font-size: 11px; font-weight: 600; text-align: center; line-height: 15px;
+      cursor: help;
+    }
+
     .num { font-variant-numeric: tabular-nums; }
     .muted { color: #949598; }
     .strong { font-weight: 500; }
@@ -103,7 +110,13 @@
 
     .empty { padding: 40px 0; text-align: center; color: #949598; }
 
-    .actions { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+    .actions { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; align-items: center; }
+    .actions a.back {
+      display: inline-flex; align-items: center; height: 36px; padding: 0 16px;
+      border: 1px solid #d9d9d9; color: #2d2d2d;
+      font-size: 13px; text-decoration: none; transition: 0.3s;
+    }
+    .actions a.back:hover { border-color: #2d2d2d; background: #2d2d2d; color: #fff; }
 
     /* Шапка предложения: четыре подписанных поля в ряд, на узком окне
        переносятся. Ввод текстовый, поэтому по левому краю, а не по правому,
@@ -208,6 +221,8 @@
         <button type="button" class="ghost" id="recalc">Пересчитать</button>
         <button type="button" id="export">Скачать файлом Excel</button>
         <button type="button" class="ghost" id="copyall">Скопировать все строки</button>
+        <button type="button" class="ghost" id="saveall">Сохранить</button>
+        <a class="back" href="{{ url_for('lookup') }}">Вернуться к парсеру</a>
         <button type="button" class="link" id="clear">Очистить проект</button>
       </div>
       <div class="hint" id="status"></div>
@@ -297,7 +312,7 @@
         return `<tr>
           <td class="left">
             <div class="name">${esc(p.brand)} ${esc(p.model)}</div>
-            <div class="sub">${esc(p.type_ru || '')}${p.dims_raw ? ' · ' + esc(p.dims_raw) : ''}</div>
+            <div class="sub">${esc(p.type_ru || '')}${p.dims_raw ? ' · ' + esc(p.dims_raw) : ''}${p.dims_confident === false ? ' <span class="warn-mark" title="Оси расставлены по порядку — пометки высоты в источнике нет. Проверьте объём.">!</span>' : ''}</div>
           </td>
           ${cell('qty', p.qty == null ? 1 : p.qty)}
           ${cell('volume_m3', p.volume_m3 == null ? '' : p.volume_m3)}
@@ -365,6 +380,17 @@
     }
 
     document.getElementById('recalc').addEventListener('click', recalc);
+
+    // Проект и шапка сохраняются сами на каждую правку. Кнопка нужна не
+    // механизму, а человеку: явное действие и подтверждение словами.
+    document.getElementById('saveall').addEventListener('click', () => {
+      save(positions);
+      localStorage.setItem(HEAD_KEY, JSON.stringify(header()));
+      const status = document.getElementById('status');
+      status.textContent = 'Сохранено: позиций ' + positions.length +
+        ', шапка. Проект живёт в этом браузере.';
+      setTimeout(() => { if (status.textContent.startsWith('Сохранено')) status.textContent = ''; }, 4000);
+    });
 
     document.getElementById('clear').addEventListener('click', () => {
       if (!confirm('Убрать все позиции из проекта?')) return;

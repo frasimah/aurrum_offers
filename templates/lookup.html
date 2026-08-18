@@ -135,6 +135,13 @@
       cursor: default;
     }
 
+    .warn-mark {
+      display: inline-block; width: 16px; height: 16px;
+      border-radius: 50%; background: #d64545; color: #fff;
+      font-size: 12px; font-weight: 600; text-align: center; line-height: 16px;
+      cursor: help;
+    }
+
     .fin {
       display: flex; align-items: center; justify-content: space-between;
       gap: 10px; margin-top: 6px;
@@ -444,15 +451,16 @@
           <label for="f_dims_raw">Размеры (строкой, как в источнике)</label>
           <input id="f_dims_raw" value="{{ product.dims_raw }}">
 
-          <label>Габариты, см — Д / Г / В</label>
+          <label>Габариты, см — Д / Г / В{% if product.dims_raw and not product.dims_confident %}
+            <span class="warn-mark" title="Раскладка по осям — догадка по порядку: пометки высоты в источнике нет">!</span>{% endif %}</label>
           <div class="grid3">
             <input id="f_d" value="{{ product.width_cm or '' }}">
             <input id="f_g" value="{{ product.depth_cm or '' }}">
             <input id="f_v" value="{{ product.height_cm or '' }}">
           </div>
           <div class="hint">
-            {% if product.dims_confident %}Оси разобраны по пометке высоты в источнике.{% else %}Оси расставлены
-            предположительно — сверьте со строкой размеров.{% endif %}
+            {% if product.dims_confident %}Оси разобраны по пометке высоты в источнике.{% else %}Числа — из
+            источника, но какое из них высота, там не помечено: раскладка по порядку. Проверьте Д/Г/В.{% endif %}
           </div>
 
           <label for="f_vol">Объём, м³</label>
@@ -590,6 +598,24 @@
       desc.value = lines.join('\n');
     }
 
+    // Галочка на кнопке, когда материал уже стоит в строке своей роли.
+    // Считается заново после каждой вставки и при ручной правке описания —
+    // удалил строку руками, кнопка снова предложит вставить.
+    function finishInDesc(role, material) {
+      const desc = document.getElementById('f_desc');
+      if (!desc || !material) return false;
+      const line = desc.value.split('\n').find(l => l.startsWith(role + ' - ')) || '';
+      return line.toUpperCase().includes(material.toUpperCase());
+    }
+
+    function syncFinishButtons() {
+      document.querySelectorAll('#parse_result button[data-f]').forEach(b => {
+        const done = finishInDesc(b.dataset.role, b.dataset.mat);
+        b.textContent = done ? '✓ в описании' : 'В описание';
+        b.disabled = done;
+      });
+    }
+
     function fill(c) {
       const set = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };
       // Пустое поле заполняем, заполненное не трогаем: из карточки данные
@@ -646,7 +672,9 @@
               + '<span class="hint" style="font-size:12.5px;color:#2d2d2d">' + esc(f.role_ru)
               + ' — ' + esc(f.material) + (f.code ? ' <span class="badge">' + esc(f.code) + '</span>' : '')
               + '</span>'
-              + '<button type="button" class="ghost" data-f="' + j + '">В описание</button>'
+              + '<button type="button" class="ghost" data-f="' + j
+              + '" data-role="' + esc(f.role_ru || 'Отделка') + '" data-mat="' + esc(f.material || '')
+              + '">В описание</button>'
               + '</div>').join('');
 
             out.innerHTML = warns
@@ -669,8 +697,11 @@
             out.querySelectorAll('button[data-f]').forEach(b =>
               b.addEventListener('click', () => {
                 addFinish(data.finishes[b.dataset.f]);
-                b.textContent = 'В описании';
+                syncFinishButtons();
               }));
+            // Часть отделок из документа могла уже стоять в описании —
+            // например, приехать со страницы. Показываем это сразу.
+            syncFinishButtons();
           }
         } catch (e) {
           out.innerHTML = '<div class="warn" style="margin-top:12px">' + e.message + '</div>';
@@ -779,6 +810,7 @@
           model: val('f_model'),
           type_ru: val('f_type'),
           dims_raw: val('f_dims_raw'),
+          dims_confident: {{ (product.dims_confident if product else True) | tojson }},
           description: val('f_desc'),
           note: val('f_note'),
           width_cm: val('f_d'), depth_cm: val('f_g'), height_cm: val('f_v'),
@@ -841,6 +873,9 @@
         setTimeout(() => (rowcopy.textContent = label), 2500);
       });
     }
+
+    const descField = document.getElementById('f_desc');
+    if (descField) descField.addEventListener('input', syncFinishButtons);
 
     const copy = document.getElementById('copy');
     if (copy) {
