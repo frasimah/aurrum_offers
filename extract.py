@@ -73,8 +73,10 @@ def _gemini(data: bytes | None = None, text: str | None = None) -> dict:
         ]},
         "generationConfig": {"responseMimeType": "application/json"},
     }
+    # Ключ заголовком, а не в адресе: httpx пишет адрес запроса в лог
+    # целиком, и на проде ключ Google лежал открытым в журнале Vercel.
     got = httpx.post(f"{GEMINI_URL}/{GEMINI_MODEL}:generateContent",
-                     params={"key": key}, json=body, timeout=300)
+                     headers={"x-goog-api-key": key}, json=body, timeout=300)
     got.raise_for_status()
     text = got.json()["candidates"][0]["content"]["parts"][0]["text"]
     parsed = json.loads(text)

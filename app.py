@@ -298,11 +298,16 @@ def project_export():
     except Exception as exc:  # noqa: BLE001 — причину показываем пользователю
         return {"error": f"Не удалось собрать файл: {exc}"}, 500
 
+    # В filename= только латиница. Заголовки HTTP кодируются latin-1, и
+    # кириллица в нём роняла ответ на проде (UnicodeEncodeError) уже после
+    # того, как файл был собран: браузер получал обрыв и говорил «не удалось
+    # собрать файл». Настоящее имя приходит вторым параметром, filename*,
+    # он для того и придуман (RFC 6266).
     name = "AURRUM-проект.xlsx"
     return Response(content, headers={
         "Content-Type": "application/vnd.openxmlformats-officedocument."
                         "spreadsheetml.sheet",
-        "Content-Disposition": f'attachment; filename="{name}"; '
+        "Content-Disposition": 'attachment; filename="AURRUM-project.xlsx"; '
                                f"filename*=UTF-8''{quote(name)}",
     })
 
@@ -357,7 +362,9 @@ def photo():
     if not mime.startswith("image/"):
         return "По ссылке не изображение.", 400
 
-    name = re.sub(r"[^\w.\-]", "_", url.split("?")[0].rsplit("/", 1)[-1]) or "photo.jpg"
+    # ASCII: \w в юникоде пропускает кириллицу, а она в заголовке не живёт.
+    name = re.sub(r"[^\w.\-]", "_", url.split("?")[0].rsplit("/", 1)[-1],
+                  flags=re.ASCII) or "photo.jpg"
     return Response(got.content, mimetype=mime, headers={
         "Content-Disposition": f'attachment; filename="{name}"',
     })

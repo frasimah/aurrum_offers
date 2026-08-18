@@ -203,6 +203,51 @@ def check_header_roundtrip() -> tuple[int, int]:
     return good, 5
 
 
+def check_download_headers() -> tuple[int, int]:
+    """Заголовки выгрузки должны кодироваться latin-1.
+
+    Прод падал уже после сборки файла: кириллица в filename= роняла
+    ответ, браузер получал обрыв и показывал общее «не удалось собрать
+    файл». Локальный сервер это прощал, поэтому проверка тут.
+    """
+    import importlib
+    import os
+    os.environ.setdefault("AURRUM_PASSWORD", "проверка")
+    os.environ.setdefault("AURRUM_SECRET_KEY", "x" * 32)
+    import app as flask_app
+    importlib.reload(flask_app)
+
+    print("\n ЗАГОЛОВКИ ВЫГРУЗКИ")
+    print(" " + "-" * 74)
+    client = flask_app.app.test_client()
+    with client.session_transaction() as sess:
+        sess["authorized"] = True
+    got = client.post("/project/export", json={"positions": [
+        {"brand": "VENICEM", "model": "CIRCLE", "qty": 1, "list_price": 2550}]})
+
+    checks = []
+    checks.append(("ответ отдан", got.status_code == 200))
+    for name, value in got.headers.items():
+        try:
+            value.encode("latin-1")
+            ok = True
+        except UnicodeEncodeError:
+            ok = False
+        if not ok:
+            checks.append((f"{name} кодируется latin-1", False))
+    checks.append(("все заголовки кодируются latin-1",
+                   all(hit for _, hit in checks)))
+    disposition = got.headers.get("Content-Disposition", "")
+    checks.append(("настоящее имя приходит в filename*",
+                   "filename*=UTF-8''" in disposition))
+
+    good = 0
+    for label, hit in checks:
+        good += hit
+        print(f"  {OK if hit else BAD} {label}")
+    return good, len(checks)
+
+
 def check_shops() -> tuple[int, int]:
     """Список магазинов: опознаём по домену, а не по форме адреса.
 
@@ -735,6 +780,7 @@ def main() -> int:
     tn_ok, tn_all = check_type_norm()
     sh_ok, sh_all = check_shops()
     hd_ok, hd_all = check_header_roundtrip()
+    dl_ok, dl_all = check_download_headers()
     s_ok, s_all = check_schema()
 
     gl_ok = gl_all = None
@@ -748,13 +794,14 @@ def main() -> int:
           and t_ok == t_all and g_ok == g_all and f_ok == f_all
           and b_ok == b_all and c_ok == c_all and p_ok == p_all
           and ph_ok == ph_all and tn_ok == tn_all and r_ok == r_all
-          and sh_ok == sh_all and pd_ok == pd_all and hd_ok == hd_all
+          and sh_ok == sh_all and pd_ok == pd_all and hd_ok == hd_all and dl_ok == dl_all
           and (gl_all is None or gl_ok == gl_all))
     print("\n" + " " + "=" * 74)
     print(f"  Размеры: {d_ok}/{d_all}   Объём: {v_ok}/{v_all}   "
           f"Сверка: {g_ok}/{g_all}   Техлист: {f_ok}/{f_all}   "
           f"Строка: {b_ok}/{b_all}   Колонки: {c_ok}/{c_all}   Расчёт: {p_ok}/{p_all}   "
-          f"Начальные числа: {pd_ok}/{pd_all}   Шапка: {hd_ok}/{hd_all}\n"
+          f"Начальные числа: {pd_ok}/{pd_all}   Шапка: {hd_ok}/{hd_all}   "
+          f"Выгрузка: {dl_ok}/{dl_all}\n"
           f"  Фото: {ph_ok}/{ph_all}   Правила галерей: {r_ok}/{r_all}   "
           f"Источник фото: {sh_ok}/{sh_all}   "
           f"Тип по адресу: {t_ok}/{t_all}   Тип из извлечения: {tn_ok}/{tn_all}   "
