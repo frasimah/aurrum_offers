@@ -171,6 +171,43 @@ def check_dims_grounding() -> tuple[int, int]:
     return good, len(cases)
 
 
+def check_shops() -> tuple[int, int]:
+    """Список магазинов: опознаём по домену, а не по форме адреса.
+
+    `/products/` в пути есть у LONGHI, HENGE и MISURA EMME — по адресу
+    магазин неотличим от обычного сайта. Ошибка здесь стоит ложной
+    тревоги на каждой карточке этих брендов.
+    """
+    import gallery
+    import shopify
+    print("\n ИСТОЧНИК ФОТОГРАФИЙ")
+    print(" " + "-" * 74)
+    cases = [
+        ("https://fendicasa.com/products/annabelle-armchair", True),
+        ("https://luxurylivinggroup.com/products/bentley-home-embrace-sofa", True),
+        ("https://www.longhi.it/en-us/products/bench-pouf/arianna", False),
+        ("https://www.henge07.com/products/tables/sisma/", False),
+        # Домен сравниваем целиком: хвостом «fendicasa.com» кончается
+        # и чужой домен, зарегистрировать который может кто угодно.
+        ("https://evil-fendicasa.com/products/x", False),
+    ]
+    good = 0
+    for url, expected in cases:
+        got = shopify.is_shop(url)
+        hit = got == expected
+        good += hit
+        print(f"  {OK if hit else BAD} {url.split('//')[-1][:52]:54} "
+              f"-> {'магазин' if got else 'разбор страницы'}")
+
+    # Два источника не должны спорить за один бренд.
+    overlap = set(gallery._rules()) & set(shopify.SHOPS)
+    hit = not overlap
+    good += hit
+    print(f"  {OK if hit else BAD} магазины и правила галерей не пересекаются"
+          + (f": {', '.join(sorted(overlap))}" if overlap else ""))
+    return good, len(cases) + 1
+
+
 def check_gallery_live() -> tuple[int, int]:
     """Эталонный товар каждого бренда: столько ли снимков отдаёт правило.
 
@@ -629,6 +666,7 @@ def main() -> int:
     ph_ok, ph_all = check_photos()
     t_ok, t_all = check_url_types()
     tn_ok, tn_all = check_type_norm()
+    sh_ok, sh_all = check_shops()
     s_ok, s_all = check_schema()
 
     gl_ok = gl_all = None
@@ -642,12 +680,14 @@ def main() -> int:
           and t_ok == t_all and g_ok == g_all and f_ok == f_all
           and b_ok == b_all and c_ok == c_all and p_ok == p_all
           and ph_ok == ph_all and tn_ok == tn_all and r_ok == r_all
+          and sh_ok == sh_all
           and (gl_all is None or gl_ok == gl_all))
     print("\n" + " " + "=" * 74)
     print(f"  Размеры: {d_ok}/{d_all}   Объём: {v_ok}/{v_all}   "
           f"Сверка: {g_ok}/{g_all}   Техлист: {f_ok}/{f_all}   "
           f"Строка: {b_ok}/{b_all}   Колонки: {c_ok}/{c_all}   Расчёт: {p_ok}/{p_all}\n"
           f"  Фото: {ph_ok}/{ph_all}   Правила галерей: {r_ok}/{r_all}   "
+          f"Источник фото: {sh_ok}/{sh_all}   "
           f"Тип по адресу: {t_ok}/{t_all}   Тип из извлечения: {tn_ok}/{tn_all}   "
           f"Схема: {s_ok}/{s_all}"
           + (f"\n  Галереи на живых страницах: {gl_ok}/{gl_all}"

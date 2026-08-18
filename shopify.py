@@ -19,6 +19,7 @@ Group и Fendi Casa.
 from __future__ import annotations
 
 import re
+from urllib.parse import urlparse
 
 import safe_fetch
 
@@ -26,6 +27,25 @@ import safe_fetch
 _PRODUCT_URL = re.compile(r"^(https?://[^/]+(?:/[^/]+)*?/products/[^/?#]+)", re.I)
 
 TIMEOUT = 30
+
+
+# Домены, где штатная карточка магазина — основной источник фотографий.
+# Список явный, потому что по форме адреса магазин не опознать: `/products/`
+# в пути есть и у LONGHI, и у HENGE, и у MISURA EMME, которые на Shopify
+# никогда не были. Нужен для одного — отличить «магазин не ответил»
+# от «сайт и не был магазином», и не пугать менеджера зря.
+SHOPS = ("luxurylivinggroup.com", "fendicasa.com")
+
+
+def _domain(url: str) -> str:
+    host = (urlparse(url or "").hostname or "").lower()
+    parts = host.split(".")
+    return ".".join(parts[-2:]) if len(parts) >= 2 else host
+
+
+def is_shop(url: str) -> bool:
+    """Известный ли это магазин. Сравниваем домен целиком, не хвостом."""
+    return _domain(url) in SHOPS
 
 
 def product_url(url: str) -> str:

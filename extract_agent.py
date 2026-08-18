@@ -30,6 +30,14 @@ def to_candidates(data: dict) -> tuple[list[dict], list[dict], list[str]]:
     finishes: list[dict] = []
     brand = (data.get("brand") or "").strip()
 
+    source = str(data.get(extract.SOURCE_KEY) or "")
+    if source and not source.startswith(extract.SOURCE_MAIN):
+        warnings.append(
+            f"Техлист разобран запасным путём — {source}. Он читает только "
+            f"текстовый слой: размерные выноски на чертежах в него не "
+            f"попадают. Сверьте с документом."
+        )
+
     for product in data.get("products") or []:
         model = (product.get("model") or "").strip()
 

@@ -574,6 +574,14 @@ def lookup(url: str) -> Product:
     # без чужих товаров и образцов материалов. Отбор по именам файлов
     # остаётся только там, где такого источника нет.
     shop = shopify.fetch(url)
+    if not shop and shopify.is_shop(url):
+        # Магазин известен, а карточка не пришла: ответил ошибкой или сменил
+        # движок. Для семи марок это основной источник фотографий, и
+        # подменять его угадыванием молча нельзя.
+        p.warnings.append(
+            "Штатная карточка магазина не открылась — фотографии отобраны "
+            "запасным способом. Проверьте их состав."
+        )
     by_selector = None if shop else gallery.photos(page_html, url)
     if shop:
         photo_candidates, photo_source = shopify.photos(shop), "магазин"
@@ -590,6 +598,13 @@ def lookup(url: str) -> Product:
             )
 
     extracted = extract.from_text(page_md)
+    source = str(extracted.get(extract.SOURCE_KEY) or "")
+    if source and not source.startswith(extract.SOURCE_MAIN):
+        p.warnings.append(
+            f"Основной разбор не ответил, карточку собрал запасной путь — "
+            f"{source}. Он читает только текст: размеры с чертежей и схем "
+            f"в него не попадают. Сверьте габариты и отделки с источником."
+        )
     page = _first_product(extracted)
     p.brand = str(extracted.get("brand") or "").strip()
     p.model = str(page.get("model") or "").strip()

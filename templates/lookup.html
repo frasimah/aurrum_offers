@@ -33,17 +33,6 @@
       border-bottom: 1px solid #eee;
     }
 
-    .bar a {
-      color: #2d2d2d;
-      text-decoration: none;
-      transition: 0.3s;
-    }
-
-    .bar a:hover {
-      color: #fff;
-      background: #2d2d2d;
-    }
-
     .bar .title {
       font-weight: 500;
     }
@@ -400,10 +389,10 @@
 <body>
 
   <div class="bar">
-    <a href="{{ url_for('index') }}">← Конвертер</a>
     <span class="title">Позиция по ссылке</span>
-    <a href="{{ url_for('logout') }}">Выйти</a>
   </div>
+
+  {% include "_nav.html" %}
 
   <div class="wrap">
 

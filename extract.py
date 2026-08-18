@@ -81,6 +81,14 @@ def _gemini(data: bytes | None = None, text: str | None = None) -> dict:
     return parsed if isinstance(parsed, dict) else {}
 
 
+# Каким путём собраны данные. Ключ кладётся в ответ, потому что запасной
+# путь читает только текст: на VENICEM, где размеры нарисованы на схеме,
+# он вернёт пустые габариты — и без этой пометки менеджер решит, что их
+# нет на сайте, вместо того чтобы посмотреть глазами.
+SOURCE_KEY = "_извлекатель"
+SOURCE_MAIN = "Gemini"
+
+
 def from_text(text: str) -> dict:
     """Разбор текста страницы.
 
@@ -93,9 +101,13 @@ def from_text(text: str) -> dict:
     if not text:
         return {}
     try:
-        return _gemini(text=text)
-    except Exception:            # noqa: BLE001 — есть чем заменить
-        return llama_extract.from_text(text)
+        got = _gemini(text=text)
+        got[SOURCE_KEY] = SOURCE_MAIN
+        return got
+    except Exception as gemini_failed:   # noqa: BLE001 — есть чем заменить
+        got = llama_extract.from_text(text)
+        got[SOURCE_KEY] = f"LlamaExtract ({str(gemini_failed)[:100]})"
+        return got
 
 
 def from_url(url: str) -> dict:
@@ -106,13 +118,17 @@ def from_url(url: str) -> dict:
         raise RuntimeError(f"Документ больше {MAX_PDF_MB} МБ — не разбираю.")
 
     try:
-        return _gemini(data=data)
+        got = _gemini(data=data)
+        got[SOURCE_KEY] = SOURCE_MAIN
+        return got
     except Exception as gemini_failed:   # noqa: BLE001 — есть чем заменить
         reason = str(gemini_failed)[:120]
 
     text = llama_extract._pdf_text(data)
     if len(text.strip()) >= MIN_PDF_TEXT:
-        return llama_extract.from_text(text)
+        got = llama_extract.from_text(text)
+        got[SOURCE_KEY] = f"LlamaExtract по текстовому слою ({reason[:100]})"
+        return got
 
     raise RuntimeError(
         f"Техлист не разобрать: чтение страницей не удалось ({reason}), "

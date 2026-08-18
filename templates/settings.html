@@ -21,8 +21,6 @@
       display: flex; align-items: center; justify-content: space-between;
       padding: 12px 24px; background: #fff; border-bottom: 1px solid #eee;
     }
-    .bar a { color: #2d2d2d; text-decoration: none; transition: 0.3s; }
-    .bar a:hover { color: #fff; background: #2d2d2d; }
     .bar .title { font-weight: 500; }
 
     .wrap { max-width: 880px; margin: 24px auto; padding: 0 24px; }
@@ -78,10 +76,10 @@
 <body>
 
   <div class="bar">
-    <a href="{{ url_for('project') }}">← Проект</a>
     <span class="title">Константы</span>
-    <a href="{{ url_for('logout') }}">Выйти</a>
   </div>
+
+  {% include "_nav.html" %}
 
   <div class="wrap">
 
@@ -91,7 +89,8 @@
         Те же, что стоят в скрытых колонках рабочей формы — подписи и буквы колонок
         рядом. Одни на все проекты. В выгружаемый файл они попадают первой строкой,
         поэтому проект, открытый через полгода, покажет те числа, в которых уходил
-        клиенту, а не пересчитается по новым.
+        клиенту, а не пересчитается по новым. Исключение — SWIFT: в форме он стоит
+        числом в каждой строке, туда же его пишем и мы.
       </div>
 
       <table>
