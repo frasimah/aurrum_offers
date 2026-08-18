@@ -54,6 +54,24 @@
       text-align: center; line-height: 15px; cursor: help;
     }
 
+    input, textarea {
+      width: 100%; margin-top: 4px; padding: 7px 9px;
+      border: 1px solid #d9d9d9; border-radius: 0; background: #fffdf2;
+      font-family: inherit; font-size: 13.5px; color: #2d2d2d;
+      appearance: none; -webkit-appearance: none;
+    }
+    input { height: 32px; }
+    textarea { resize: vertical; line-height: 1.5; }
+    input:focus, textarea:focus { outline: none; border-color: #2d2d2d; }
+    label.label { display: block; cursor: pointer; }
+    .four { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+    .diff {
+      display: flex; align-items: baseline; gap: 8px; margin-top: 4px;
+      font-size: 11.5px; color: #b58900;
+    }
+    .diff button.link { font-size: 11.5px; color: #2d2d2d; text-decoration: underline; }
+    .diff button.link:hover { color: #b58900; }
+
     .acts { display: flex; gap: 10px; margin-top: 22px; flex-wrap: wrap; align-items: center; }
     button, .btn {
       height: 36px; padding: 0 18px;
@@ -102,23 +120,30 @@
           <h1>{{ item.model }}</h1>
 
           <div class="row">
-            <div class="label">Тип</div>
-            <div class="value">{{ item.type_ru or '—' }}</div>
+            <label class="label" for="f_type_ru">Тип</label>
+            <input id="f_type_ru" list="type_list" value="{{ item.type_ru or '' }}">
+            <datalist id="type_list">
+              {% for t in types %}<option value="{{ t }}">{% endfor %}
+            </datalist>
           </div>
 
-          {% if item.dims_raw or item.width_cm %}
           <div class="row">
-            <div class="label">Габариты</div>
-            <div class="value">
-              {{ item.dims_raw or '' }}
+            <label class="label" for="f_dims_raw">Размеры строкой, как в источнике
               {%- if item.dims_confident is defined and item.dims_confident == false %}
               <span class="warn-mark" title="Оси расставлены по порядку — пометки высоты в источнике нет">!</span>
-              {%- endif %}
-              {%- if item.width_cm %}<br>Д {{ item.width_cm }} · Г {{ item.depth_cm }} · В {{ item.height_cm }}{% endif %}
-              {%- if item.volume_m3 %}<br>Объём {{ item.volume_m3 }} м³{% endif %}
+              {%- endif %}</label>
+            <input id="f_dims_raw" value="{{ item.dims_raw or '' }}">
+          </div>
+
+          <div class="row">
+            <div class="label">Габариты, см — Д / Г / В и объём, м³</div>
+            <div class="four">
+              <input id="f_width_cm" value="{{ item.width_cm or '' }}">
+              <input id="f_depth_cm" value="{{ item.depth_cm or '' }}">
+              <input id="f_height_cm" value="{{ item.height_cm or '' }}">
+              <input id="f_volume_m3" value="{{ item.volume_m3 or '' }}">
             </div>
           </div>
-          {% endif %}
 
           {% if item.finishes %}
           <div class="row">
@@ -127,46 +152,41 @@
               {% for f in item.finishes %}{{ f.role_ru }} — {{ f.material }}{% if f.code %}<span
                 class="badge">{{ f.code }}</span>{% endif %}{% if not loop.last %}<br>{% endif %}{% endfor %}
             </div>
+            <div class="hint">Правятся на разборе по ссылке: там у каждой галочка.</div>
           </div>
           {% endif %}
 
-          {% if item.summary_ru %}
           <div class="row">
-            <div class="label">Аннотация</div>
-            <div class="value">{{ item.summary_ru }}</div>
+            <label class="label" for="f_summary_ru">Аннотация</label>
+            <textarea id="f_summary_ru" rows="3">{{ item.summary_ru or '' }}</textarea>
           </div>
-          {% endif %}
 
-          {% if item.note %}
           <div class="row">
-            <div class="label">Примечание</div>
-            <div class="value">{{ item.note }}</div>
+            <label class="label" for="f_note">Примечание</label>
+            <input id="f_note" value="{{ item.note or '' }}">
           </div>
-          {% endif %}
 
-          {% if item.description %}
           <div class="row">
-            <div class="label">Описание для колонки «Описание»</div>
-            <div class="value pre">{{ item.description }}</div>
+            <label class="label" for="f_description">Описание для колонки «Описание»</label>
+            <textarea id="f_description" rows="6">{{ item.description or '' }}</textarea>
           </div>
-          {% endif %}
 
           <div class="acts">
-            <button type="button" id="toproject">В проект</button>
+            <button type="button" id="save">Сохранить</button>
+            <button type="button" id="toproject" class="btn ghost">В проект</button>
             {% if item.source_url %}
+            <button type="button" class="btn ghost" id="refresh">Пересобрать с сайта</button>
             <a class="btn ghost" href="{{ item.source_url }}" target="_blank" rel="noopener">Источник</a>
-            <a class="btn ghost" href="{{ url_for('lookup') }}">Пересобрать</a>
             {% endif %}
-            <button type="button" class="link" id="del">Удалить из каталога</button>
+            <button type="button" class="link" id="del">Удалить</button>
           </div>
 
-          {% if not item.dims_raw %}
           <div class="hint">
-            Габаритов у карточки нет. «Пересобрать» открывает разбор по ссылке —
-            вставьте туда адрес источника, и карточка дополнится габаритами,
-            объёмом и отделками.
+            {% if item.source_url %}«Пересобрать» заново разбирает страницу бренда и
+            обновляет пустые поля. Заполненное руками при этом остаётся: свежий
+            разбор ложится под ваши правки, а не поверх.
+            {% else %}У карточки нет ссылки на источник — пересобрать не с чего.{% endif %}
           </div>
-          {% endif %}
           <div class="status" id="status"></div>
         </div>
       </div>
@@ -184,10 +204,105 @@
       catch (e) { return base; }
     };
 
+    // Поля редактора: числовые приводим к числу, пустые убираем совсем —
+    // «» в габаритах считалось бы нулём и портило объём.
+    const TEXT = ['type_ru', 'dims_raw', 'summary_ru', 'note', 'description'];
+    const NUM = ['width_cm', 'depth_cm', 'height_cm', 'volume_m3'];
+
+    function fields() {
+      const out = {};
+      for (const key of TEXT) out[key] = (document.getElementById('f_' + key).value || '').trim();
+      for (const key of NUM) {
+        const raw = (document.getElementById('f_' + key).value || '').replace(',', '.').trim();
+        out[key] = raw === '' ? null : (isFinite(parseFloat(raw)) ? parseFloat(raw) : null);
+      }
+      return out;
+    }
+
+    // На экране всегда то, что сохранили: хранилище доходит с задержкой,
+    // и перечитывание карточки сразу после записи вернуло бы прежнее.
+    function fill(item) {
+      for (const key of TEXT.concat(NUM)) {
+        const el = document.getElementById('f_' + key);
+        if (el) el.value = item[key] == null ? '' : item[key];
+      }
+    }
+
+    // Целое состояние карточки шлём мы: сервер её не перечитывает, иначе
+    // задержка хранилища съедала бы только что сделанную правку.
+    const current = () => ({ ...ITEM, ...fields() });
+
+    document.getElementById('save').addEventListener('click', async () => {
+      const btn = document.getElementById('save');
+      btn.disabled = true;
+      status.textContent = 'Сохраняю…';
+      try {
+        const r = await fetch('{{ url_for("library_update") }}', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ item: current() }),
+        });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || 'не удалось сохранить');
+        Object.assign(ITEM, fields());
+        status.textContent = 'Сохранено в каталоге.';
+      } catch (e) { status.textContent = e.message; }
+      btn.disabled = false;
+    });
+
+    const refresh = document.getElementById('refresh');
+    if (refresh) refresh.addEventListener('click', async () => {
+      if (!confirm('Разобрать страницу бренда заново? Пустые поля заполнятся, ваши правки останутся.')) return;
+      refresh.disabled = true;
+      status.textContent = 'Разбираю страницу — это занимает до минуты…';
+      try {
+        const r = await fetch('{{ url_for("library_refresh") }}', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ item: current() }),
+        });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || 'не удалось пересобрать');
+        Object.assign(ITEM, data.item);
+        fill(data.item);
+        showDiffs(data.differs || {});
+        const parts = [];
+        parts.push(data.filled && data.filled.length
+          ? 'Заполнено пустых полей: ' + data.filled.length + '.'
+          : 'Пустых полей не было — ничего не тронуто.');
+        if (Object.keys(data.differs || {}).length) {
+          parts.push('Разбор нашёл другие значения — они под полями, взять решаете вы.');
+        }
+        if (data.warnings && data.warnings.length) parts.push(data.warnings.join(' '));
+        status.textContent = parts.join(' ');
+      } catch (e) { status.textContent = e.message; }
+      refresh.disabled = false;
+    });
+
+    // Свежее значение, разошедшееся с заполненным, не подменяем — кладём
+    // под поле кнопкой. Иначе пересборка молча меняет выверенные числа.
+    function showDiffs(differs) {
+      document.querySelectorAll('.diff').forEach(el => el.remove());
+      for (const [key, value] of Object.entries(differs)) {
+        const el = document.getElementById('f_' + key);
+        if (!el) continue;
+        const box = document.createElement('div');
+        box.className = 'diff';
+        const text = document.createElement('span');
+        text.textContent = 'на сайте: ' + value;
+        const take = document.createElement('button');
+        take.type = 'button';
+        take.className = 'link';
+        take.textContent = 'взять';
+        take.addEventListener('click', () => { el.value = value; box.remove(); });
+        box.append(text, take);
+        el.insertAdjacentElement('afterend', box);
+      }
+    }
+
     document.getElementById('toproject').addEventListener('click', () => {
       let list = [];
       try { list = JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) { list = []; }
-      list.push({ ...ITEM, qty: 1, ...posDefaults() });
+      // Уходит то, что на экране: менеджер мог поправить и не сохранить.
+      list.push({ ...ITEM, ...fields(), qty: 1, ...posDefaults() });
       localStorage.setItem(KEY, JSON.stringify(list));
       status.textContent = 'Добавлено в проект. Всего позиций: ' + list.length + '.';
     });

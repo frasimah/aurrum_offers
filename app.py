@@ -185,13 +185,47 @@ def lookup():
     except Exception as exc:  # noqa: BLE001 — причину показываем пользователю
         return render_template("lookup.html", url=url, error=str(exc)), 502
 
+    description = product_lookup.to_excel_description(product)
+    # Разбор стоит запроса Firecrawl и работы Gemini — терять его,
+    # если менеджер закрыл вкладку, незачем. Кладём в каталог сразу,
+    # ещё до того, как он что-то нажмёт.
+    saved = _remember(product, description)
+
     return render_template(
         "lookup.html",
         url=url,
         product=product,
-        description=product_lookup.to_excel_description(product),
+        description=description,
+        saved_id=saved,
         types=product_lookup.TYPES_RU,
     )
+
+
+def _remember(product, description: str) -> str | None:
+    """Разобранную карточку — в каталог. Тихо: сбой хранилища не повод
+    отнимать у менеджера уже собранную карточку на экране.
+
+    Существующую не затираем: в ней могли быть правки руками, а свежий
+    разбор их не знает. Обновление — по кнопке в редакторе карточки.
+    """
+    try:
+        item_id = library.slug(product.brand, product.model)
+        if library.get(item_id):
+            return item_id
+        return library.save({
+            "source_url": product.source_url,
+            "brand": product.brand, "model": product.model,
+            "type_ru": product.type_ru, "collection": product.collection,
+            "dims_raw": product.dims_raw, "dims_confident": product.dims_confident,
+            "width_cm": product.width_cm, "depth_cm": product.depth_cm,
+            "height_cm": product.height_cm, "volume_m3": product.volume_m3,
+            "volume_source": product.volume_source,
+            "finishes": product.finishes, "note": product.tech_note,
+            "summary_ru": product.summary_ru, "description": description,
+            "photos": product.photo_urls, "doc_urls": product.doc_urls,
+        })["id"]
+    except Exception:            # noqa: BLE001 — карточка на экране важнее
+        return None
 
 
 @app.route("/parse-doc", methods=["POST"])
@@ -331,7 +365,8 @@ def library_item(item_id: str):
                                page=1, pages=1), 502
     if not item:
         return redirect(url_for("library_page"))
-    return render_template("library_item.html", item=item)
+    return render_template("library_item.html", item=item,
+                           types=product_lookup.TYPES_RU)
 
 
 @app.route("/library/card/<item_id>")
@@ -348,6 +383,97 @@ def library_card(item_id: str):
     except Exception as exc:  # noqa: BLE001
         return {"error": f"Карточка не открылась: {exc}"}, 502
     return item or ({"error": "Карточки нет в библиотеке."}, 404)
+
+
+# Поля, которые редактор карточки показывает и правит. Всё остальное
+# в карточке (фотографии, документы, источник объёма) он передаёт как
+# есть — и поэтому сервер ничего не перечитывает перед записью.
+EDITABLE = ("type_ru", "dims_raw", "width_cm", "depth_cm", "height_cm",
+            "volume_m3", "summary_ru", "note", "description")
+
+
+def _incoming(data: dict) -> tuple[dict | None, str | None]:
+    """Карточка из запроса редактора: проверенная и с прежним именем.
+
+    Читать сохранённую и сливать с ней нельзя: хранилище доходит с
+    задержкой, чтение сразу после записи возвращает предыдущее — на
+    этом правка «не терять» была молча съедена пересборкой. Поэтому
+    целое состояние карточки приносит тот, у кого оно на экране.
+    """
+    item = data.get("item")
+    if not isinstance(item, dict):
+        return None, "Неверный запрос."
+    item_id = str(item.get("id") or "")
+    if not re.fullmatch(r"[a-z0-9-]{1,120}", item_id):
+        return None, "Неверный адрес карточки."
+    if not (str(item.get("brand") or "").strip() and str(item.get("model") or "").strip()):
+        return None, "У карточки должны быть производитель и модель."
+    return item, None
+
+
+@app.route("/library/update", methods=["POST"])
+def library_update():
+    """Правки из редактора — записью целиком, без чтения и слияния."""
+    item, error = _incoming(request.get_json(silent=True) or {})
+    if error:
+        return {"error": error}, 400
+    try:
+        library.save(item)
+    except library.NotConfigured as exc:
+        return {"error": str(exc)}, 400
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"Не удалось сохранить: {exc}"}, 502
+    return {"saved": item["id"]}
+
+
+@app.route("/library/refresh", methods=["POST"])
+def library_refresh():
+    """Разобрать страницу бренда заново — не трогая заполненного.
+
+    Свежий разбор ложится ПОД карточку с экрана: пустое заполняет,
+    заполненное оставляет. Что разошлось — возвращаем отдельно, чтобы
+    менеджер сам решил, а не узнавал об этом по изменившимся числам.
+    """
+    item, error = _incoming(request.get_json(silent=True) or {})
+    if error:
+        return {"error": error}, 400
+
+    url = str(item.get("source_url") or "")
+    if not url.startswith(("http://", "https://")):
+        return {"error": "У карточки нет ссылки на источник — пересобрать не с чего."}, 400
+
+    try:
+        product = product_lookup.lookup(url)
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"Не удалось разобрать страницу: {exc}"}, 502
+
+    fresh = {
+        "type_ru": product.type_ru, "collection": product.collection,
+        "dims_raw": product.dims_raw, "dims_confident": product.dims_confident,
+        "width_cm": product.width_cm, "depth_cm": product.depth_cm,
+        "height_cm": product.height_cm, "volume_m3": product.volume_m3,
+        "volume_source": product.volume_source, "finishes": product.finishes,
+        "note": product.tech_note, "summary_ru": product.summary_ru,
+        "description": product_lookup.to_excel_description(product),
+        "photos": product.photo_urls, "doc_urls": product.doc_urls,
+    }
+    fresh = {k: v for k, v in fresh.items() if v not in (None, "", [], {})}
+
+    filled, differs = [], {}
+    updated = dict(item)
+    for key, value in fresh.items():
+        if item.get(key) in (None, "", [], {}):
+            updated[key] = value
+            filled.append(key)
+        elif key in EDITABLE and item.get(key) != value:
+            differs[key] = value
+
+    try:
+        library.save(updated)
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"Не удалось сохранить: {exc}"}, 502
+    return {"item": updated, "filled": filled, "differs": differs,
+            "warnings": product.warnings}
 
 
 @app.route("/library/save-many", methods=["POST"])
