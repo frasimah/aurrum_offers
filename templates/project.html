@@ -209,9 +209,10 @@
     <div class="card">
       <h2>Позиции <span class="muted" id="count"></span></h2>
       <div class="hint" style="margin-bottom:12px">
-        Жёлтым — то, что вводится руками. Закуп тоже вводится напрямую —
-        карандаш по наведению: тогда цена прайса выводится арифметикой
-        Закуп ÷ (1+наценка) ÷ (1−скидка) и показывается серым. Остальное считается.
+        Жёлтым — то, что вводится руками; скидка, наценка и сборка — в процентах.
+        Закуп тоже вводится напрямую — карандаш по наведению: тогда цена прайса
+        выводится арифметикой и показывается серым. Остальные считанные колонки
+        с карандашом (Рентаб, Транш, SWIFT, Транспорт, Цена) правятся на месте.
       </div>
 
       <div id="empty" class="empty" hidden>
@@ -226,17 +227,17 @@
               <th>К-во</th>
               <th>м³</th>
               <th>Цена прайса</th>
-              <th>Скидка</th>
-              <th>Наценка</th>
+              <th title="Скидка фабрики, % от цены прайса">Скидка, %</th>
+              <th title="Наценка дилера, % к цене со скидкой">Наценка, %</th>
               <th title="Надбавка за сборку. Работает делением, как в форме: 5 % превращает сумму в СУММА ÷ 0,95">Сборка, %</th>
               <th>Закуп</th>
               <th>Рентаб</th>
               <th>Транш</th>
               <th>SWIFT</th>
               <th>Транспорт</th>
-              <th>Сумма</th>
-              <th>Цена</th>
-              <th>Итого</th>
+              <th title="СУММА формы (AD) за одну штуку: закуп + рентаб + транш + SWIFT + транспорт. Количество на неё не влияет">СУММА/шт</th>
+              <th title="Цена клиенту за штуку — со сборкой, округлена до десятков; правится карандашом">Цена</th>
+              <th title="Цена × количество — как колонка «Сумма» видимой части книги">Сумма</th>
               <th></th>
             </tr>
           </thead>
@@ -437,8 +438,8 @@
             value="${esc(p.list_price == null ? '' : p.list_price)}"
             placeholder="${p.purchase != null && c.list_price ? '≈ ' + rub(c.list_price) : ''}"
             title="Пусто при ручном закупе — серым показана выведенная арифметикой"></td>
-          ${cell('factory_discount', p.factory_discount, 'short')}
-          ${cell('dealer_markup', p.dealer_markup, 'short')}
+          ${cell('factory_discount_pct', Math.round((p.factory_discount == null ? 0 : p.factory_discount) * 1000) / 10, 'short')}
+          ${cell('dealer_markup_pct', Math.round((p.dealer_markup == null ? 0 : p.dealer_markup) * 1000) / 10, 'short')}
           ${cell('assembly_pct', Math.round((1 - (p.assembly == null ? 1 : p.assembly)) * 1000) / 10, 'short')}
           <td class="num muted editable" data-edit="purchase" data-i="${i}"
             title="Закуп — из инвойса, вводится руками; цена прайса выведется арифметически">
@@ -488,7 +489,13 @@
 
       body.querySelectorAll('input[data-k]').forEach(el =>
         el.addEventListener('change', () => {
-          if (el.dataset.k === 'assembly_pct') {
+          if (el.dataset.k === 'factory_discount_pct' || el.dataset.k === 'dealer_markup_pct') {
+            // В поле процент, в позиции — доля книги: 20 -> 0,2. До этого
+            // поле ждало долю, менеджер вводил «20», и закуп умножался
+            // на 21 — молча и правдоподобно.
+            const pct = parseFloat((el.value || '0').replace(',', '.')) || 0;
+            positions[el.dataset.i][el.dataset.k.replace('_pct', '')] = Math.round(pct * 10) / 1000;
+          } else if (el.dataset.k === 'assembly_pct') {
             // В поле процент, в позиции — коэффициент книги: 5 % -> 0,95.
             // Формула формы AE = СУММА ÷ коэффициент остаётся нетронутой.
             const pct = parseFloat((el.value || '0').replace(',', '.')) || 0;
@@ -635,8 +642,8 @@
       // и написанное до него исчезало, не успев показаться.
       await recalc();
       document.getElementById('status').textContent =
-        'Подставлено из констант: скидка ' + d.factory_discount +
-        ', наценка ' + d.dealer_markup + ', сборка ' + (Math.round((1 - d.assembly) * 1000) / 10) + ' % ' +
+        'Подставлено из констант: скидка ' + Math.round(d.factory_discount * 100) + ' %' +
+        ', наценка ' + Math.round(d.dealer_markup * 100) + ' %, сборка ' + (Math.round((1 - d.assembly) * 1000) / 10) + ' % ' +
         '. Ставки расчёта (РЕНТАБ, ТРАНШ и остальные) применяются пересчётом сами.';
     });
 
