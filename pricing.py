@@ -150,11 +150,18 @@ def line(list_price, volume_m3, *, factory_discount=None, dealer_markup=None,
 # «+4» и «−75» в книге — ручная доводка итога до круглого числа
 # (39999,75 ≈ 40000). В формулы её не тащим: для того же есть поле
 # дополнительной скидки.
+# У каждой строки два способа задать величину: процентом от базы, как
+# в формулах книги, или евро напрямую — доставка чаще известна суммой,
+# а не долей. Ненулевое евро выигрывает у процента.
 DEFAULT_FINAL = {
     "services_pct": 0.0,     # дополнительные услуги
     "delivery_pct": 0.0,     # доставка по Москве: ВКЛЮЧЕН — ноль
     "assembly_pct": 5.0,     # сборка/монтаж
     "personal_pct": 30.0,    # исключительная персональная скидка
+    "services_eur": 0.0,
+    "delivery_eur": 0.0,
+    "assembly_eur": 0.0,
+    "personal_eur": 0.0,
     "extra_eur": 0.0,        # дополнительная скидка, евро
 }
 
@@ -162,11 +169,15 @@ DEFAULT_FINAL = {
 def final_block(items_sum: float, fin: dict | None = None) -> dict:
     """Сумма позиций -> итог компреда по цепочке книги."""
     f = {**DEFAULT_FINAL, **{k: _num(v) for k, v in (fin or {}).items()}}
-    services = items_sum * f["services_pct"] / 100
-    delivery = items_sum * f["delivery_pct"] / 100
-    assembly = items_sum * f["assembly_pct"] / 100
+
+    def part(key: str, base: float) -> float:
+        return f[f"{key}_eur"] or base * f[f"{key}_pct"] / 100
+
+    services = part("services", items_sum)
+    delivery = part("delivery", items_sum)
+    assembly = part("assembly", items_sum)
     total = items_sum + services + delivery + assembly
-    personal = -total * f["personal_pct"] / 100
+    personal = -part("personal", total)
     subtotal = total + personal
     payable = subtotal - f["extra_eur"]
     return {

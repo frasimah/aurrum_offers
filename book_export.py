@@ -90,16 +90,21 @@ def _number(value):
     return int(number) if number.is_integer() else number
 
 
-def _photo(url: str) -> XLImage | None:
+def _photo(url: str, max_px: int = PHOTO_MAX_PX) -> XLImage | None:
     """Скачиваем и ужимаем снимок. Не вышло — молча пропускаем: файл
-    без картинки лучше, чем отсутствие файла."""
+    без картинки лучше, чем отсутствие файла.
+
+    `max_px` зависит от адресата: в ячейку Excel хватает 170, а печать
+    показывает снимок втрое крупнее и из 170 получает мыло — ей 900,
+    как и загруженным книгам (`spec_parser._to_data_uri`).
+    """
     try:
         raw = safe_fetch.get(url, timeout=30,
                              headers={"User-Agent": "Mozilla/5.0"}).content
         from PIL import Image
 
         im = Image.open(io.BytesIO(raw))
-        im.thumbnail((PHOTO_MAX_PX, PHOTO_MAX_PX), Image.LANCZOS)
+        im.thumbnail((max_px, max_px), Image.LANCZOS)
         if im.mode != "RGB":
             im = im.convert("RGB")
         buf = io.BytesIO()
@@ -187,7 +192,7 @@ def build(positions: list[dict], rates: dict | None = None,
             qty = max(1, int(pricing._num(position.get("qty"), 1)))
             price = pricing._num(fields.get("price"))
             volume = pricing._num(position.get("volume_m3"))
-            cells[5] = round(price * qty, 2)      # F  Сумма
+            cells[5] = round(price * qty, 2) if price else ""   # F  Сумма
             cells[17] = volume or ""              # R  м3
             cells[18] = round(volume * qty, 2) if volume else ""   # S  м3 всего
         for index, value in enumerate(cells, start=1):
@@ -198,7 +203,7 @@ def build(positions: list[dict], rates: dict | None = None,
 
         photos = position.get("photos") or []
         if photos:
-            image = _photo(photos[0])
+            image = _photo(photos[0], max_px=900 if values else PHOTO_MAX_PX)
             if image is not None:
                 ws.add_image(image, f"I{row}")
 
@@ -233,14 +238,21 @@ def build(positions: list[dict], rates: dict | None = None,
                 ("ИТОГО К ОПЛАТЕ, Евро", fb["к_оплате"], True),
             ]
         else:
+            def part(key, base_cell, sign=""):
+                # Ненулевое евро выигрывает у процента — как в pricing.
+                if f[f"{key}_eur"]:
+                    value = round(abs(f[f"{key}_eur"]), 2)
+                    return -value if sign == "-" else value
+                return f"={sign}{base_cell}*{f[f'{key}_pct'] / 100}"
+
             rows = [
                 ("Сумма, Евро", f"=SUM(F{FIRST_ITEM_ROW}:F{last})", True),
-                ("Дополнительные услуги, Евро", f"=F{t}*{f['services_pct'] / 100}", False),
-                ("Доставка по Москве/МО, Евро", f"=F{t}*{f['delivery_pct'] / 100}", False),
-                ("Сборка/Монтаж, Евро", f"=F{t}*{f['assembly_pct'] / 100}", False),
+                ("Дополнительные услуги, Евро", part("services", f"F{t}"), False),
+                ("Доставка по Москве/МО, Евро", part("delivery", f"F{t}"), False),
+                ("Сборка/Монтаж, Евро", part("assembly", f"F{t}"), False),
                 ("Всего, Евро", f"=F{t}+F{t + 1}+F{t + 2}+F{t + 3}", True),
                 ("Исключительная Персональная Скидка, Евро",
-                 f"=-F{t + 4}*{f['personal_pct'] / 100}", False),
+                 part("personal", f"F{t + 4}", sign="-"), False),
                 ("Под-Итог, Евро", f"=F{t + 4}+F{t + 5}", True),
                 ("Дополнительная Скидка, Евро", -abs(f["extra_eur"]) or 0, False),
                 ("ИТОГО К ОПЛАТЕ, Евро", f"=F{t + 6}+F{t + 7}", True),
