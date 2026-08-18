@@ -138,6 +138,9 @@ def to_excel_description(p: Product) -> str:
 
     Отделки с одной ролью книга пишет одной строкой через « + », а названия
     материалов — заглавными: «Отделка - Металл LIGHT BURNISHED BRASS + ...».
+
+    Хвоста «Фото из Каталога» здесь нет намеренно: в книге он встречается,
+    но приписывать его каждой позиции не нужно — ставится по месту.
     """
     lines = [p.model.upper()] if p.model else []
     if p.type_ru:
@@ -157,7 +160,6 @@ def to_excel_description(p: Product) -> str:
     for role, materials in by_role.items():
         lines.append(f"{role} - {' + '.join(materials)}")
 
-    lines += ["", "Фото из Каталога"]
     return "\n".join(lines).strip()
 
 
