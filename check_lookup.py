@@ -933,53 +933,59 @@ def main() -> int:
             print(f"   | {ln}")
         return 0
 
-    d_ok, d_all = check_dims()
-    v_ok, v_all = check_volume()
-    g_ok, g_all = check_dims_grounding()
-    f_ok, f_all = check_spec_pdf()
-    d_ok, d_all = check_docs_list()
-    b_ok, b_all = check_book_row()
-    c_ok, c_all = check_columns()
-    p_ok, p_all = check_pricing()
-    pd_ok, pd_all = check_position_defaults()
-    fb_ok, fb_all = check_final_block()
-    ov_ok, ov_all = check_overrides()
-    r_ok, r_all = check_gallery_rules()
-    l_ok, l_all = check_login()
-    ph_ok, ph_all = check_photos()
-    t_ok, t_all = check_url_types()
-    tn_ok, tn_all = check_type_norm()
-    sh_ok, sh_all = check_shops()
-    lb_ok, lb_all = check_library()
-    hd_ok, hd_all = check_header_roundtrip()
-    dl_ok, dl_all = check_download_headers()
-    s_ok, s_all = check_schema()
+    # Раньше здесь стояло два десятка пар имён, и это дало две тихие беды:
+    # `d_ok` присваивался разбором размеров и тут же затирался списком
+    # документов (под подписью «Размеры» печатались документы, а 17 проверок
+    # размеров в приёмку не входили вовсе), а результат проверки входа
+    # вычислялся и не использовался. Список закрывает оба случая разом:
+    # подпись, счёт и участие в итоге — одна запись, забыть нечего.
+    checks: list[tuple[str, int, int]] = []
 
-    gl_ok = gl_all = None
+    def run(label: str, fn) -> None:
+        good, total = fn()
+        checks.append((label, good, total))
+
+    run("Размеры", check_dims)
+    run("Объём", check_volume)
+    run("Сверка", check_dims_grounding)
+    run("Техлист", check_spec_pdf)
+    run("Документы", check_docs_list)
+    run("Строка", check_book_row)
+    run("Колонки", check_columns)
+    run("Расчёт", check_pricing)
+    run("Начальные числа", check_position_defaults)
+    run("Итог", check_final_block)
+    run("Ручные", check_overrides)
+    run("Правила галерей", check_gallery_rules)
+    run("Вход", check_login)
+    run("Фото", check_photos)
+    run("Тип по адресу", check_url_types)
+    run("Тип из извлечения", check_type_norm)
+    run("Источник фото", check_shops)
+    run("Библиотека", check_library)
+    run("Шапка", check_header_roundtrip)
+    run("Выгрузка", check_download_headers)
+    run("Схема", check_schema)
+
     if "--galleries" in args:
-        gl_ok, gl_all = check_gallery_live()
+        run("Галереи живьём", check_gallery_live)
 
     if "--offline" not in args and "--galleries" not in args:
         check_live()
 
-    ok = (d_ok == d_all and v_ok == v_all and s_ok == s_all
-          and t_ok == t_all and g_ok == g_all and f_ok == f_all
-          and b_ok == b_all and c_ok == c_all and p_ok == p_all
-          and ph_ok == ph_all and tn_ok == tn_all and r_ok == r_all
-          and sh_ok == sh_all and pd_ok == pd_all and lb_ok == lb_all and hd_ok == hd_all and dl_ok == dl_all and fb_ok == fb_all and ov_ok == ov_all
-          and (gl_all is None or gl_ok == gl_all))
+    ok = all(good == total for _, good, total in checks)
+
     print("\n" + " " + "=" * 74)
-    print(f"  Размеры: {d_ok}/{d_all}   Объём: {v_ok}/{v_all}   "
-          f"Сверка: {g_ok}/{g_all}   Техлист: {f_ok}/{f_all}   "
-          f"Строка: {b_ok}/{b_all}   Колонки: {c_ok}/{c_all}   Расчёт: {p_ok}/{p_all}   "
-          f"Начальные числа: {pd_ok}/{pd_all}   Итог: {fb_ok}/{fb_all}   Ручные: {ov_ok}/{ov_all}   Шапка: {hd_ok}/{hd_all}   "
-          f"Выгрузка: {dl_ok}/{dl_all}\n"
-          f"  Фото: {ph_ok}/{ph_all}   Правила галерей: {r_ok}/{r_all}   "
-          f"Источник фото: {sh_ok}/{sh_all}   Библиотека: {lb_ok}/{lb_all}   "
-          f"Тип по адресу: {t_ok}/{t_all}   Тип из извлечения: {tn_ok}/{tn_all}   "
-          f"Схема: {s_ok}/{s_all}"
-          + (f"\n  Галереи на живых страницах: {gl_ok}/{gl_all}"
-             if gl_all is not None else ""))
+    # Переносим по ширине терминала, а не по заранее нарезанным строкам:
+    # добавить проверку и забыть вписать её в подпись больше нельзя.
+    line = "  "
+    for label, good, total in checks:
+        piece = f"{label}: {good}/{total}   "
+        if len(line) + len(piece) > 100:
+            print(line.rstrip())
+            line = "  "
+        line += piece
+    print(line.rstrip())
     if ok:
         print("  Разбор совпадает с книгой, схема согласована с кодом.")
     else:
