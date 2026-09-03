@@ -433,6 +433,15 @@ def parse_dims(raw: str, type_ru: str = "") -> tuple[float | None, float | None,
     # трёхметрового стола помечались как расставленные наугад.
     s = re.sub(r"\(\s*([HНh])\s*\)", r" \1 ", s)
 
+    # Миллиметры переводим в сантиметры. Итальянские техлисты пишут
+    # в мм по умолчанию — «L2415 D780 H2685 mm», — и без перевода объём
+    # выходил в тысячу раз больше: 2450 м³ вместо 2,45. При ставке
+    # 500 € за куб это счёт на миллион вместо тысячи, и всё это
+    # помечалось «уверенно». В книге 2867 позиция MODULNOVA записана
+    # ровно так: «L2415/2805/2415 H2685 мм».
+    millimetres = (re.search(r"\b(?:mm|мм)\b", s, re.I) is not None
+                   and re.search(r"\b(?:cm|см)\b", s, re.I) is None)
+
     # Дюймовые двойники выкидываем целиком. Раньше отбрасывались только те,
     # что в скобках, и у PORADA «43 1/4"» через запятую попадало в общий
     # котёл чисел — высотой оказывался второй диаметр вместо 75 см.
@@ -450,16 +459,40 @@ def parse_dims(raw: str, type_ru: str = "") -> tuple[float | None, float | None,
 
     # Диаметр бывает диапазоном — и через дробь «D25/31», и через тире
     # «Ø110 - 120». Берём наибольшее значение.
+    # Голая буква D — диаметр только там, где нет пометок длины и
+    # ширины. В нотации «L2415 D780 H2685» (стандарт итальянских
+    # техлистов) D — это глубина, и чтение её диаметром съедало длину:
+    # кухня 241x78x268 выходила 78x78x268. Знак Ø однозначен всегда.
+    has_l_or_w = re.search(r"\b(?:L|W|length|width|larghezza|lunghezza)\b|"
+                           r"\bL\d|\bW\d", s, re.I) is not None
+    diameter_marks = "Øø" if has_l_or_w else "ØøD"
+
     diameters: list[float] = []
-    for group in re.findall(rf"[ØøD]\s*({num}(?:\s*[/\-–—]\s*{num})*)", s):
+    for group in re.findall(rf"[{diameter_marks}]\s*({num}(?:\s*[/\-–—]\s*{num})*)", s):
         diameters += [float(x) for x in re.findall(num, group)]
     all_nums = [float(x) for x in re.findall(num, s)]
     # Размеры в дюймах идут в скобках — они не нужны
     inches = [float(x) for x in re.findall(rf"\(\s*({num})", s)]
     all_nums = [n for n in all_nums if n not in inches]
 
+    if millimetres:
+        # Делим до раскладки по осям: иначе пометки и диаметры пришлось
+        # бы пересчитывать в трёх местах.
+        height = height / 10 if height is not None else None
+        diameters = [n / 10 for n in diameters]
+        all_nums = [n / 10 for n in all_nums]
+
     if height is not None:
-        horizontal = [n for n in all_nums if n != height]
+        # Убираем ОДНО вхождение высоты, а не все числа, равные ей.
+        # Отбор по значению съедал горизонталь, численно равную высоте:
+        # «Height 51 Width 51 Depth 4» давало 4 x 4 x 51, а шкаф
+        # 80 x 40 x 80 — 40 x 40 x 80, то есть вдвое уже и вдвое дешевле
+        # по транспорту. И всё это помечалось «уверенно», так что повода
+        # перепроверить не возникало. Совпадение размеров у мебели —
+        # обычное дело: квадратный пуф, куб-тумба, зеркало, стол 90x90.
+        horizontal = list(all_nums)
+        if height in horizontal:
+            horizontal.remove(height)
         if diameters:
             d = max(diameters)
             return d, d, height, True
