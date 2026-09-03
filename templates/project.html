@@ -488,8 +488,11 @@
           ? 'Сумма позиций 0: у позиций не заполнена «Цена прайса» — из неё считается вся цепочка, без неё нули и в файле, и на печати.'
           : '';
 
+      // Без расчёта полосу итогов прячем. Иначе после удачного расчёта и
+      // последующего отказа она показывает прежнюю сумму, а таблица ниже
+      // уже обнулена: «Сумма 43 080» рядом с «ИТОГО К ОПЛАТЕ 0».
+      document.getElementById('totals').hidden = !calc;
       if (calc) {
-        document.getElementById('totals').hidden = false;
         document.getElementById('t_count').textContent = calc.count;
         document.getElementById('t_volume').textContent = calc.volume_m3;
         document.getElementById('t_sum').textContent = rub(calc.sum);

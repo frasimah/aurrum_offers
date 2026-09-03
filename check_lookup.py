@@ -177,6 +177,383 @@ def check_dims_grounding() -> tuple[int, int]:
     return good, len(cases)
 
 
+def _page(name: str, **context) -> tuple[object, list[str], dict]:
+    """Отрисовать страницу без сети и разобрать её.
+
+    Отдаёт (soup, скрипты, dom) — разметку, тексты скриптов по порядку и
+    описание элементов для исполнителя. Значение элемента считается как в
+    браузере: у <select> это value выбранного <option>, а не атрибут —
+    его у наших переключателей нет вовсе, и без этого finParams() вернул
+    бы нули по всем десяти ключам.
+    """
+    import importlib
+    import os
+    import re as _re
+
+    from bs4 import BeautifulSoup
+
+    os.environ.setdefault("AURRUM_PASSWORD", "проверка")
+    os.environ.setdefault("AURRUM_SECRET_KEY", "x" * 32)
+    import app as flask_app
+    importlib.reload(flask_app)
+
+    if context.pop("_render", False):
+        with flask_app.app.test_request_context():
+            from flask import render_template
+            html = render_template(name, **context)
+    else:
+        client = flask_app.app.test_client()
+        with client.session_transaction() as sess:
+            sess["authorized"] = True
+        html = client.get(context.pop("_url")).get_data(as_text=True)
+
+    soup = BeautifulSoup(html, "html.parser")
+
+    scripts = []
+    for tag in soup.find_all("script"):
+        if tag.get("src"):
+            # Общий модуль подключён файлом — читаем его с диска.
+            path = tag["src"].split("/")[-1].split("?")[0]
+            local = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                 "static", path)
+            if os.path.exists(local):
+                scripts.append(open(local, encoding="utf-8").read())
+        elif tag.string:
+            scripts.append(tag.string)
+
+    ids: dict[str, dict] = {}
+    for tag in soup.find_all(attrs={"id": True}):
+        spec = {"dataset": {k[5:].replace("-", ""): v
+                            for k, v in tag.attrs.items() if k.startswith("data-")}}
+        if tag.name == "select":
+            chosen = tag.find("option", selected=True) or tag.find("option")
+            spec["value"] = (chosen.get("value") if chosen else "") or ""
+        elif tag.name == "textarea":
+            spec["value"] = tag.text or ""
+        else:
+            spec["value"] = tag.get("value", "")
+        spec["placeholder"] = tag.get("placeholder", "")
+        spec["checked"] = tag.has_attr("checked")
+        spec["hidden"] = tag.has_attr("hidden")
+        if tag.name not in ("input", "select", "textarea"):
+            spec["text"] = tag.get_text(" ", strip=True)[:200]
+        # Дети, которые страница ищет селектором и которые ЕСТЬ в разметке.
+        # Отрисовка позиций пишет innerHTML в tbody таблицы.
+        children = {}
+        for selector in ("tbody",):
+            if tag.find(selector):
+                children[selector] = selector
+        if children:
+            spec["children"] = children
+        ids[tag["id"]] = spec
+
+    # Наборы по селекторам считаем здесь: заглушка ничего не выдумывает.
+    selectors: dict[str, list[str]] = {}
+    for selector in ('[id^="fin_"][id$="_val"], [id^="fin_"][id$="_unit"]',
+                     "input.finpick", ".ph", ".parse", "button[data-del]",
+                     "input[data-k]", "td[data-edit]", ".diff",
+                     "#parse_result button[data-f]", "#parse_result button[data-i]",
+                     ".diff button.link"):
+        try:
+            selectors[selector] = [t["id"] for t in soup.select(selector) if t.get("id")]
+        except Exception:        # noqa: BLE001 — сложный селектор не беда
+            selectors[selector] = []
+
+    return soup, scripts, {"ids": ids, "selectors": selectors}
+
+
+def _run_page(scripts: list[str], dom: dict, **kw) -> dict:
+    """Прогнать скрипт страницы в node и вернуть снимок состояния."""
+    import json as _json
+    import os
+    import subprocess
+
+    payload = {"script": scripts, "dom": dom,
+               "storage": kw.get("storage", {}),
+               "responses": kw.get("responses", []),
+               "actions": kw.get("actions", []),
+               "runTimers": kw.get("run_timers", False),
+               "confirm": kw.get("confirm", True),
+               "prompt": kw.get("prompt")}
+    runner = os.path.join(os.path.dirname(os.path.abspath(__file__)), "check_pages.mjs")
+    got = subprocess.run(["node", runner], input=_json.dumps(payload, ensure_ascii=False),
+                         capture_output=True, text=True, timeout=60)
+    if got.returncode != 0:
+        return {"error": (got.stderr or "").strip()[:300], "ids": {}, "storage": {},
+                "fetches": [], "throws": []}
+    return _json.loads(got.stdout)
+
+
+def check_page_contract() -> tuple[int, int]:
+    """Имена, которыми страница и сервер обязаны совпадать.
+
+    Ловит класс промахов, который дважды кусался на живых правках: поле
+    называлось f_type, а код искал f_type_ru — сохранение падало на первой
+    же правке карточки. Ни node, ни сети: разметку разбирает bs4, а имена,
+    рождённые шаблонной строкой скрипта, достаются регуляркой — узлов от
+    innerHTML в разметке физически нет, и селектор по ним даёт ноль.
+    """
+    import re as _re
+
+    import app as flask_app
+    import pricing
+    print("\n КОНТРАКТ СТРАНИЦ")
+    print(" " + "-" * 74)
+
+    checks: list[tuple[str, bool]] = []
+
+    soup, scripts, dom = _page("project.html", _url="/project")
+    page = "\n".join(scripts)
+    ids = set(dom["ids"])
+
+    fin_rows = _re.search(r"FIN_ROWS = \[([^\]]*)\]", page)
+    rows = _re.findall(r"'([a-z0-9_]+)'", fin_rows.group(1)) if fin_rows else []
+    checks.append(("строки итога: поля и переключатели есть в разметке",
+                   bool(rows) and all(f"fin_{r}_val" in ids and f"fin_{r}_unit" in ids
+                                      for r in rows)))
+    # Переименованная строка итога тихо выпала бы и из печати, и из файла.
+    checks.append(("ключи итога совпадают с pricing.DEFAULT_FINAL",
+                   {f"{r}_{unit}" for r in rows for unit in ("pct", "eur")}
+                   == set(pricing.DEFAULT_FINAL)))
+
+    head = _re.search(r"HEAD_FIELDS = \[([^\]]*)\]", page)
+    fields = _re.findall(r"'([a-z0-9_]+)'", head.group(1)) if head else []
+    checks.append(("поля шапки есть в разметке",
+                   bool(fields) and all(f"h_{f}" in ids for f in fields)))
+
+    # Ряд таблицы строится innerHTML — имена берём из шаблонной строки.
+    row_keys = set(_re.findall(r"cell\('([a-z0-9_]+)'", page)) \
+        | set(_re.findall(r'data-k="([a-z0-9_]+)"', page)) \
+        | set(_re.findall(r'data-edit="([a-z0-9_]+)"', page))
+    known = set(pricing.DEFAULT_POSITION) | {
+        "qty", "volume_m3", "list_price", "price", "purchase", "swift",
+        "margin", "transfer", "freight", "assembly_pct",
+        "factory_discount_pct", "dealer_markup_pct"}
+    checks.append(("ключи ряда позиции известны расчёту",
+                   bool(row_keys) and row_keys <= known))
+
+    # Константы: списки полей против величин расчёта.
+    _, set_scripts, set_dom = _page("settings.html", _url="/settings")
+    settings = "\n".join(set_scripts)
+    rate_keys = set(_re.findall(r"\['([a-z0-9_]+)',\s*'[^']+',", settings))
+    checks.append(("поля ставок совпадают с pricing.DEFAULT_RATES",
+                   rate_keys >= set(pricing.DEFAULT_RATES)))
+    pos_block = _re.search(r"POS_FIELDS = \[(.*?)\];", settings, _re.S)
+    pos_keys = set(_re.findall(r"\['([a-z0-9_]+)'", pos_block.group(1))) if pos_block else set()
+    checks.append(("поля начальных чисел совпадают с pricing.DEFAULT_POSITION",
+                   pos_keys == set(pricing.DEFAULT_POSITION)))
+    # Поля «Констант» рождаются шаблонной строкой — ищем её, а не разметку.
+    checks.append(("поля констант строятся шаблонной строкой",
+                   'id="f_${key}"' in settings and 'id="p_${key}"' in settings))
+
+    # Редактор карточки: списки полей против того, что принимает сервер.
+    item = {"id": "x", "brand": "B", "model": "M", "type_ru": "Стол",
+            "photos": [], "finishes": []}
+    _, item_scripts, item_dom = _page("library_item.html", _render=True,
+                                      item=item, types=["Стол"])
+    editor = "\n".join(item_scripts)
+    text_keys = _re.search(r"const TEXT = \[([^\]]*)\]", editor)
+    num_keys = _re.search(r"const NUM = \[([^\]]*)\]", editor)
+    editable = set(_re.findall(r"'([a-z0-9_]+)'", text_keys.group(1) if text_keys else "")) \
+        | set(_re.findall(r"'([a-z0-9_]+)'", num_keys.group(1) if num_keys else ""))
+    checks.append(("поля редактора карточки совпадают с app.EDITABLE",
+                   editable == set(flask_app.EDITABLE)))
+    checks.append(("каждое поле редактора есть в разметке",
+                   all(f"f_{k}" in set(item_dom["ids"]) for k in editable)))
+
+    good = 0
+    for label, hit in checks:
+        good += bool(hit)
+        print(f"  {OK if hit else BAD} {label}")
+    return good, len(checks)
+
+
+def check_page_formats() -> tuple[int, int]:
+    """Формулы показа и записи — текстом из шаблонов, прогоном в node.
+
+    Коэффициент сборки живёт в четырёх копиях: показ и запись в проекте,
+    показ и запись в константах. Расхождение любой из них тихо меняет
+    делитель СУММЫ, то есть цену клиенту. Проверяем НАСТОЯЩИЕ копии,
+    вынутые из шаблонов, а не их пересказ, и прогоняем в node: round()
+    в Python банковское, а Math.round половину гонит вверх — на 0,05
+    копии разошлись бы, а мы бы этого не увидели.
+    """
+    import json as _json
+    import os
+    import re as _re
+    import subprocess
+    print("\n ФОРМУЛЫ СТРАНИЦ")
+    print(" " + "-" * 74)
+
+    here = os.path.dirname(os.path.abspath(__file__))
+    project = open(os.path.join(here, "templates", "project.html"), encoding="utf-8").read()
+    settings = open(os.path.join(here, "templates", "settings.html"), encoding="utf-8").read()
+
+    # Показ: коэффициент -> проценты. Запись: проценты -> коэффициент.
+    show = _re.findall(r"Math\.round\(\(1 - [^)]*\)? ?\* 1000\) / 10", project)
+    write = _re.search(r"Math\.round\(\(1 - pct / 100\) \* 1000\) / 1000", project)
+    set_show = _re.search(r"asmToPct = v => (Math\.round\(\(1 - v\) \* 1000\) / 10)", settings)
+    set_write = _re.search(r"Math\.round\(\(1 - number / 100\) \* 1000\) / 1000", settings)
+
+    checks: list[tuple[str, bool]] = []
+    checks.append(("формула показа найдена в проекте и в константах",
+                   bool(show) and bool(set_show)))
+    checks.append(("формула записи найдена в проекте и в константах",
+                   bool(write) and bool(set_write)))
+    # Обе записи обязаны совпасть текстуально с точностью до имени числа.
+    same = bool(write and set_write) and (
+        write.group(0).replace("pct", "N") == set_write.group(0).replace("number", "N"))
+    checks.append(("копии формулы записи совпадают текстуально", same))
+    same_show = bool(show and set_show) and (
+        _re.sub(r"\(1 - [^*]*\*", "(1 - N *", show[0])
+        == _re.sub(r"\(1 - [^*]*\*", "(1 - N *", set_show.group(1)))
+    checks.append(("копии формулы показа совпадают текстуально", same_show))
+
+    # Круговой прогон в node: показ(запись(x)) == x на живых значениях.
+    if write and set_show:
+        script = f"""
+        const toCoef = (pct) => {write.group(0).replace('pct', 'pct')};
+        const toPct = (v) => {set_show.group(1)};
+        const out = [0, 5, 12.5, 20, 45].map((x) => {{
+          const pct = x; return [x, toPct(toCoef(pct))];
+        }});
+        process.stdout.write(JSON.stringify(out));
+        """
+        got = subprocess.run(["node", "-e", script], capture_output=True,
+                             text=True, timeout=30)
+        pairs = _json.loads(got.stdout) if got.returncode == 0 else []
+        checks.append(("круговой прогон: показ(запись(x)) == x",
+                       bool(pairs) and all(abs(a - b) < 1e-9 for a, b in pairs)))
+        if pairs:
+            broken = [f"{a} -> {b}" for a, b in pairs if abs(a - b) >= 1e-9]
+            if broken:
+                print("      разошлось:", ", ".join(broken))
+    else:
+        checks.append(("круговой прогон: показ(запись(x)) == x", False))
+
+    good = 0
+    for label, hit in checks:
+        good += bool(hit)
+        print(f"  {OK if hit else BAD} {label}")
+    return good, len(checks)
+
+
+def check_page_logic() -> tuple[int, int]:
+    """Поведение страниц: скрипт исполняется, состояние сверяется.
+
+    Только по статической разметке — узлов, рождённых innerHTML, у
+    заглушки нет, и она это честно объявляет. Первая проверка —
+    страховочная: если засев не сработал, весь слой недостоверен, и
+    остальные его выводы ничего не значат.
+    """
+    import json as _json
+    print("\n ПОВЕДЕНИЕ СТРАНИЦ")
+    print(" " + "-" * 74)
+
+    checks: list[tuple[str, bool]] = []
+    _, scripts, dom = _page("project.html", _url="/project")
+
+    # 0. Страховка: пустое хранилище — значения из разметки, а не нули.
+    probe = _run_page(scripts, dom, responses=[{"notJson": True}],
+                      actions=["document.getElementById('status').textContent = "
+                               "JSON.stringify(finParams())"])
+    params = {}
+    try:
+        params = _json.loads(probe["ids"]["status"]["text"])
+    except Exception:            # noqa: BLE001
+        params = {}
+    checks.append(("засев сработал: сборка 5 %, персональная скидка 30 %",
+                   params.get("assembly_pct") == 5 and params.get("personal_pct") == 30))
+    checks.append(("ноль в евро не вытесняет процент",
+                   params.get("assembly_eur") == 0))
+
+    # 1. Живой укус: /calc ответил не-JSON — позиции обязаны остаться.
+    project = _json.dumps([{"brand": "VENICEM", "model": "CIRCLE", "qty": 1,
+                            "list_price": 2550, "volume_m3": 0.2,
+                            "assembly": 0.95}], ensure_ascii=False)
+    storage = {"aurrum.current": "p1",
+               "aurrum.draft.p1": _json.dumps({"positions": _json.loads(project),
+                                               "header": {}, "final": {}, "rev": 0})}
+    fail = _run_page(scripts, dom, storage=storage, responses=[{"notJson": True}],
+                     actions=["await recalc()"])
+    status = (fail["ids"].get("status") or {}).get("text", "")
+    checks.append(("отказ расчёта не прячет позиции",
+                   not (fail["ids"].get("rows") or {}).get("hidden", True)))
+    checks.append(("отказ расчёта объяснён словами", "не ответил" in status))
+    checks.append(("полоса итогов при отказе спрятана",
+                   (fail["ids"].get("totals") or {}).get("hidden") is True))
+
+    # 2. Удачный расчёт, затем отказ: старая сумма не должна остаться.
+    good_answer = {"ok": True, "json": {
+        "lines": [{"purchase": 1275, "margin": 446, "transfer": 64, "swift": 200,
+                   "freight": 100, "total": 2085, "with_assembly": 2195,
+                   "price": 2190, "sum": 2190, "levels": {"finserv": 3000}}],
+        "sum": 2190, "volume_m3": 0.2, "count": 1, "levels": {"finserv": 3000},
+        "final": {"услуги": 0, "доставка": 0, "сборка": 0, "всего": 2190,
+                  "скидка": 0, "подытог": 2190, "доп_скидка": 0, "к_оплате": 2190}}}
+    two = _run_page(scripts, dom, storage=storage,
+                    responses=[good_answer, {"notJson": True}],
+                    actions=["await recalc()", "await recalc()"])
+    checks.append(("после отказа полоса не показывает прежнюю сумму",
+                   (two["ids"].get("totals") or {}).get("hidden") is True))
+
+    # 3. Восстановление единиц итога из сохранённых параметров.
+    with_eur = dict(storage)
+    with_eur["aurrum.draft.p1"] = _json.dumps({
+        "positions": [], "header": {}, "rev": 0,
+        "final": {"delivery_eur": 1500, "personal_eur": 0, "personal_pct": 30}})
+    units = _run_page(scripts, dom, storage=with_eur, responses=[{"notJson": True}])
+    checks.append(("доставка в евро включает режим €",
+                   (units["ids"].get("fin_delivery_unit") or {}).get("value") == "eur"
+                   and (units["ids"].get("fin_delivery_val") or {}).get("value") == "1500"))
+    checks.append(("нулевое евро НЕ включает режим € у скидки",
+                   (units["ids"].get("fin_personal_unit") or {}).get("value") == "pct"))
+
+    # 4. Круговая: тело запроса со страницы скармливаем настоящему расчёту.
+    body = None
+    for call in two["fetches"]:
+        if "/calc" in call["url"]:
+            body = _json.loads(call["body"])
+            break
+    ring = False
+    if body:
+        import pricing
+        line = pricing.project(body["positions"], rates=body.get("rates"),
+                               final=body.get("final"))["lines"][0]
+        ring = abs(line["price"] - 2190) < 0.5
+    checks.append(("запрос страницы даёт расчётную цену книги", ring))
+
+    # 5. Отделки в разборе: снятие галочки вынимает элемент списка,
+    #    а не подстроку — CRYSTAL входит в CRYSTAL/GREY/OLIVE.
+    product = type("P", (), {})()
+    for name, value in dict(
+            source_url="https://x", brand="B", model="M", type_ru="Люстра",
+            collection="", designer="", dims_raw="", width_cm=None, depth_cm=None,
+            height_cm=None, dims_confident=True, volume_m3=None, volume_source="",
+            package_note="", tech_note="", summary_ru="", photo_urls=[], doc_urls=[],
+            spec_pdf_url="", variants=[], warnings=[],
+            finishes=[{"role_ru": "Стекло", "material": "Crystal", "code": "CC"},
+                      {"role_ru": "Стекло", "material": "Crystal/Grey/Olive", "code": "ED"}],
+    ).items():
+        setattr(product, name, value)
+    _, look_scripts, look_dom = _page(
+        "lookup.html", _render=True, product=product, types=pl.TYPES_RU,
+        description="M\nЛюстра\nСтекло - CRYSTAL + CRYSTAL/GREY/OLIVE", error=None)
+    fin = _run_page(look_scripts, look_dom, actions=[
+        "removeFinish('Стекло', 'Crystal')",
+        "document.getElementById('f_note').value = document.getElementById('f_desc').value",
+    ])
+    left = (fin["ids"].get("f_note") or {}).get("value", "")
+    checks.append(("снятие CRYSTAL не задевает CRYSTAL/GREY/OLIVE",
+                   "CRYSTAL/GREY/OLIVE" in left and "- CRYSTAL +" not in left))
+
+    good = 0
+    for label, hit in checks:
+        good += bool(hit)
+        print(f"  {OK if hit else BAD} {label}")
+    return good, len(checks)
+
+
 def check_projects() -> tuple[int, int]:
     """Хранилище проектов: счётчик правок и то, что он обязан ловить.
 
@@ -1100,6 +1477,9 @@ def main() -> int:
     run("Источник фото", check_shops)
     run("Библиотека", check_library)
     run("Проекты", check_projects)
+    run("Контракт страниц", check_page_contract)
+    run("Формулы страниц", check_page_formats)
+    run("Поведение страниц", check_page_logic)
     run("Шапка", check_header_roundtrip)
     run("Выгрузка", check_download_headers)
     run("Схема", check_schema)
