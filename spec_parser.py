@@ -265,6 +265,19 @@ def parse(data: bytes) -> Spec:
             spec.date = _fmt_date(g(f"N{r}"))
             break
 
+    # Дата рядом с заголовком предложения: в рабочей форме заказчика
+    # блока «Покупатель / Договор / Дата» нет, а дата есть — в I9.
+    if not spec.date:
+        for r in range(1, 12):
+            title = g(f"A{r}")
+            if isinstance(title, str) and "коммерческое предложение" in title.lower():
+                for column in ("H", "I", "J", "K", "L", "M", "N"):
+                    stamp = _fmt_date(g(f"{column}{r}"))
+                    if stamp:
+                        spec.date = stamp
+                        break
+                break
+
     # Покупатель / Договор / Дата — блок подписан в одной строке, значения ниже
     for r in range(1, 12):
         if isinstance(g(f"A{r}"), str) and g(f"A{r}").strip().lower() == "покупатель":
@@ -303,19 +316,25 @@ def parse(data: bytes) -> Spec:
             "по запасной разметке. Проверьте цену и количество."
         )
 
-    # Строка над заголовком: страна происхождения и пометка вроде «НА ЗАКАЗ»
+    # Строка над заголовком: страна происхождения и пометка вроде «НА ЗАКАЗ».
+    # Ищем по нескольким колонкам, а не только в A: в рабочей форме
+    # заказчика и название секции, и «(Италия)» стоят в D.
     meta_row = header_row - 1
-    origin = g(f"A{meta_row}")
-    if isinstance(origin, str) and origin.strip().startswith("("):
-        spec.origin = origin.strip()
+    for column in ("A", "B", "C", "D", "E", "F"):
+        origin = g(f"{column}{meta_row}")
+        if isinstance(origin, str) and origin.strip().startswith("("):
+            spec.origin = origin.strip()
+            break
     badge = g(f"N{meta_row}")
     if isinstance(badge, str) and badge.strip():
         spec.badge = badge.strip()
 
-    # Ещё строкой выше — название секции
-    section = g(f"A{header_row - 2}")
-    if isinstance(section, str) and section.strip():
-        spec.section_title = section.strip()
+    # Ещё строкой выше — название секции, тоже не обязательно в A.
+    for column in ("A", "B", "C", "D", "E", "F"):
+        section = g(f"{column}{header_row - 2}")
+        if isinstance(section, str) and section.strip():
+            spec.section_title = section.strip()
+            break
 
     items_first = header_row + 1
 

@@ -788,6 +788,26 @@ def check_rooms() -> tuple[int, int]:
     checks.append(("подписи итогов не становятся комнатами",
                    not any("Евро" in b.title for b in printed.blocks)))
 
+    # Сама рабочая форма заказчика: разметка шапки там своя — название
+    # секции и «(Италия)» стоят в колонке D, а даты в блоке «Покупатель»
+    # нет вовсе, она рядом с заголовком предложения.
+    import os
+    form = os.path.join(os.path.dirname(os.path.abspath(__file__)), "samples",
+                        "0000-Offer-AUR-FORM.xlsx")
+    if os.path.exists(form):
+        real = spec_parser.parse(open(form, "rb").read())
+        checks.append(("форма заказчика: комнаты прочитаны все пять",
+                       [b.title for b in real.blocks]
+                       == ["Этаж 1", "Холл", "Гостевая Спальня 1",
+                           "Мастер Спальня 2", "Гостевая Спальня 2"]))
+        checks.append(("форма заказчика: нумерация внутри комнат",
+                       [i.n for b in real.blocks for i in b.items]
+                       == ["1", "1", "1", "1", "2"]))
+        checks.append(("форма заказчика: дата взята рядом с заголовком",
+                       real.date == "25.07.2026"))
+        checks.append(("форма заказчика: происхождение найдено не в колонке A",
+                       real.origin == "(Италия)"))
+
     # Старые книги без комнат читаются как раньше — одним блоком.
     import os
     sample = os.path.join(os.path.dirname(os.path.abspath(__file__)), "samples",
