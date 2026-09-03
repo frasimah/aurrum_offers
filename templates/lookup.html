@@ -526,6 +526,28 @@
             включая коэффициент сборки, который у каждой позиции свой.
           </div>
 
+          {% if product.variants and product.variants|length > 1 %}
+          <label>Исполнения — выберите то, что в заказе</label>
+          <div class="hint" style="margin-bottom:6px">
+            Подставлено первое по порядку страницы, а не по совпадению с
+            заказом. У кровати под другой матрац числа выглядели бы так же.
+          </div>
+          {% for v in product.variants %}
+          <div class="cand">
+            <span class="cand__dims">{{ v.dims_raw }}{% if v.sku %}<span
+              class="badge">{{ v.sku }}</span>{% endif %}</span>
+            <span class="cand__ctx">{{ v.variant_note or '' }}</span>
+            <button type="button" class="ghost usevariant"
+                    data-dims="{{ v.dims_raw }}"
+                    data-note="{{ v.variant_note or '' }}"
+                    data-vol="{{ v.packed_volume_m3 or '' }}"
+                    {% if loop.first %}disabled{% endif %}>
+              {% if loop.first %}подставлено{% else %}Подставить{% endif %}
+            </button>
+          </div>
+          {% endfor %}
+          {% endif %}
+
           {% if product.package_note %}
           <label>Упаковка</label>
           <div class="hint" style="font-size:12.5px">{{ product.package_note }}</div>
@@ -690,6 +712,21 @@
         b.disabled = done;
       });
     }
+
+    // Выбор исполнения со страницы. Правит те же поля, что и разбор
+    // техлиста, — чтобы источник числа не зависел от того, откуда оно
+    // пришло, и строка описания не разошлась с полями.
+    document.querySelectorAll('button.usevariant').forEach(btn =>
+      btn.addEventListener('click', () => {
+        fill({ value: btn.dataset.dims, volume_m3: btn.dataset.vol || null,
+               context: btn.dataset.note });
+        document.querySelectorAll('button.usevariant').forEach(other => {
+          other.disabled = false;
+          other.textContent = 'Подставить';
+        });
+        btn.disabled = true;
+        btn.textContent = 'подставлено';
+      }));
 
     function fill(c) {
       const set = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };

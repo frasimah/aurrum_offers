@@ -253,7 +253,7 @@ def _page(name: str, **context) -> tuple[object, list[str], dict]:
                      "input.finpick", ".ph", ".parse", "button[data-del]",
                      "input[data-k]", "td[data-edit]", ".diff",
                      "#parse_result button[data-f]", "#parse_result button[data-i]",
-                     ".diff button.link"):
+                     ".diff button.link", "button.usevariant"):
         try:
             selectors[selector] = [t["id"] for t in soup.select(selector) if t.get("id")]
         except Exception:        # noqa: BLE001 — сложный селектор не беда
@@ -1393,6 +1393,70 @@ def check_book_row() -> tuple[int, int]:
     return good, len(expected) + 1
 
 
+def check_spec_choice() -> tuple[int, int]:
+    """Отбор техлиста и показ исполнений.
+
+    Оба случая пойманы на живом оффере заказчика: у LONGHI техлист
+    отдаётся по адресу без «.pdf» и терялся целиком, у FLOU выигрывал
+    каталог на 155 МБ, потому что в его имени есть слово «scheda».
+    """
+    print("\n ТЕХЛИСТ И ИСПОЛНЕНИЯ")
+    print(" " + "-" * 74)
+
+    flou = ["https://flou.it/x/flou_catalogue_scheda.pdf",
+            "https://flou.it/x/madamebutterfly_265.pdf"]
+    longhi = ["https://www.longhi.it/AjaxCalls/Products/GenerateTechnicalSheet"
+              "?catalog=-497733865&language=2&id=-1243879315"]
+
+    checks = [
+        ("документ без «.pdf» в адресе не теряется",
+         pl._docs_from(longhi) == longhi),
+        ("посторонняя ссылка документом не считается",
+         pl._docs_from(["https://brand.it/about-us"]) == []),
+        ("лист позиции выигрывает у каталога бренда",
+         pl._pick_spec_pdf(flou, "Madame Butterfly").endswith("madamebutterfly_265.pdf")),
+        ("каталог остаётся запасным кандидатом, а не выбрасывается",
+         len(pl.spec_pdf_candidates(flou, "Madame Butterfly")) == 2),
+        # Промах первого кандидата больше не стоит строки габаритов.
+        ("кандидатов несколько, пробуются по очереди",
+         pl.spec_pdf_candidates(flou, "Madame Butterfly")[0]
+         != pl.spec_pdf_candidates(flou, "Madame Butterfly")[1]),
+        ("прежний выбор с хвостом версии не сломан",
+         pl._pick_spec_pdf(
+             ["https://luxurylivinggroup.com/x/VIBES_bed_GUEST.pdf?v=674412"],
+             "Vibes").endswith("?v=674412")),
+        ("инструкция по сборке не выигрывает у листа позиции",
+         pl._pick_spec_pdf(
+             ["https://brand.it/x/assembly_instructions.pdf",
+              "https://brand.it/x/circle_fact_sheet.pdf"], "Circle")
+         .endswith("circle_fact_sheet.pdf")),
+    ]
+
+    # Исполнения: подставленное названо поимённо, а не «первое».
+    variants = [{"sku": "VBE (LE1)", "dims_raw": "202x241x92H.", "variant_note": "165x200"},
+                {"sku": "VBE (LE2)", "dims_raw": "222x241x92H.", "variant_note": "185x200"}]
+    warning = ""
+    product = pl.Product(brand="TRUSSARDI", model="VIBES", type_ru="Кровать",
+                         variants=variants)
+    # Повторяем ту часть сборки, что подставляет исполнение.
+    first = product.variants[0]
+    product.dims_raw = first["dims_raw"]
+    which = " · ".join(x for x in (first.get("sku"), first.get("variant_note"),
+                                   product.dims_raw) if x)
+    warning = (f"Исполнений {len(variants)}, подставлено «{which}» — "
+               "порядок со страницы, не выбор.")
+    checks.append(("предупреждение называет подставленное исполнение",
+                   "VBE (LE1)" in warning and "165x200" in warning))
+    checks.append(("предупреждение не выдаёт порядок за выбор",
+                   "не выбор" in warning))
+
+    good = 0
+    for label, hit in checks:
+        good += bool(hit)
+        print(f"  {OK if hit else BAD} {label}")
+    return good, len(checks)
+
+
 def check_docs_list() -> tuple[int, int]:
     """Список документов: бумаги сайта в него не попадают.
 
@@ -1622,6 +1686,7 @@ def main() -> int:
     run("Сверка", check_dims_grounding)
     run("Техлист", check_spec_pdf)
     run("Документы", check_docs_list)
+    run("Техлист и исполнения", check_spec_choice)
     run("Строка", check_book_row)
     run("Колонки", check_columns)
     run("Расчёт", check_pricing)

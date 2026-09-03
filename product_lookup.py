@@ -245,6 +245,13 @@ def _photos_from(markdown: str, links: list[str]) -> list[str]:
     return urls
 
 
+# Адреса, за которыми лежит документ, хотя расширения в них нет.
+# Список нарочно узкий: сюда попадает не всякая ссылка с «sheet» в тексте,
+# а только та, что сама себя объявляет генератором технического листа.
+_GENERATED_DOC = ("generatetechnicalsheet", "technicalsheet", "/scheda-tecnica",
+                  "generatepdf", "download=pdf", "format=pdf")
+
+
 def _docs_from(links: list[str]) -> list[str]:
     """Документы изделия. Бумаги сайта сюда не попадают.
 
@@ -257,8 +264,15 @@ def _docs_from(links: list[str]) -> list[str]:
     """
     seen, out = set(), []
     for u in links:
-        path = u.split("?")[0].lower()
-        if not path.endswith(".pdf") or u in seen:
+        low = u.lower()
+        path = low.split("?")[0]
+        # Документ не обязан оканчиваться на .pdf: LONGHI отдаёт техлист
+        # по адресу вида …/GenerateTechnicalSheet?catalog=…&id=… — обычный
+        # PDF, но без расширения. Пока правило было «оканчивается на .pdf»,
+        # каталожные габариты терялись у целого бренда.
+        looks_like_doc = path.endswith(".pdf") or any(
+            token in low for token in _GENERATED_DOC)
+        if not looks_like_doc or u in seen:
             continue
         name = path.rsplit("/", 1)[-1]
         if any(token in name for token in _SITE_PAPERS):
@@ -334,20 +348,49 @@ _LOOKS_LIKE_SPEC = ("fact_sheet", "fact-sheet", "spec", "scheda", "technical",
                     "datasheet", "tech")
 
 
-def _pick_spec_pdf(doc_urls: list[str]) -> str:
-    """Из ссылок на документы выбираем техлист, а не постороннюю бумагу."""
-    # Адрес приходит с хвостом версии — «…/VIBES_bed_GUEST.pdf?v=674412…»,
-    # поэтому окончание проверяем у пути, а не у всей строки.
-    pdfs = [u for u in doc_urls if u.split("?")[0].lower().endswith(".pdf")]
-    named = [(u, u.split("?")[0].rsplit("/", 1)[-1].lower()) for u in pdfs]
+# Имена, за которыми лежит общий каталог бренда, а не лист позиции.
+# У FLOU это `flou_catalogue_scheda.pdf` — в имени есть «scheda», из-за
+# чего он выигрывал у настоящего листа `madamebutterfly_265.pdf`. Весит
+# такой каталог 155 МБ и в разбор не помещается вовсе.
+_WHOLE_CATALOGUE = ("catalogue", "catalogo", "katalog", "cataloghi",
+                    "lookbook", "pricelist", "listino")
 
+
+def spec_pdf_candidates(doc_urls: list[str], model: str = "") -> list[str]:
+    """Техлисты по убыванию правдоподобия.
+
+    Список, а не один адрес: угадать с первого раза нельзя, зато можно
+    попробовать следующий, если предыдущий не разобрался. Раньше выбор
+    был единственным, и промах стоил целой строки габаритов.
+    """
+    named = [(u, u.split("?")[0].rsplit("/", 1)[-1].lower()) for u in doc_urls]
     clean = [(u, n) for u, n in named if not any(t in n for t in _NOT_A_SPEC)]
     if not clean:
-        return ""
-    for url, name in clean:
+        return []
+
+    slug = _slug(model).replace("-", "")
+
+    def rank(pair) -> int:
+        url, name = pair
+        flat = name.replace("_", "").replace("-", "")
+        # Каталог целиком — всегда последний: он и не про эту позицию,
+        # и не помещается в разбор.
+        if any(t in name for t in _WHOLE_CATALOGUE):
+            return 4
+        # Имя модели в файле — самый сильный признак листа позиции.
+        if slug and len(slug) >= 4 and slug in flat:
+            return 0
         if any(t in name for t in _LOOKS_LIKE_SPEC):
-            return url
-    return clean[0][0]
+            return 1
+        return 2
+
+    return [u for u, _ in sorted(clean, key=rank)]
+
+
+def _pick_spec_pdf(doc_urls: list[str], model: str = "") -> str:
+    """Самый правдоподобный техлист. Пусто, если подходящего нет."""
+    candidates = spec_pdf_candidates(doc_urls, model)
+    return candidates[0] if candidates else ""
 
 
 # Категории, у которых высота обычно наибольший размер — нужно, чтобы
@@ -678,13 +721,21 @@ def lookup(url: str) -> Product:
 
     # Техлист: исполнения с артикулами и объём от производителя.
     dims_from_page = True
-    p.spec_pdf_url = _pick_spec_pdf(p.doc_urls)
-    if p.spec_pdf_url:
+    candidates = spec_pdf_candidates(p.doc_urls, p.model)
+    pdf, failures = {}, []
+    # Пробуем по очереди: первый кандидат бывает каталогом на 155 МБ,
+    # а лист позиции лежит рядом. Раньше промах стоил строки габаритов.
+    for candidate in candidates[:3]:
         try:
-            pdf = _first_product(extract.from_url(p.spec_pdf_url))
+            pdf = _first_product(extract.from_url(candidate))
+            p.spec_pdf_url = candidate
+            break
         except Exception as exc:  # noqa: BLE001 — техлист не критичен
+            failures.append(f"{candidate.rsplit('/', 1)[-1][:40]}: {exc}")
             pdf = {}
-            p.warnings.append(f"Техлист не прочитался: {exc}")
+    if failures and not p.spec_pdf_url:
+        p.warnings.append("Техлист не прочитался — " + "; ".join(failures[:2]))
+    if p.spec_pdf_url:
         pdf_variants = [v for v in (_as_dict(x) for x in (pdf.get("variants") or []))
                         if str(v.get("dims_raw") or "").strip()]
         if pdf_variants:
@@ -711,9 +762,18 @@ def lookup(url: str) -> Product:
             p.volume_m3, p.volume_source = round(float(declared), 2), "производитель"
         p.package_note = str(first.get("package_dims_raw") or "").strip()
         if len(p.variants) > 1:
+            # Говорим ИМЕННО какое подставлено, а не «первое». «Первое» —
+            # это порядок вёрстки страницы, а не совпадение с заказом: у
+            # кровати под другой матрац карточка напечатала бы те же числа
+            # и была бы молча неверной. Список показан рядом, в карточке.
+            which = " · ".join(x for x in (
+                str(first.get("sku") or "").strip(),
+                str(first.get("variant_note") or "").strip(),
+                p.dims_raw) if x)
             p.warnings.append(
-                f"Исполнений {len(p.variants)} — подставлено первое, "
-                "выберите нужное из списка."
+                f"Исполнений {len(p.variants)}, подставлено «{which}» — "
+                "порядок со страницы, не выбор. Сверьте с заказом и при "
+                "необходимости возьмите другое из списка ниже."
             )
 
     # Габариты со страницы сверяем с её текстом: извлечение способно вернуть
