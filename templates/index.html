@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AURRUM — конвертер спецификаций</title>
+  <title>AURRUM — инструмент менеджера</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" rel="stylesheet">
@@ -17,7 +17,7 @@
       margin: 0;
       min-height: 100vh;
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       justify-content: center;
       padding: 24px;
       background: #fff;
@@ -28,6 +28,8 @@
     .box {
       width: 100%;
       max-width: 520px;
+      /* Экран стал длиннее: центрирование по вертикали больше не годится. */
+      padding: 48px 0;
     }
 
     .logo {
@@ -46,6 +48,24 @@
       color: #949598;
       font-size: 15px;
       line-height: 1.5;
+    }
+
+    /* Разделы на первом экране: работа начинается с проекта, а бургер
+       в углу приходилось искать. */
+    .ways { display: grid; gap: 10px; margin-bottom: 34px; }
+
+    .way {
+      display: block; padding: 14px 16px;
+      border: 1px solid #e6e6e6; color: #2d2d2d; text-decoration: none;
+      transition: 0.2s;
+    }
+    .way:hover { border-color: #2d2d2d; }
+    .way__name { display: block; font-size: 15px; }
+    .way__note { display: block; margin-top: 3px; color: #949598; font-size: 12.5px; }
+
+    h2.sub {
+      margin: 0 0 6px; font-size: 15px; font-weight: 500;
+      padding-top: 22px; border-top: 1px solid #eee;
     }
 
     .drop {
@@ -131,8 +151,30 @@
   <div class="box">
     <img class="logo" src="{{ url_for('static', filename='aurrum-logo.svg') }}" alt="AURRUM">
 
-    <h1>Спецификация из Excel</h1>
-    <p class="lead">Загрузите файл спецификации — получите готовый документ для печати.</p>
+    <h1>С чего начнём</h1>
+    <p class="lead">Разделы приложения. Меню в углу ведёт туда же.</p>
+
+    <div class="ways">
+      <a class="way" href="{{ url_for('project') }}">
+        <span class="way__name">Проект</span>
+        <span class="way__note">Собрать позиции, посчитать цену, выгрузить книгу и компред</span>
+      </a>
+      <a class="way" href="{{ url_for('project_list') }}">
+        <span class="way__name">Проекты</span>
+        <span class="way__note">Сохранённые: открыть, найти, продолжить с другого устройства</span>
+      </a>
+      <a class="way" href="{{ url_for('lookup') }}">
+        <span class="way__name">Позиция по ссылке</span>
+        <span class="way__note">Ссылка на товар у бренда — карточка с габаритами и фото</span>
+      </a>
+      <a class="way" href="{{ url_for('library_page') }}">
+        <span class="way__name">Каталог</span>
+        <span class="way__note">Собранные карточки: искать, править, отправлять в проект</span>
+      </a>
+    </div>
+
+    <h2 class="sub">Спецификация из Excel</h2>
+    <p class="lead">Готовая книга — документ для печати в фирменном стиле.</p>
 
     {% if error %}<div class="error">{{ error }}</div>{% endif %}
 
