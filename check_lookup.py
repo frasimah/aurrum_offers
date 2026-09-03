@@ -690,6 +690,145 @@ def check_projects() -> tuple[int, int]:
     return good, len(checks)
 
 
+def check_rooms() -> tuple[int, int]:
+    """Комнаты: раскладка, книга и обратный разбор.
+
+    Числа взяты с рабочей формы (docs/form-rooms.md): нумерация
+    начинается заново в каждой комнате, заголовок стоит только в колонке
+    «Описание», итоговая сумма охватывает весь блок вместе с заголовками.
+    """
+    import io
+
+    import book_export
+    import openpyxl
+    print("\n КОМНАТЫ")
+    print(" " + "-" * 74)
+
+    checks: list[tuple[str, bool]] = []
+
+    # Раскладка: порядок из списка, пустая комната жива, безымянные в хвост.
+    blocks = book_export._blocks(
+        [{"room": "Холл", "model": "A"}, {"model": "B"},
+         {"room": "Спальня", "model": "C"}, {"room": "Холл", "model": "D"}],
+        ["Этаж 1", "Холл"])
+    checks.append(("порядок комнат берётся из списка",
+                   [name for name, _ in blocks] == ["", "Этаж 1", "Холл", "Спальня"]))
+    checks.append(("пустая комната остаётся: в форме есть «Этаж 1» без позиций",
+                   blocks[1][1] == []))
+    # Первыми, а не хвостом: метки «комната кончилась» в книге нет, и
+    # хвост при обратном разборе прилипал к последней комнате.
+    checks.append(("позиции без комнаты идут первыми",
+                   [p["model"] for p in blocks[0][1]] == ["B"]))
+    checks.append(("комната, которой нет в списке, не теряется",
+                   any(name == "Спальня" for name, _ in blocks)))
+
+    # Описание обязательно: печать считает строку позицией по паре
+    # «номер + описание», и без него позиция в документ не попадёт.
+    positions = [
+        {"brand": "LONGHI", "model": "ARIANA", "room": "Холл", "qty": 1,
+         "list_price": 6886, "price": 5750, "volume_m3": 0.5,
+         "description": "ARIANA\nБанкетка"},
+        {"brand": "FLOU", "model": "BUTTERFLY", "room": "Спальня 1", "qty": 1,
+         "list_price": 4389, "price": 4130, "volume_m3": 1,
+         "description": "MADAME BUTTERFLY\nКресло"},
+        {"brand": "TRUSSARDI", "model": "VIBES", "room": "Спальня 2", "qty": 1,
+         "list_price": 16020, "price": 15590, "volume_m3": 6.8,
+         "description": "VIBES\nКровать"},
+        {"brand": "TRUSSARDI", "model": "COMFY", "room": "Спальня 2", "qty": 1,
+         "list_price": 5000, "price": 3850, "volume_m3": 0.3,
+         "description": "COMFY\nТумбочка"},
+    ]
+    rooms = ["Этаж 1", "Холл", "Спальня 1", "Спальня 2"]
+    book = openpyxl.load_workbook(io.BytesIO(
+        book_export.build(positions, rooms=rooms))).active
+
+    titles = {book.cell(r, 3).value for r in range(14, 24)}
+    checks.append(("заголовки комнат стоят в колонке «Описание»",
+                   {"Этаж 1", "Холл", "Спальня 1", "Спальня 2"} <= titles))
+    checks.append(("в строке заголовка нет номера позиции",
+                   all(book.cell(r, 1).value in (None, "")
+                       for r in range(14, 24) if book.cell(r, 3).value in rooms)))
+    numbers = [book.cell(r, 1).value for r in range(14, 24)
+               if book.cell(r, 1).value not in (None, "")]
+    checks.append(("нумерация начинается заново в каждой комнате",
+                   numbers == [1, 1, 1, 2]))
+
+    total = next((book.cell(r, 6).value for r in range(20, 30)
+                  if str(book.cell(r, 3).value or "").startswith("Сумма")), "")
+    checks.append(("итог охватывает весь блок вместе с заголовками",
+                   str(total) == "=SUM(F14:F21)"))
+
+    # Проект без комнат обязан выглядеть ровно как раньше. Комнату несёт
+    # сама позиция, поэтому «без комнат» — это позиции без поля room,
+    # а не отсутствие списка: со списком или без, размеченные позиции
+    # группируются, и это правильно.
+    bare = [{k: v for k, v in p.items() if k != "room"} for p in positions]
+    plain = openpyxl.load_workbook(io.BytesIO(book_export.build(bare))).active
+    checks.append(("без комнат нумерация сквозная, как раньше",
+                   [plain.cell(r, 1).value for r in range(14, 18)] == [1, 2, 3, 4]))
+    checks.append(("без комнат итог считается от первой позиции",
+                   str(next((plain.cell(r, 6).value for r in range(16, 26)
+                             if str(plain.cell(r, 3).value or "").startswith("Сумма")), ""))
+                   == "=SUM(F14:F17)"))
+    checks.append(("позиция несёт комнату и без переданного списка",
+                   openpyxl.load_workbook(io.BytesIO(
+                       book_export.build(positions))).active.cell(14, 3).value == "Холл"))
+
+    # Круг «выгрузка -> печать»: что выгрузили, то и прочли.
+    import spec_parser
+    printed = spec_parser.parse(book_export.build(
+        positions + [{"brand": "БЕЗ", "model": "КОМНАТЫ", "qty": 1, "price": 900,
+                      "description": "БЕЗ\nКОМНАТЫ"}],
+        rooms=rooms, values=True))
+    got = [(b.title, [i.brand for i in b.items]) for b in printed.blocks]
+    checks.append(("печать возвращает те же блоки, что ушли в файл",
+                   got == [("", ["БЕЗ"]), ("Этаж 1", []), ("Холл", ["LONGHI"]),
+                           ("Спальня 1", ["FLOU"]),
+                           ("Спальня 2", ["TRUSSARDI", "TRUSSARDI"])]))
+    checks.append(("подписи итогов не становятся комнатами",
+                   not any("Евро" in b.title for b in printed.blocks)))
+
+    # Старые книги без комнат читаются как раньше — одним блоком.
+    import os
+    sample = os.path.join(os.path.dirname(os.path.abspath(__file__)), "samples",
+                          "2867_Спецификация_20260311_PRJ_VLADIMIR_MODULNOVA_GAL.xlsx")
+    if os.path.exists(sample):
+        old_book = spec_parser.parse(open(sample, "rb").read())
+        # Маршруты: список комнат проверяется до сборки файла.
+    import importlib
+    import json as _json
+    import os
+    os.environ.setdefault("AURRUM_PASSWORD", "проверка")
+    os.environ.setdefault("AURRUM_SECRET_KEY", "x" * 32)
+    import app as flask_app
+    importlib.reload(flask_app)
+    client = flask_app.app.test_client()
+    with client.session_transaction() as sess:
+        sess["authorized"] = True
+    body = {"positions": [{"brand": "X", "model": "Y", "qty": 1, "price": 100,
+                           "room": "Холл", "description": "X\nСтол"}],
+            "rooms": ["Холл"]}
+    checks.append(("выгрузка принимает комнаты",
+                   client.post("/project/export", json=body).status_code == 200))
+    checks.append(("кривой список комнат отбивается",
+                   client.post("/project/export",
+                               json={**body, "rooms": "Холл"}).status_code == 400))
+    printed = client.post("/project/print", data={"payload": _json.dumps(body)})
+    checks.append(("печать показывает комнату",
+                   printed.status_code == 200
+                   and "Холл" in printed.get_data(as_text=True)))
+
+    checks.append(("книга без комнат читается одним блоком",
+                       len(old_book.blocks) == 1 and old_book.blocks[0].title == ""
+                       and len(old_book.blocks[0].items) == len(old_book.items)))
+
+    good = 0
+    for label, hit in checks:
+        good += bool(hit)
+        print(f"  {OK if hit else BAD} {label}")
+    return good, len(checks)
+
+
 def check_header_roundtrip() -> tuple[int, int]:
     """Шапка проекта переживает выгрузку и обратный разбор.
 
@@ -1480,6 +1619,7 @@ def main() -> int:
     run("Контракт страниц", check_page_contract)
     run("Формулы страниц", check_page_formats)
     run("Поведение страниц", check_page_logic)
+    run("Комнаты", check_rooms)
     run("Шапка", check_header_roundtrip)
     run("Выгрузка", check_download_headers)
     run("Схема", check_schema)

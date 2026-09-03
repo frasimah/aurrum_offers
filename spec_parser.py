@@ -66,6 +66,14 @@ class Item:
 
 
 @dataclass
+class Block:
+    """Комната и её позиции. Пустое название — позиции без комнаты."""
+
+    title: str = ""
+    items: list["Item"] = field(default_factory=list)
+
+
+@dataclass
 class Spec:
     number: str = ""
     contract: str = ""
@@ -75,6 +83,7 @@ class Spec:
     origin: str = ""
     badge: str = ""
     items: list[Item] = field(default_factory=list)
+    blocks: list[Block] = field(default_factory=list)
     totals: list[dict] = field(default_factory=list)
     terms: list[str] = field(default_factory=list)
     terms_note: str = ""
@@ -310,16 +319,33 @@ def parse(data: bytes) -> Spec:
 
     items_first = header_row + 1
 
+    # Где кончаются позиции — считаем ПЕРВЫМ делом. Строку комнаты от
+    # подписи итога отличает только положение: наша же выгрузка пишет
+    # «Сумма, Евро» в ту же колонку «Описание», и без этой границы
+    # девять подписей итогов стали бы девятью комнатами.
+    last_item_row = items_first
+    for r in range(items_first, SCAN_LIMIT):
+        if g(f"{col_n}{r}") is not None and g(f"{col_desc}{r}") is not None:
+            last_item_row = r
+
     # --- Позиции: строка считается позицией, если есть номер и описание
+    current = Block()
     for r in range(items_first, SCAN_LIMIT):
         if r in hidden_rows:
             continue
         num, desc = g(f"{col_n}{r}"), g(f"{col_desc}{r}")
+        # Строка комнаты: описание есть, номера нет, и это ещё не итоги.
+        if (num is None and r <= last_item_row
+                and isinstance(desc, str) and desc.strip()
+                and g(f"{col_qty}{r}") in (None, "")):
+            if current.items or current.title:
+                spec.blocks.append(current)
+            current = Block(title=desc.strip())
+            continue
         if num is None or desc is None or not str(desc).strip():
             continue
         lines = str(desc).strip().splitlines()
-        spec.items.append(
-            Item(
+        item = Item(
                 n=str(num).strip(),
                 brand=str(g(f"{col_brand}{r}") or "").strip(),
                 title=lines[0].strip(),
@@ -329,12 +355,11 @@ def parse(data: bytes) -> Spec:
                 total=g(f"{col_sum}{r}"),
                 photo=photos.get(r),
             )
-        )
+        spec.items.append(item)
+        current.items.append(item)
 
-    last_item_row = items_first
-    for r in range(items_first, SCAN_LIMIT):
-        if g(f"{col_n}{r}") is not None and g(f"{col_desc}{r}") is not None:
-            last_item_row = r
+    if current.items or current.title:
+        spec.blocks.append(current)
 
     # --- Итоги: пары "подпись/сумма" ниже позиций. Скрытые строки книги
     #     пропускаем — там внутренние расчёты (комиссии, рабочая скидка).

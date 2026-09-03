@@ -542,6 +542,23 @@ def library_delete():
         return {"error": f"Не удалось удалить: {exc}"}, 502
 
 
+def _rooms(data: dict) -> list[str]:
+    """Порядок комнат из запроса. Пустое — проект без комнат, это норма."""
+    rooms = data.get("rooms")
+    if rooms is None:
+        return []
+    if not isinstance(rooms, list) or len(rooms) > 100:
+        raise ValueError("Комнаты должны быть списком не длиннее 100.")
+    out = []
+    for name in rooms:
+        if not isinstance(name, str):
+            raise ValueError("Название комнаты должно быть строкой.")
+        name = name.strip()[:120]
+        if name and name not in out:
+            out.append(name)
+    return out
+
+
 def _incoming_project(data: dict) -> tuple[dict | None, str | None]:
     """Проект из запроса. Строже, чем у карточки: сервер ничего не
     перечитывает, поэтому кривой ответ лёг бы поверх целой работы."""
@@ -562,6 +579,10 @@ def _incoming_project(data: dict) -> tuple[dict | None, str | None]:
         return None, "Позиции должны быть списком не длиннее 200."
     if any(not isinstance(p, dict) for p in positions):
         return None, "Позиция должна быть записью."
+    try:
+        project["rooms"] = _rooms(project)
+    except ValueError as exc:
+        return None, str(exc)
     for key in ("header", "final", "rates"):
         if project.get(key) is not None and not isinstance(project.get(key), dict):
             return None, f"Поле «{key}» должно быть записью."
@@ -689,9 +710,14 @@ def project_export():
         return {"error": "Слишком много позиций за раз."}, 400
 
     try:
+        rooms = _rooms(data)
+    except ValueError as exc:
+        return {"error": str(exc)}, 400
+
+    try:
         content = book_export.build(positions, rates=data.get("rates"),
                                     header=data.get("header"),
-                                    final=data.get("final"))
+                                    final=data.get("final"), rooms=rooms)
     except Exception as exc:  # noqa: BLE001 — причину показываем пользователю
         return {"error": f"Не удалось собрать файл: {exc}"}, 500
 
@@ -787,9 +813,15 @@ def project_print():
         return render_template("index.html", error="Слишком много позиций за раз."), 400
 
     try:
+        rooms = _rooms(data)
+    except ValueError as exc:
+        return render_template("index.html", error=str(exc)), 400
+
+    try:
         content = book_export.build(positions, rates=data.get("rates"),
                                     header=data.get("header"),
-                                    final=data.get("final"), values=True)
+                                    final=data.get("final"), values=True,
+                                    rooms=rooms)
         spec = spec_parser.parse(content)
     except Exception as exc:  # noqa: BLE001 — причину показываем пользователю
         return render_template(

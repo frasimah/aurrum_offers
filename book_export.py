@@ -140,9 +140,80 @@ def _header(ws, head: dict) -> None:
         ws[f"N{HEAD_TITLE_ROW}"] = day
 
 
+def _write_position(ws, row: int, number: int, position: dict,
+                    r: dict, values: bool) -> None:
+    """Одна позиция в свою строку книги."""
+    computed = pricing.line(
+        position.get("list_price"), position.get("volume_m3"),
+        factory_discount=position.get("factory_discount"),
+        dealer_markup=position.get("dealer_markup"),
+        assembly=position.get("assembly"), rates=r,
+        swift=position.get("swift"), purchase=position.get("purchase"),
+    )
+    fields = {**position, "number": number,
+              # Ручной закуп первичен: в T уходит выведенная цена
+              # прайса, и формулы книги воспроизводят тот же закуп.
+              "list_price": (computed.list_price
+                             if pricing._num(position.get("purchase")) > 0
+                             else position.get("list_price")),
+              # SWIFT в форме числом в каждой строке: своё значение
+              # позиции выигрывает у общей ставки.
+              "swift": position.get("swift") or r["swift"],
+              # Цена клиенту — предложение расчёта; менеджер правит в файле.
+              "price": position.get("price") or computed.price or ""}
+
+    cells = book_row.visible_row(fields, row) + book_row.pricing_row(fields, row)
+    if values:
+        qty = max(1, int(pricing._num(position.get("qty"), 1)))
+        price = pricing._num(fields.get("price"))
+        volume = pricing._num(position.get("volume_m3"))
+        cells[5] = round(price * qty, 2) if price else ""      # F  Сумма
+        cells[17] = volume or ""                                # R  м3
+        cells[18] = round(volume * qty, 2) if volume else ""    # S  м3 всего
+    for index, value in enumerate(cells, start=1):
+        ws.cell(row, index, _number(value))
+
+    ws.cell(row, 3).alignment = Alignment(wrap_text=True, vertical="top")
+    ws.row_dimensions[row].height = PHOTO_ROW_HEIGHT
+
+    photos = position.get("photos") or []
+    if photos:
+        image = _photo(photos[0], max_px=900 if values else PHOTO_MAX_PX)
+        if image is not None:
+            ws.add_image(image, f"I{row}")
+
+
+def _blocks(positions: list[dict], rooms: list[str] | None) -> list[tuple[str, list[dict]]]:
+    """Позиции -> блоки «комната, её позиции», в заданном порядке.
+
+    Порядок берётся из списка комнат: он нужен ровно за двумя вещами —
+    за пустой комнатой (в форме есть «Этаж 1» без позиций под ним) и за
+    тем, чтобы менеджер расставлял их сам.
+
+    Позиции без комнаты идут ПЕРВЫМИ, до всех заголовков. Иначе они
+    неотличимы от позиций последней комнаты: метки «комната кончилась»
+    в книге нет, и обратный разбор приписывал их к последнему заголовку.
+    Заодно новая позиция, у которой комнаты ещё нет, видна сразу сверху.
+    """
+    order = [str(name).strip() for name in (rooms or []) if str(name).strip()]
+    seen = list(dict.fromkeys(order))
+    for position in positions:
+        name = str(position.get("room") or "").strip()
+        if name and name not in seen:
+            seen.append(name)
+
+    blocks = []
+    loose = [p for p in positions if not str(p.get("room") or "").strip()]
+    if loose:
+        blocks.append(("", loose))
+    blocks += [(name, [p for p in positions
+                       if str(p.get("room") or "").strip() == name]) for name in seen]
+    return blocks
+
+
 def build(positions: list[dict], rates: dict | None = None,
           header: dict | None = None, final: dict | None = None,
-          values: bool = False) -> bytes:
+          values: bool = False, rooms: list[str] | None = None) -> bytes:
     """Позиции проекта -> содержимое файла .xlsx.
 
     `values=True` — те же ячейки числами вместо формул: печать разбирает
@@ -175,51 +246,27 @@ def build(positions: list[dict], rates: dict | None = None,
     for column, width in COLUMN_WIDTHS.items():
         ws.column_dimensions[column].width = width
 
-    for offset, position in enumerate(positions):
-        row = FIRST_ITEM_ROW + offset
-        computed = pricing.line(
-            position.get("list_price"), position.get("volume_m3"),
-            factory_discount=position.get("factory_discount"),
-            dealer_markup=position.get("dealer_markup"),
-            assembly=position.get("assembly"), rates=r,
-            swift=position.get("swift"), purchase=position.get("purchase"),
-        )
-        fields = {**position, "number": offset + 1,
-                  # Ручной закуп первичен: в T уходит выведенная цена
-                  # прайса, и формулы книги воспроизводят тот же закуп.
-                  "list_price": (computed.list_price
-                                 if pricing._num(position.get("purchase")) > 0
-                                 else position.get("list_price")),
-                  # SWIFT в форме числом в каждой строке: своё значение
-                  # позиции выигрывает у общей ставки.
-                  "swift": position.get("swift") or r["swift"],
-                  # Цена клиенту — предложение расчёта; менеджер правит в файле.
-                  "price": position.get("price") or computed.price or ""}
+    # Строки идут подряд, но их номера больше не выводятся из индекса
+    # позиции: между блоками вставляются заголовки комнат. Курсор бежит.
+    row = FIRST_ITEM_ROW
+    for room, chunk in _blocks(positions, rooms):
+        if room:
+            # Заголовок — только колонка C, как в рабочей форме: остальные
+            # ячейки пустые, поэтому =SUM(F..) накрывает строку нулём.
+            ws.cell(row, 3, room).font = Font(size=12, bold=True)
+            ws.row_dimensions[row].height = 22
+            row += 1
+        # Нумерация начинается заново в каждой комнате — так в форме:
+        # 1, 1, 1, 1, 2, а не сквозная.
+        for number, position in enumerate(chunk, start=1):
+            _write_position(ws, row, number, position, r, values)
+            row += 1
 
-        cells = book_row.visible_row(fields, row) + book_row.pricing_row(fields, row)
-        if values:
-            qty = max(1, int(pricing._num(position.get("qty"), 1)))
-            price = pricing._num(fields.get("price"))
-            volume = pricing._num(position.get("volume_m3"))
-            cells[5] = round(price * qty, 2) if price else ""   # F  Сумма
-            cells[17] = volume or ""              # R  м3
-            cells[18] = round(volume * qty, 2) if volume else ""   # S  м3 всего
-        for index, value in enumerate(cells, start=1):
-            ws.cell(row, index, _number(value))
-
-        ws.cell(row, 3).alignment = Alignment(wrap_text=True, vertical="top")
-        ws.row_dimensions[row].height = PHOTO_ROW_HEIGHT
-
-        photos = position.get("photos") or []
-        if photos:
-            image = _photo(photos[0], max_px=900 if values else PHOTO_MAX_PX)
-            if image is not None:
-                ws.add_image(image, f"I{row}")
+    last = row - 1
 
     # Итоговый блок компреда — формулами, цепочка из спецификации 2867:
     # проценты вписаны в формулы числами, как делает сама книга
     # (=M17*0.05), поэтому файл пересчитывается в Excel без нас.
-    last = FIRST_ITEM_ROW + max(0, len(positions)) - 1
     totals_row = last + 2
     if positions:
         f = {**pricing.DEFAULT_FINAL,

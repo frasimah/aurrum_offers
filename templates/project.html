@@ -122,6 +122,22 @@
     /* Ручное значение помечено пунктиром: видно, что это не расчёт. */
     td.editable .overridden { border-bottom: 1px dashed #b58900; }
 
+    /* Строка комнаты внутри таблицы позиций. */
+    tr.roomrow td {
+      padding: 14px 8px 6px; border-bottom: 1px solid #e6e6e6; background: #fbfbfb;
+    }
+    .roomrow__name { font-weight: 500; cursor: pointer; }
+    .roomrow__name[data-room]:hover { text-decoration: underline; }
+    .roomrow__meta { margin-left: 10px; color: #949598; font-size: 12px; }
+    .roomrow__acts { margin-left: 10px; }
+    .roomrow__acts button { margin-left: 4px; font-size: 12px; }
+    select.roompick {
+      margin-top: 5px; height: 24px; max-width: 190px; padding: 0 4px;
+      border: 1px solid #e6e6e6; border-radius: 0; background: #fff;
+      font-family: inherit; font-size: 11.5px; color: #949598;
+    }
+    select.roompick:focus { outline: none; border-color: #2d2d2d; color: #2d2d2d; }
+
     .warn-mark {
       display: inline-block; width: 15px; height: 15px;
       border-radius: 50%; background: #d64545; color: #fff;
@@ -257,6 +273,7 @@
         <button type="button" id="export">Скачать файлом Excel</button>
         <button type="button" id="printdoc">Сформировать компред</button>
         <button type="button" class="ghost" id="copyall">Скопировать все строки</button>
+        <button type="button" class="ghost" id="addroom">Добавить комнату</button>
         <button type="button" class="ghost" id="fromdefaults">Вставить из констант</button>
         <button type="button" class="ghost" id="saveall">Сохранить</button>
         <button type="button" class="ghost" id="tolibrary">Всё в каталог</button>
@@ -374,7 +391,7 @@
     // Черновик пишется на каждую правку — им и держится работа между
     // нажатиями «Сохранить».
     const save = () => AURRUM.saveDraft(projectId, {
-      positions, header: header(), final: finParams(),
+      positions, rooms, header: header(), final: finParams(),
       rates: state.rates, rev, dirty: true,
     });
 
@@ -383,6 +400,34 @@
     }
 
     let positions = state.positions || [];
+    // Порядок комнат нужен ровно за двумя вещами: за пустой комнатой
+    // (в форме есть «Этаж 1» без позиций) и за тем, чтобы менеджер
+    // расставлял их сам. Сама принадлежность живёт у позиции в p.room.
+    let rooms = state.rooms || [];
+
+    // Раскладка тем же правилом, что в book_export._blocks: безымянные
+    // первыми. Не зависит от ответа /calc — это порядок строк, а не цена,
+    // поэтому комнаты видны и при отказе расчёта.
+    function blocks() {
+      const seen = [];
+      for (const name of rooms) {
+        const clean = String(name).trim();
+        if (clean && !seen.includes(clean)) seen.push(clean);
+      }
+      for (const p of positions) {
+        const name = String(p.room || '').trim();
+        if (name && !seen.includes(name)) seen.push(name);
+      }
+      const out = [];
+      const loose = positions.map((p, i) => [p, i]).filter(([p]) => !String(p.room || '').trim());
+      if (loose.length || !seen.length) out.push({ title: '', rows: loose });
+      for (const name of seen) {
+        out.push({ title: name,
+                   rows: positions.map((p, i) => [p, i])
+                     .filter(([p]) => String(p.room || '').trim() === name) });
+      }
+      return out;
+    }
 
     // Шапка своя у каждого проекта — в отличие от ставок, которые одни
     // на все. Лежит рядом с позициями и так же переживает перезагрузку.
@@ -432,7 +477,19 @@
       if (!positions.length) { table.hidden = true; document.getElementById('totals').hidden = true; return; }
       empty.hidden = true;
 
-      body.innerHTML = positions.map((p, i) => {
+      // Перенос позиции между комнатами — тем же селектом, что и выбор:
+      // отдельная кнопка «перенести» тут была бы лишним шагом.
+      const roomPicker = (p, i) => {
+        const names = blocks().filter(b => b.title).map(b => b.title);
+        if (!names.length) return '';
+        const now = String(p.room || '').trim();
+        return `<select class="roompick" data-room-of="${i}">
+          <option value=""${now ? '' : ' selected'}>без комнаты</option>
+          ${names.map(n => `<option value="${esc(n)}"${n === now ? ' selected' : ''}>${esc(n)}</option>`).join('')}
+        </select>`;
+      };
+
+      const rowHtml = (p, i) => {
         const c = (calc && calc.lines[i]) || {};
         const cell = (key, value, cls) =>
           `<td><input class="manual ${cls || ''}" data-i="${i}" data-k="${key}" value="${esc(value)}"></td>`;
@@ -440,6 +497,7 @@
           <td class="left">
             <div class="name">${esc(p.brand)} ${esc(p.model)}</div>
             <div class="sub">${esc(p.type_ru || '')}${p.dims_raw ? ' · ' + esc(p.dims_raw) : ''}${p.dims_confident === false ? ' <span class="warn-mark" title="Оси расставлены по порядку — пометки высоты в источнике нет. Проверьте объём.">!</span>' : ''}</div>
+            ${roomPicker(p, i)}
           </td>
           ${cell('qty', p.qty == null ? 1 : p.qty, 'short')}
           ${cell('volume_m3', p.volume_m3 == null ? '' : p.volume_m3, 'short')}
@@ -470,6 +528,39 @@
           <td class="num strong">${rub(c.sum)}</td>
           <td><button class="link" data-del="${i}">убрать</button></td>
         </tr>`;
+      };
+
+      // Строка комнаты: название, её собственные итоги и перестановка.
+      const roomHtml = (block, at, total) => {
+        const sum = block.rows.reduce((acc, [, i]) =>
+          acc + (((calc && calc.lines[i]) || {}).sum || 0), 0);
+        const volume = block.rows.reduce((acc, [p]) =>
+          acc + (parseFloat(String(p.volume_m3 || '').replace(',', '.')) || 0)
+                * (parseInt(p.qty, 10) || 1), 0);
+        const name = block.title || 'Без комнаты';
+        return `<tr class="roomrow">
+          <td colspan="16">
+            <span class="roomrow__name"${block.title ? ` data-room="${esc(block.title)}"` : ''}>${esc(name)}</span>
+            <span class="roomrow__meta">позиций ${block.rows.length}${
+              sum ? ' · ' + rub(sum) + ' €' : ''}${
+              volume ? ' · ' + (Math.round(volume * 10) / 10) + ' м³' : ''}</span>
+            ${block.title ? `<span class="roomrow__acts">
+              <button class="link" data-room-up="${at}"${at === 0 ? ' disabled' : ''}>↑</button>
+              <button class="link" data-room-down="${at}"${at === total - 1 ? ' disabled' : ''}>↓</button>
+              <button class="link" data-room-del="${esc(block.title)}">×</button>
+            </span>` : ''}
+          </td>
+        </tr>`;
+      };
+
+      const layout = blocks();
+      const named = layout.filter(b => b.title);
+      body.innerHTML = layout.map((block) => {
+        // Единственный безымянный блок без заголовка не подписываем:
+        // проект без комнат обязан выглядеть ровно как раньше.
+        const head = (!block.title && layout.length === 1)
+          ? '' : roomHtml(block, named.indexOf(block), named.length);
+        return head + block.rows.map(([p, i]) => rowHtml(p, i)).join('');
       }).join('');
 
       const fin = calc && calc.final;
@@ -585,6 +676,44 @@
           });
         }));
 
+      // Переименование, перестановка и роспуск комнаты.
+      body.querySelectorAll('.roomrow__name[data-room]').forEach(el =>
+        el.addEventListener('click', () => {
+          const was = el.dataset.room;
+          const now = (prompt('Название комнаты', was) || '').trim();
+          if (!now || now === was) return;
+          rooms = rooms.map(r => (r === was ? now : r));
+          if (!rooms.includes(now)) rooms.push(now);
+          for (const p of positions) if (String(p.room || '').trim() === was) p.room = now;
+          save(); recalc();
+        }));
+      body.querySelectorAll('button[data-room-up], button[data-room-down]').forEach(el =>
+        el.addEventListener('click', () => {
+          const at = +(el.dataset.roomUp ?? el.dataset.roomDown);
+          const to = el.dataset.roomUp != null ? at - 1 : at + 1;
+          const order = blocks().filter(b => b.title).map(b => b.title);
+          if (to < 0 || to >= order.length) return;
+          [order[at], order[to]] = [order[to], order[at]];
+          rooms = order;
+          save(); recalc();
+        }));
+      body.querySelectorAll('button[data-room-del]').forEach(el =>
+        el.addEventListener('click', () => {
+          const name = el.dataset.roomDel;
+          const count = positions.filter(p => String(p.room || '').trim() === name).length;
+          if (count && !confirm(`Убрать комнату «${name}»? Её позиций: ${count}. `
+                                + 'Сами позиции останутся — они перейдут в «Без комнаты».')) return;
+          rooms = rooms.filter(r => r !== name);
+          for (const p of positions) if (String(p.room || '').trim() === name) delete p.room;
+          save(); recalc();
+        }));
+      body.querySelectorAll('select[data-room-of]').forEach(el =>
+        el.addEventListener('change', () => {
+          const i = +el.dataset.roomOf;
+          if (el.value) positions[i].room = el.value; else delete positions[i].room;
+          save(); recalc();
+        }));
+
       body.querySelectorAll('button[data-del]').forEach(el =>
         el.addEventListener('click', () => {
           positions.splice(+el.dataset.del, 1);
@@ -632,7 +761,7 @@
       const field = document.createElement('input');
       field.type = 'hidden';
       field.name = 'payload';
-      field.value = JSON.stringify({ positions, rates: projectRates(), header: header(), final: finParams() });
+      field.value = JSON.stringify({ positions, rooms, rates: projectRates(), header: header(), final: finParams() });
       form.appendChild(field);
       document.body.appendChild(form);
       form.submit();
@@ -674,6 +803,16 @@
     // Скидка, наценка и сборка каждой позиции — из начальных чисел на
     // странице «Константы». Кнопка нужна, когда числа поменяли после
     // того, как позиции уже легли в проект: разово применить ко всем.
+    document.getElementById('addroom').addEventListener('click', () => {
+      const name = (prompt('Название комнаты — «Холл», «Гостевая Спальня 1»') || '').trim();
+      if (!name) return;
+      if (!rooms.includes(name)) rooms.push(name);
+      save();
+      recalc();
+      document.getElementById('status').textContent =
+        'Комната «' + name + '» добавлена. Перенесите в неё позиции выбором слева.';
+    });
+
     document.getElementById('fromdefaults').addEventListener('click', async () => {
       if (!positions.length) return;
       if (!confirm('Заменить скидку, наценку и сборку у всех позиций числами со страницы «Константы»?')) return;
@@ -706,7 +845,7 @@
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ project: {
             id: projectId, rev: overRev == null ? rev : overRev,
-            positions, header: header(), final: finParams(), rates: projectRates(),
+            positions, rooms, header: header(), final: finParams(), rates: projectRates(),
           } }),
         });
         const data = await r.json();
@@ -770,7 +909,7 @@
       try {
         const r = await fetch('{{ url_for("project_export") }}', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ positions, rates: projectRates(), header: header(), final: finParams() }),
+          body: JSON.stringify({ positions, rooms, rates: projectRates(), header: header(), final: finParams() }),
         });
         if (!r.ok) {
           // Тело ошибки не всегда JSON: на сбое сервера прилетает страница,

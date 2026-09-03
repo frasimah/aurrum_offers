@@ -40,7 +40,7 @@ INDEX = "projects/index.json"
 # Строка списка: всё, что видно в перечне проектов и по чему ищут.
 # Позиции, шапка и параметры итога остаются в файле записи.
 INDEX_FIELDS = ("id", "title", "number", "contract", "buyer", "date",
-                "count", "sum", "rev", "saved_at")
+                "count", "rooms", "sum", "rev", "saved_at")
 
 
 class Conflict(RuntimeError):
@@ -76,6 +76,7 @@ def brief(project: dict) -> dict:
         "buyer": str(header.get("buyer") or "").strip(),
         "date": str(header.get("date") or "").strip(),
         "count": len(positions),
+        "rooms": len(project.get("rooms") or []),
         "rev": int(project.get("rev") or 0),
         "saved_at": project.get("saved_at"),
     }

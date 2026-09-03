@@ -403,3 +403,15 @@ table {
     box-shadow: none;
   }
 }
+
+/* Комната — строка-заголовок между позициями. Типографика как у названия
+   секции; page-break-after не даёт комнате оторваться от своей первой
+   позиции при печати. */
+.items tr.roomrow td {
+  padding: 14pt 0 4pt;
+  border-bottom: 0.5pt solid var(--fg);
+  font-size: 9pt;
+  font-weight: 500;
+  page-break-after: avoid;
+  break-after: avoid;
+}

@@ -75,7 +75,16 @@
         </tr>
       </thead>
       <tbody>
-        {% for item in spec.items %}
+        {# Комнаты — строки-заголовки между позициями, как в рабочей форме.
+           Книга без комнат даёт один блок с пустым названием, и разметка
+           выходит ровно та же, что была. #}
+        {% for block in (spec.blocks or [{'title': '', 'items': spec.items}]) %}
+        {% if block.title %}
+        <tr class="roomrow">
+          <td colspan="7">{{ block.title }}</td>
+        </tr>
+        {% endif %}
+        {% for item in block.items %}
         <tr>
           <td class="c-n">{{ item.n }}</td>
           <td class="c-brand">{{ item.brand }}</td>
@@ -93,6 +102,7 @@
             {% endif %}
           </td>
         </tr>
+        {% endfor %}
         {% endfor %}
       </tbody>
     </table>
