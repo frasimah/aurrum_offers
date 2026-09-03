@@ -188,10 +188,10 @@
 
   <div class="status" id="status"></div>
 
+  <script src="{{ url_for('static', filename='project_store.js') }}"></script>
   <script>
-    // Проект живёт в браузере; каталог кладёт позицию туда же. Полную
+    // Каталог кладёт позицию в черновик текущего проекта. Полную
     // карточку берём с сервера: в индексе её нет, только выжимка.
-    const KEY = 'aurrum.project';
     const status = document.getElementById('status');
 
     function say(text) {
@@ -200,12 +200,6 @@
       setTimeout(() => status.classList.remove('on'), 2600);
     }
 
-    const posDefaults = () => {
-      const base = { factory_discount: 0.5, dealer_markup: 0, assembly: 1 };
-      try { return { ...base, ...(JSON.parse(localStorage.getItem('aurrum.position_defaults')) || {}) }; }
-      catch (e) { return base; }
-    };
-
     document.querySelectorAll('.toproject').forEach(btn =>
       btn.addEventListener('click', async () => {
         btn.disabled = true;
@@ -213,12 +207,9 @@
           const r = await fetch('/library/card/' + btn.dataset.id);
           const it = await r.json();
           if (!r.ok) throw new Error(it.error || 'карточка не открылась');
-          let list = [];
-          try { list = JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) { list = []; }
-          list.push({ ...it, qty: 1, ...posDefaults() });
-          localStorage.setItem(KEY, JSON.stringify(list));
+          const count = AURRUM.addPosition(it);
           btn.textContent = 'В проекте';
-          say('Добавлено. В проекте позиций: ' + list.length);
+          say('Добавлено в текущий проект. Позиций: ' + count);
         } catch (e) {
           say(e.message);
           btn.disabled = false;

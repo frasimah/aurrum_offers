@@ -32,7 +32,8 @@ import book_row  # noqa: E402
 import doc_parser  # noqa: E402
 import extract_agent  # noqa: E402
 import pricing  # noqa: E402
-import product_lookup  # noqa: E402 — после load_dotenv, читают переменные окружения
+import product_lookup  # noqa: E402
+import projects  # noqa: E402 — после load_dotenv, читают переменные окружения
 import safe_fetch  # noqa: E402
 import spec_parser  # noqa: E402
 
@@ -97,6 +98,14 @@ def _locked(ip: str) -> bool:
 def require_password():
     if request.endpoint in PUBLIC_ENDPOINTS or session.get("authorized"):
         return None
+    # Запросу за данными отвечаем отказом, а не страницей входа: сессия
+    # живёт 7 дней, а проект правят часами, и fetch молча шёл за редиректом,
+    # получал HTML и выдавал «Unexpected token '<'» вместо «перезайдите».
+    # Условие узкое, поэтому печать и загрузка книги по-прежнему уходят
+    # на страницу входа, как и положено переходу по ссылке.
+    if request.is_json:
+        return {"error": "Сессия истекла — перезайдите в соседней вкладке "
+                         "и повторите."}, 401
     return redirect(url_for("login", next=request.full_path.rstrip("?")))
 
 
@@ -290,10 +299,11 @@ def _parse_doc_fallback(url: str, reason: str):
 def project():
     """Набранные позиции и расчёт по ним.
 
-    Сам список живёт в браузере: базы у приложения нет, а на serverless
-    нет и диска. Зато перезагрузка страницы больше ничего не теряет.
+    Здесь всегда новый проект или черновик из браузера; сохранённый
+    открывается по своему адресу (`/project/open/<id>`). Черновик держит
+    работу между нажатиями «Сохранить» и переживает перезагрузку.
     """
-    return render_template("project.html")
+    return render_template("project.html", project=None)
 
 
 @app.route("/library")
@@ -530,6 +540,116 @@ def library_delete():
         return {"deleted": library.delete(item_id)}
     except Exception as exc:  # noqa: BLE001
         return {"error": f"Не удалось удалить: {exc}"}, 502
+
+
+def _incoming_project(data: dict) -> tuple[dict | None, str | None]:
+    """Проект из запроса. Строже, чем у карточки: сервер ничего не
+    перечитывает, поэтому кривой ответ лёг бы поверх целой работы."""
+    project = data.get("project")
+    if not isinstance(project, dict):
+        return None, "Неверный запрос."
+    project_id = str(project.get("id") or "")
+    if not re.fullmatch(r"[a-z0-9-]{1,120}", project_id):
+        return None, "Неверный опознаватель проекта."
+    try:
+        # В localStorage всё строки, а `5 > '3'` в Python падает — было бы
+        # 500 на ровном месте вместо честного отказа.
+        rev = int(project.get("rev") or 0)
+    except (TypeError, ValueError):
+        return None, "Неверный номер правки."
+    positions = project.get("positions")
+    if not isinstance(positions, list) or len(positions) > 200:
+        return None, "Позиции должны быть списком не длиннее 200."
+    if any(not isinstance(p, dict) for p in positions):
+        return None, "Позиция должна быть записью."
+    for key in ("header", "final", "rates"):
+        if project.get(key) is not None and not isinstance(project.get(key), dict):
+            return None, f"Поле «{key}» должно быть записью."
+    return {**project, "id": project_id, "rev": rev, "positions": positions}, None
+
+
+@app.route("/project/list")
+def project_list():
+    """Перечень проектов: открыть, найти, удалить."""
+    query = (request.args.get("q") or "").strip()
+    try:
+        rows = projects.read_index()
+    except projects.NotConfigured as exc:
+        return render_template("projects.html", rows=[], query=query,
+                               total=0, error=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        return render_template("projects.html", rows=[], query=query, total=0,
+                               error=f"Список не открылся: {exc}")
+    return render_template("projects.html", rows=projects.search(rows, query),
+                           query=query, total=len(rows), error=None)
+
+
+@app.route("/project/open/<project_id>")
+def project_open(project_id: str):
+    """Открыть сохранённый проект.
+
+    Страницу без записи не рисуем: чтение глушит любую ошибку и отдаёт
+    None, а страница с чужим черновиком под этим адресом записала бы его
+    поверх целого проекта следующим же «Сохранить».
+    """
+    if not re.fullmatch(r"[a-z0-9-]{1,120}", project_id):
+        return redirect(url_for("project_list"))
+    try:
+        project = projects.get(project_id)
+    except Exception as exc:  # noqa: BLE001
+        return render_template("projects.html", rows=[], query="", total=0,
+                               error=f"Проект не открылся: {exc}"), 502
+    if not project:
+        # Два разных None: строка в списке есть — запись ещё не дошла;
+        # строки нет — проекта нет вовсе.
+        try:
+            known = any(r.get("id") == project_id for r in projects.read_index())
+        except Exception:        # noqa: BLE001
+            known = False
+        return render_template(
+            "projects.html", rows=[], query="", total=0,
+            error=("Запись ещё не дошла до хранилища — обновите страницу "
+                   "через несколько секунд." if known else
+                   "Такого проекта нет.")), 404 if not known else 503
+    return render_template("project.html", project=project)
+
+
+@app.route("/project/save", methods=["POST"])
+def project_save():
+    """Сохранить проект. Отказ по устаревшей правке — 409, не молчание."""
+    project, error = _incoming_project(request.get_json(silent=True) or {})
+    if error:
+        return {"error": error}, 400
+    try:
+        saved = projects.save(project)
+    except projects.Conflict as exc:
+        return {"error": str(exc), "current": exc.current}, 409
+    except projects.NotConfigured as exc:
+        return {"error": str(exc)}, 400
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"Не удалось сохранить: {exc}"}, 502
+    return {"id": saved["id"], "rev": saved["rev"], "saved_at": saved["saved_at"]}
+
+
+@app.route("/project/delete", methods=["POST"])
+def project_delete():
+    project_id = str((request.get_json(silent=True) or {}).get("id") or "")
+    if not re.fullmatch(r"[a-z0-9-]{1,120}", project_id):
+        return {"error": "Неверный опознаватель проекта."}, 400
+    try:
+        projects.delete(project_id)
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"Не удалось удалить: {exc}"}, 502
+    return {"deleted": project_id}
+
+
+@app.route("/project/reindex", methods=["POST"])
+def project_reindex():
+    """Пересобрать список из файлов — вернуть строку, потерянную гонкой."""
+    try:
+        return {"projects": projects.rebuild_index()}
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"Не удалось пересобрать: {exc}"}, 502
 
 
 @app.route("/settings")

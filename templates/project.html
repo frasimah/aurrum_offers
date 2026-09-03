@@ -306,16 +306,29 @@
 
   </div>
 
+  <script src="{{ url_for('static', filename='project_store.js') }}"></script>
   <script>
-    // Проект живёт в браузере. Базы у приложения нет, а на serverless
-    // и диска нет — зато перезагрузка страницы больше ничего не теряет.
-    const KEY = 'aurrum.project';
-    // Константы задаются на отдельной странице и одни на все проекты.
-    const RATES_KEY = 'aurrum.rates';
-    const rates = () => {
-      try { return JSON.parse(localStorage.getItem(RATES_KEY)) || undefined; }
-      catch (e) { return undefined; }
-    };
+    // Проект лежит на сервере, а в браузере держится черновик: он пишется
+    // на каждую правку, сервер — по явному «Сохранить». Открытая запись
+    // приходит сюда с сервера, новый проект начинается с черновика.
+    const SERVER = {{ (project if project else None) | tojson }};
+    const projectId = SERVER ? SERVER.id : (AURRUM.currentId() === 'new'
+      ? AURRUM.newId() : AURRUM.currentId());
+    AURRUM.setCurrent(projectId);
+
+    // Черновик той же записи новее сервера — значит менеджер правил и не
+    // сохранил; его работу и показываем. Иначе берём серверную.
+    const local = AURRUM.draft(projectId);
+    const state = (SERVER && !(local.rev === SERVER.rev && local.dirty))
+      ? { positions: SERVER.positions || [], header: SERVER.header || {},
+          final: SERVER.final || {}, rates: SERVER.rates || null, rev: SERVER.rev || 0 }
+      : local;
+    let rev = state.rev || 0;
+
+    // Ставки открытого проекта — его снимок, а не сегодняшние из браузера:
+    // в .xlsx они уходят первой строкой и по ним считаются формулы позиций,
+    // так что файл обязан совпадать с экраном, с которого его собрали.
+    const projectRates = () => state.rates || AURRUM.rates();
     const rub = n => (n || 0).toLocaleString('ru-RU', { maximumFractionDigits: 0 });
 
     // Начальные числа позиции. Задаются на странице «Константы», запасные
@@ -323,15 +336,10 @@
     // Читаются заново при каждом обращении: константы правят в соседней
     // вкладке, и снятое при загрузке страницы устаревает — кнопка
     // «вставить из констант» вставляла старые числа.
-    const posDefaults = () => {
-      const base = { factory_discount: 0.5, dealer_markup: 0, assembly: 1 };
-      try { return { ...base, ...(JSON.parse(localStorage.getItem('aurrum.position_defaults')) || {}) }; }
-      catch (e) { return base; }
-    };
+    const posDefaults = () => AURRUM.positionDefaults();
     const POS_DEFAULTS = posDefaults();   // для дополнения старых позиций при загрузке
 
     // Параметры итога компреда: проценты и доп.скидка, свои у проекта.
-    const FIN_KEY = 'aurrum.final';
     // Каждая строка задаётся процентом от базы или евро напрямую —
     // доставка чаще известна суммой. Ненулевое евро выигрывает у процента,
     // это правило сервера (pricing.final_block), здесь только ввод.
@@ -348,12 +356,12 @@
       return out;
     };
 
-    (() => {
-      let saved = {};
-      try { saved = JSON.parse(localStorage.getItem(FIN_KEY)) || {}; } catch (e) { /* значения формы */ }
+    // Раскладка состояния по полям — одна на все источники. Раньше здесь
+    // стояло три независимых блока (шапка, итог, позиции), и правило
+    // «ненулевое евро включает режим €» жило только в одном из них: два
+    // пути инициализации неизбежно разъезжаются.
+    function applyFinal(saved) {
       for (const key of FIN_ROWS) {
-        // Сохранённое евро включает режим €; иначе процент — в том числе
-        // для параметров, записанных до появления единиц.
         if (saved[key + '_eur']) {
           document.getElementById('fin_' + key + '_unit').value = 'eur';
           document.getElementById('fin_' + key + '_val').value = saved[key + '_eur'];
@@ -361,18 +369,42 @@
           document.getElementById('fin_' + key + '_val').value = saved[key + '_pct'];
         }
       }
-      for (const el of document.querySelectorAll('[id^="fin_"][id$="_val"], [id^="fin_"][id$="_unit"]')) {
-        el.addEventListener('change', () => {
-          localStorage.setItem(FIN_KEY, JSON.stringify(finParams()));
-          recalc();
-        });
+    }
+
+    // Черновик пишется на каждую правку — им и держится работа между
+    // нажатиями «Сохранить».
+    const save = () => AURRUM.saveDraft(projectId, {
+      positions, header: header(), final: finParams(),
+      rates: state.rates, rev, dirty: true,
+    });
+
+    for (const el of document.querySelectorAll('[id^="fin_"][id$="_val"], [id^="fin_"][id$="_unit"]')) {
+      el.addEventListener('change', () => { save(); recalc(); });
+    }
+
+    let positions = state.positions || [];
+
+    // Шапка своя у каждого проекта — в отличие от ставок, которые одни
+    // на все. Лежит рядом с позициями и так же переживает перезагрузку.
+    const HEAD_FIELDS = ['number', 'contract', 'buyer', 'date'];
+
+    const header = () => {
+      const out = {};
+      for (const key of HEAD_FIELDS) {
+        out[key] = (document.getElementById('h_' + key).value || '').trim();
       }
-    })();
+      return out;
+    };
 
-    const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) { return []; } };
-    const save = list => localStorage.setItem(KEY, JSON.stringify(list));
-
-    let positions = load();
+    // Раскладка состояния по полям — одним местом и после всех объявлений:
+    // раньше заполнение звало save(), а тот header(), объявленный ниже,
+    // и весь скрипт падал на первой же строке, не дойдя до отрисовки.
+    for (const key of HEAD_FIELDS) {
+      const el = document.getElementById('h_' + key);
+      if ((state.header || {})[key]) el.value = state.header[key];
+      el.addEventListener('input', save);
+    }
+    applyFinal(state.final || {});
 
     // Позиции, сохранённые до появления начальных чисел, дополняем сразу
     // и один раз. Иначе таблица показывала бы одно, а расчёт на сервере
@@ -385,31 +417,7 @@
           if (p[key] == null) { p[key] = POS_DEFAULTS[key]; filled = true; }
         }
       }
-      if (filled) save(positions);
-    })();
-
-    // Шапка своя у каждого проекта — в отличие от ставок, которые одни
-    // на все. Лежит рядом с позициями и так же переживает перезагрузку.
-    const HEAD_KEY = 'aurrum.header';
-    const HEAD_FIELDS = ['number', 'contract', 'buyer', 'date'];
-
-    const header = () => {
-      const out = {};
-      for (const key of HEAD_FIELDS) {
-        out[key] = (document.getElementById('h_' + key).value || '').trim();
-      }
-      return out;
-    };
-
-    (() => {
-      let saved = {};
-      try { saved = JSON.parse(localStorage.getItem(HEAD_KEY)) || {}; } catch (e) { /* пусто */ }
-      for (const key of HEAD_FIELDS) {
-        const el = document.getElementById('h_' + key);
-        if (saved[key]) el.value = saved[key];
-        el.addEventListener('input', () =>
-          localStorage.setItem(HEAD_KEY, JSON.stringify(header())));
-      }
+      if (filled) save();
     })();
 
     const esc = s => String(s == null ? '' : s)
@@ -504,7 +512,7 @@
           } else {
             positions[el.dataset.i][el.dataset.k] = el.value;
           }
-          save(positions);
+          save();
           recalc();
         }));
       // Карандаш: значение правится на месте. Пустое поле возвращает
@@ -558,7 +566,7 @@
             } else if (isFinite(parseFloat(raw))) {
               positions[i][key] = parseFloat(raw);
             }
-            save(positions);
+            save();
             recalc();
           };
           field.addEventListener('blur', (e) => {
@@ -577,7 +585,7 @@
       body.querySelectorAll('button[data-del]').forEach(el =>
         el.addEventListener('click', () => {
           positions.splice(+el.dataset.del, 1);
-          save(positions);
+          save();
           recalc();
         }));
     }
@@ -592,7 +600,7 @@
       try {
         const r = await fetch('{{ url_for("calc") }}', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ positions, rates: rates(), final: finParams() }),
+          body: JSON.stringify({ positions, rates: projectRates(), final: finParams() }),
         });
         const data = await r.json();
         // Ответ с ошибкой — это JSON без lines: показать его как расчёт
@@ -621,7 +629,7 @@
       const field = document.createElement('input');
       field.type = 'hidden';
       field.name = 'payload';
-      field.value = JSON.stringify({ positions, rates: rates(), header: header(), final: finParams() });
+      field.value = JSON.stringify({ positions, rates: projectRates(), header: header(), final: finParams() });
       form.appendChild(field);
       document.body.appendChild(form);
       form.submit();
@@ -670,7 +678,7 @@
       for (const p of positions) {
         for (const key of Object.keys(d)) p[key] = d[key];
       }
-      save(positions);
+      save();
       // Сначала пересчёт, потом сообщение: recalc по успеху чистит статус,
       // и написанное до него исчезало, не успев показаться.
       await recalc();
@@ -682,19 +690,69 @@
 
     // Проект и шапка сохраняются сами на каждую правку. Кнопка нужна не
     // механизму, а человеку: явное действие и подтверждение словами.
-    document.getElementById('saveall').addEventListener('click', () => {
-      save(positions);
-      localStorage.setItem(HEAD_KEY, JSON.stringify(header()));
-      const status = document.getElementById('status');
-      status.textContent = 'Сохранено: позиций ' + positions.length +
-        ', шапка. Проект живёт в этом браузере.';
-      setTimeout(() => { if (status.textContent.startsWith('Сохранено')) status.textContent = ''; }, 4000);
-    });
+    // «Сохранить» кладёт проект на сервер. Черновик пишется и без этого,
+    // но сервер общий: пока не нажали, второй менеджер проекта не видит.
+    async function saveToServer(overRev) {
+      const btn = document.getElementById('saveall');
+      const out = document.getElementById('status');
+      btn.disabled = true;
+      out.textContent = 'Сохраняю…';
+      save();
+      try {
+        const r = await fetch('{{ url_for("project_save") }}', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ project: {
+            id: projectId, rev: overRev == null ? rev : overRev,
+            positions, header: header(), final: finParams(), rates: projectRates(),
+          } }),
+        });
+        const data = await r.json();
+        // Чужая правка поверх нашей не ложится молча: показываем спор
+        // и ждём решения. Перезаписать можно только вторым нажатием.
+        if (r.status === 409) { conflict(data); btn.disabled = false; return; }
+        if (!r.ok) throw new Error(data.error || 'не удалось сохранить');
+        rev = data.rev;
+        AURRUM.saveDraft(projectId, { positions, header: header(), final: finParams(),
+                                      rates: state.rates, rev, dirty: false });
+        out.textContent = 'Сохранено на сервере: позиций ' + positions.length +
+          ', правка № ' + rev + '.';
+      } catch (e) {
+        out.textContent = e.message + ' Работа осталась в браузере — она не потеряна.';
+      }
+      btn.disabled = false;
+    }
+
+    function conflict(data) {
+      const out = document.getElementById('status');
+      out.textContent = '';
+      const text = document.createElement('span');
+      text.textContent = data.error + ' ';
+      const open = document.createElement('button');
+      open.type = 'button'; open.className = 'ghost';
+      open.textContent = 'К списку проектов';
+      // Черновик не трогаем: он остаётся под тем же именем и вернётся,
+      // если менеджер передумает.
+      open.addEventListener('click', () => { window.location = '{{ url_for("project_list") }}'; });
+      const over = document.createElement('button');
+      over.type = 'button'; over.className = 'ghost';
+      over.textContent = data.current ? 'Сохранить поверх' : 'Сохранить как новый';
+      over.addEventListener('click', () => {
+        if (data.current) { saveToServer(data.current.rev); return; }
+        const fresh = AURRUM.newId();
+        AURRUM.setCurrent(fresh);
+        AURRUM.saveDraft(fresh, { positions, header: header(), final: finParams(),
+                                  rates: state.rates, rev: 0, dirty: true });
+        window.location = '{{ url_for("project") }}';
+      });
+      out.append(text, open, document.createTextNode(' '), over);
+    }
+
+    document.getElementById('saveall').addEventListener('click', () => saveToServer(null));
 
     document.getElementById('clear').addEventListener('click', () => {
       if (!confirm('Убрать все позиции из проекта?')) return;
       positions = [];
-      save(positions);
+      save();
       recalc();
     });
 
@@ -709,7 +767,7 @@
       try {
         const r = await fetch('{{ url_for("project_export") }}', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ positions, rates: rates(), header: header(), final: finParams() }),
+          body: JSON.stringify({ positions, rates: projectRates(), header: header(), final: finParams() }),
         });
         if (!r.ok) {
           // Тело ошибки не всегда JSON: на сбое сервера прилетает страница,

@@ -177,6 +177,142 @@ def check_dims_grounding() -> tuple[int, int]:
     return good, len(cases)
 
 
+def check_projects() -> tuple[int, int]:
+    """Хранилище проектов: счётчик правок и то, что он обязан ловить.
+
+    Без сети: транспорт подменяется. Проверяется не «записалось ли», а
+    единственное, ради чего всё затевалось, — что чужая работа не может
+    быть затёрта молча.
+    """
+    import projects
+    print("\n ПРОЕКТЫ НА СЕРВЕРЕ")
+    print(" " + "-" * 74)
+
+    store: dict[str, object] = {}
+    index: list[dict] = []
+
+    def fake_put(pathname, payload):
+        if pathname == projects.INDEX:
+            index[:] = payload["items"]
+        else:
+            store[pathname] = payload
+
+    real_put, real_index = projects._put, projects.read_index
+    projects._put = fake_put
+    projects.read_index = lambda: [dict(r) for r in index]
+
+    checks: list[tuple[str, bool]] = []
+    try:
+        first = projects.save({"id": "p1", "rev": 0, "positions": [],
+                               "header": {"number": "2867/3", "buyer": "Иванов И. И."}})
+        checks.append(("новый проект получает правку № 1", first["rev"] == 1))
+        checks.append(("имя для списка собрано из шапки",
+                       index and index[0]["title"] == "Спецификация № 2867/3 · Иванов И. И."))
+
+        second = projects.save({**first, "positions": [{"brand": "X", "model": "Y"}]})
+        checks.append(("повторная запись поднимает правку", second["rev"] == 2))
+        checks.append(("в списке число позиций", index[0]["count"] == 1))
+
+        # Тот самый случай: двое открыли одно, один сохранил, второй пишет
+        # поверх со старым номером.
+        stale = False
+        try:
+            projects.save({**first, "positions": [{"brand": "Чужое"}]})
+        except projects.Conflict:
+            stale = True
+        checks.append(("устаревшая правка отклонена, а не записана", stale))
+        checks.append(("отклонённая запись ничего не изменила",
+                       store["projects/p1.json"]["positions"][0]["brand"] == "X"))
+
+        # Проект удалён, а у менеджера открыт: сохранение не должно его воскрешать.
+        index.clear()
+        gone = False
+        try:
+            projects.save({**second, "rev": 2})
+        except projects.Conflict:
+            gone = True
+        checks.append(("удалённый проект не воскресает сохранением", gone))
+
+        # Пустая шапка не оставляет строку без имени.
+        index.clear()
+        projects.save({"id": "p2", "rev": 0, "positions": [], "header": {}})
+        checks.append(("проект без шапки называется «Без имени»",
+                       index[0]["title"] == "Без имени"))
+
+        # Сумма в списке считается той же цепочкой, что на экране.
+        index.clear()
+        with_money = projects.save({
+            "id": "p3", "rev": 0, "header": {},
+            "positions": [{"list_price": 2550, "volume_m3": 0.2, "qty": 1, "assembly": 0.95}],
+            "final": {"assembly_pct": 5, "personal_pct": 30}})
+        import pricing
+        want = pricing.project(with_money["positions"], final=with_money["final"])["final"]["к_оплате"]
+        checks.append(("сумма в списке совпадает с расчётом страницы",
+                       abs((index[0].get("sum") or 0) - want) < 0.01))
+
+        checks.append(("поиск идёт по фамилии покупателя",
+                       len(projects.search([{"buyer": "Иванов И. И."}, {"buyer": "Петров"}],
+                                           "иванов")) == 1))
+
+        # Маршруты: та же подмена, без сети.
+        import importlib
+        import os
+        os.environ.setdefault("AURRUM_PASSWORD", "проверка")
+        os.environ.setdefault("AURRUM_SECRET_KEY", "x" * 32)
+        import app as flask_app
+        importlib.reload(flask_app)
+        flask_app.projects._put = fake_put
+        flask_app.projects.read_index = lambda: [dict(r) for r in index]
+        # Чтение тоже без сети: иначе маршрут открытия честно отвечает
+        # 502 «хранилище не настроено», и проверка мерит не то.
+        flask_app.projects.get = lambda pid: store.get(f"projects/{pid}.json")
+        client = flask_app.app.test_client()
+
+        # Запросу за данными — отказ с JSON, а не страница входа: fetch
+        # шёл за редиректом и выдавал «Unexpected token '<'».
+        got = client.post("/project/save", json={"project": {"id": "p9", "rev": 0, "positions": []}})
+        checks.append(("истёкшая сессия: JSON-запрос получает 401 с причиной",
+                       got.status_code == 401 and "error" in (got.get_json() or {})))
+        checks.append(("истёкшая сессия: переход по ссылке уводит на вход",
+                       client.get("/project").status_code == 302))
+
+        with client.session_transaction() as sess:
+            sess["authorized"] = True
+        index.clear()
+
+        body = {"id": "p9", "rev": 0, "positions": [], "header": {"number": "1"}}
+        first = client.post("/project/save", json={"project": body})
+        checks.append(("сохранение отдаёт номер правки",
+                       first.status_code == 200 and first.get_json()["rev"] == 1))
+        again = client.post("/project/save", json={"project": body})
+        checks.append(("повтор со старым номером — 409, а не тихая запись",
+                       again.status_code == 409 and again.get_json().get("current")))
+
+        bad = [({"id": "..", "rev": 0, "positions": []}, "чужой адрес"),
+               ({"id": "p9", "rev": "три", "positions": []}, "номер правки строкой"),
+               ({"id": "p9", "rev": 0, "positions": "нет"}, "позиции не списком"),
+               ({"id": "p9", "rev": 0, "positions": [1]}, "позиция не записью")]
+        checks.append(("кривой запрос отбивается до записи",
+                       all(client.post("/project/save", json={"project": b}).status_code == 400
+                           for b, _ in bad)))
+        checks.append(("страница проекта без записи не рисуется",
+                       client.get("/project/open/net-takogo").status_code in (404, 503)))
+        # Запись есть — страница открывается с ней, а не с чужим черновиком.
+        store["projects/p9.json"] = {"id": "p9", "rev": 1, "positions": [],
+                                     "header": {"number": "77/1"}}
+        page = client.get("/project/open/p9")
+        checks.append(("открытая запись попадает в страницу",
+                       page.status_code == 200 and "77/1" in page.get_data(as_text=True)))
+    finally:
+        projects._put, projects.read_index = real_put, real_index
+
+    good = 0
+    for label, hit in checks:
+        good += bool(hit)
+        print(f"  {OK if hit else BAD} {label}")
+    return good, len(checks)
+
+
 def check_header_roundtrip() -> tuple[int, int]:
     """Шапка проекта переживает выгрузку и обратный разбор.
 
@@ -963,6 +1099,7 @@ def main() -> int:
     run("Тип из извлечения", check_type_norm)
     run("Источник фото", check_shops)
     run("Библиотека", check_library)
+    run("Проекты", check_projects)
     run("Шапка", check_header_roundtrip)
     run("Выгрузка", check_download_headers)
     run("Схема", check_schema)

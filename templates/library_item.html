@@ -193,16 +193,10 @@
     </div>
   </div>
 
+  <script src="{{ url_for('static', filename='project_store.js') }}"></script>
   <script>
-    const KEY = 'aurrum.project';
     const ITEM = {{ item | tojson }};
     const status = document.getElementById('status');
-
-    const posDefaults = () => {
-      const base = { factory_discount: 0.5, dealer_markup: 0, assembly: 1 };
-      try { return { ...base, ...(JSON.parse(localStorage.getItem('aurrum.position_defaults')) || {}) }; }
-      catch (e) { return base; }
-    };
 
     // Поля редактора: числовые приводим к числу, пустые убираем совсем —
     // «» в габаритах считалось бы нулём и портило объём.
@@ -299,12 +293,9 @@
     }
 
     document.getElementById('toproject').addEventListener('click', () => {
-      let list = [];
-      try { list = JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) { list = []; }
       // Уходит то, что на экране: менеджер мог поправить и не сохранить.
-      list.push({ ...ITEM, ...fields(), qty: 1, ...posDefaults() });
-      localStorage.setItem(KEY, JSON.stringify(list));
-      status.textContent = 'Добавлено в проект. Всего позиций: ' + list.length + '.';
+      const count = AURRUM.addPosition({ ...ITEM, ...fields() });
+      status.textContent = 'Добавлено в текущий проект. Позиций: ' + count + '.';
     });
 
     document.getElementById('del').addEventListener('click', async () => {

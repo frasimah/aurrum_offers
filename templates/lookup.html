@@ -603,6 +603,7 @@
     {% endif %}
   </div>
 
+  <script src="{{ url_for('static', filename='project_store.js') }}"></script>
   <script>
     document.getElementById('form').addEventListener('submit', () => {
       const b = document.getElementById('go');
@@ -909,25 +910,10 @@
     const toproject = document.getElementById('toproject');
     if (toproject) {
       toproject.addEventListener('click', () => {
-        const KEY = 'aurrum.project';
-        // Скидка фабрики, наценка дилера и сборка почти всегда одни и те же
-        // — позиция уезжает в проект уже с ними, а не пустой. Числа задаются
-        // на странице «Константы».
-        const START = { factory_discount: 0.5, dealer_markup: 0, assembly: 1 };
-        let start = START;
-        try {
-          start = { ...START, ...(JSON.parse(localStorage.getItem('aurrum.position_defaults')) || {}) };
-        } catch (e) { /* оставим значения формы */ }
-        let list = [];
-        try { list = JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) { list = []; }
-        list.push({
-          ...card(),
-          qty: 1,
-          factory_discount: start.factory_discount,
-          dealer_markup: start.dealer_markup,
-          assembly: start.assembly,
-        });
-        localStorage.setItem(KEY, JSON.stringify(list));
+        // Позиция уезжает в черновик текущего проекта — со скидкой,
+        // наценкой и сборкой из «Констант», а не пустой. Правило одно
+        // и живёт в static/project_store.js.
+        AURRUM.addPosition(card());
         window.location = '{{ url_for("project") }}';
       });
     }
