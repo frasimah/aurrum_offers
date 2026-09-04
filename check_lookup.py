@@ -512,6 +512,85 @@ def check_page_contract() -> tuple[int, int]:
     return good, len(checks)
 
 
+def check_variant_pick() -> tuple[int, int]:
+    """Подстановка исполнения обязана менять ЧИСЛА, а не только строку.
+
+    Кнопка «Подставить» несла только строку размеров, и оси с объёмом
+    оставались от первого исполнения. У HENGE Sisma это 3,1 м³ вместо
+    5,4 — перевозка 1550 € вместо 2700, недобор 1150 € на позиции.
+    Хуже, что в описании клиенту печатался подставленный размер: файл
+    заявлял 320x150x75, а был оценён по 300x90x75.
+    """
+    print("\n ПОДСТАНОВКА ИСПОЛНЕНИЯ")
+    print(" " + "-" * 74)
+
+    product = pl.Product(
+        source_url="https://example.com/x", brand="HENGE", model="SISMA",
+        type_ru="Стол", dims_raw="300x90x75h cm",
+        width_cm=300.0, depth_cm=90.0, height_cm=75.0,
+        volume_m3=3.1, volume_source="расчёт по габаритам", dims_confident=True,
+        variants=[{"dims_raw": "300x90x75h cm", "sku": "A"},
+                  {"dims_raw": "320x150x75h cm", "sku": "B"}],
+    )
+    cards = pl.variant_cards(product)
+    checks = [
+        ("исполнение несёт посчитанные оси",
+         cards[1]["width_cm"] == 320.0 and cards[1]["height_cm"] == 75.0),
+        ("исполнение несёт свой объём", cards[1]["volume_m3"] == 5.4),
+        ("форма совпадает с кандидатом техлиста",
+         set(cards[1]) >= {"value", "width_cm", "depth_cm", "height_cm",
+                           "volume_m3", "volume_source", "dims_confident",
+                           "warnings"}),
+    ]
+
+    _, scripts, dom = _page("lookup.html", _render=True, url=product.source_url,
+                            product=product, variants=cards,
+                            description=pl.to_excel_description(product),
+                            saved_id=None, types=pl.TYPES_RU)
+
+    after = _run_page(scripts, dom, actions=[
+        "document.getElementById('usevariant_1').click()"])
+    got = after["ids"]
+    checks += [
+        ("строка размеров сменилась",
+         got["f_dims_raw"]["value"] == "320x150x75h cm"),
+        ("длина сменилась", got["f_d"]["value"] == "320"),
+        ("глубина сменилась", got["f_g"]["value"] == "150"),
+        ("высота осталась верной", got["f_v"]["value"] == "75"),
+        ("объём пересчитан", got["f_vol"]["value"] == "5.4"),
+    ]
+
+    # Исполнение без разбираемых размеров обязано ОЧИСТИТЬ группу,
+    # а не оставить числа предыдущего: смесь хуже пустоты.
+    mixed = pl.Product(
+        source_url="https://example.com/y", brand="X", model="Y",
+        type_ru="Стол", dims_raw="300x90x75h cm",
+        width_cm=300.0, depth_cm=90.0, height_cm=75.0, volume_m3=3.1,
+        dims_confident=True,
+        variants=[{"dims_raw": "300x90x75h cm"},
+                  {"dims_raw": "по запросу"}],
+    )
+    mixed_cards = pl.variant_cards(mixed)
+    _, scripts2, dom2 = _page("lookup.html", _render=True, url=mixed.source_url,
+                              product=mixed, variants=mixed_cards,
+                              description=pl.to_excel_description(mixed),
+                              saved_id=None, types=pl.TYPES_RU)
+    cleared = _run_page(scripts2, dom2, actions=[
+        "document.getElementById('usevariant_1').click()"])["ids"]
+    checks += [
+        ("исполнение без размеров очищает длину",
+         cleared["f_d"]["value"] == ""),
+        ("исполнение без размеров очищает объём",
+         cleared["f_vol"]["value"] == ""),
+    ]
+
+    good = 0
+    for label, hit in checks:
+        good += bool(hit)
+        print(f"  {OK if hit else BAD} {label}")
+    return good, len(checks)
+
+
 def check_page_formats() -> tuple[int, int]:
     """Формулы показа и записи — текстом из шаблонов, прогоном в node.
 
@@ -1997,6 +2076,7 @@ def main() -> int:
     run("Контракт страниц", check_page_contract)
     run("Формулы страниц", check_page_formats)
     run("Поведение страниц", check_page_logic)
+    run("Подстановка исполнения", check_variant_pick)
     run("Комнаты", check_rooms)
     run("Шапка", check_header_roundtrip)
     run("Выгрузка", check_download_headers)

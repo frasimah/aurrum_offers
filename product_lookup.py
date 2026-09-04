@@ -342,6 +342,34 @@ def measure(dims_raw: str, type_ru: str = "", declared=None) -> Measured:
     return m
 
 
+def variant_cards(p: "Product") -> list[dict]:
+    """Исполнения со страницы — с посчитанными осями и объёмом.
+
+    Ровно та же форма, что у кандидатов из техлиста
+    (extract_agent.to_candidates). Раньше кнопка «Подставить» у
+    исполнения несла только строку размеров, и оси с объёмом
+    оставались от ПЕРВОГО исполнения: у HENGE Sisma подстановка
+    320x150x75 считалась по 3,1 м³ вместо 5,4 — перевозка 1550 €
+    вместо 2700, недобор 1150 € на позиции. Хуже, что в описании
+    клиенту при этом печаталось 320x150x75, то есть файл заявлял
+    один размер и был оценён по другому.
+    """
+    cards = []
+    for v in p.variants:
+        raw = str(v.get("dims_raw") or "").strip()
+        m = measure(raw, p.type_ru, v.get("packed_volume_m3"))
+        cards.append({
+            "sku": str(v.get("sku") or "").strip() or None,
+            "value": raw,
+            "context": str(v.get("variant_note") or "").strip(),
+            "width_cm": m.width_cm, "depth_cm": m.depth_cm,
+            "height_cm": m.height_cm,
+            "volume_m3": m.volume_m3, "volume_source": m.volume_source,
+            "dims_confident": m.confident, "warnings": m.warnings,
+        })
+    return cards
+
+
 def to_excel_description(p: Product) -> str:
     """Текст для колонки «Описание» — в том же формате, что в книге.
 

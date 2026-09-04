@@ -458,17 +458,19 @@
           <label for="f_dims_raw">Размеры (строкой, как в источнике)</label>
           <input id="f_dims_raw" value="{{ product.dims_raw }}">
 
-          <label>Габариты, см — Д / Г / В{% if product.dims_raw and not product.dims_confident %}
-            <span class="warn-mark" title="Раскладка по осям — догадка по порядку: пометки высоты в источнике нет">!</span>{% endif %}</label>
+          <label>Габариты, см — Д / Г / В<span id="dims_mark" class="warn-mark"
+            title="Раскладка по осям — догадка по порядку: пометки высоты в источнике нет"
+            {% if not (product.dims_raw and not product.dims_confident) %}hidden{% endif %}>!</span></label>
           <div class="grid3">
             <input id="f_d" value="{{ product.width_cm or '' }}">
             <input id="f_g" value="{{ product.depth_cm or '' }}">
             <input id="f_v" value="{{ product.height_cm or '' }}">
           </div>
-          <div class="hint">
+          <div class="hint" id="dims_hint">
             {% if product.dims_confident %}Оси разобраны по пометке высоты в источнике.{% else %}Числа — из
             источника, но какое из них высота, там не помечено: раскладка по порядку. Проверьте Д/Г/В.{% endif %}
           </div>
+          <div class="warn" id="dims_warn" hidden style="margin-top:6px"></div>
 
           <label for="f_vol">Объём, м³</label>
           <input id="f_vol" value="{{ product.volume_m3 or '' }}">
@@ -526,21 +528,20 @@
             включая коэффициент сборки, который у каждой позиции свой.
           </div>
 
-          {% if product.variants and product.variants|length > 1 %}
+          {% if variants and variants|length > 1 %}
           <label>Исполнения — выберите то, что в заказе</label>
           <div class="hint" style="margin-bottom:6px">
             Подставлено первое по порядку страницы, а не по совпадению с
             заказом. У кровати под другой матрац числа выглядели бы так же.
           </div>
-          {% for v in product.variants %}
+          {% for v in variants %}
           <div class="cand">
-            <span class="cand__dims">{{ v.dims_raw }}{% if v.sku %}<span
+            <span class="cand__dims">{{ v.value }}{% if v.sku %}<span
               class="badge">{{ v.sku }}</span>{% endif %}</span>
-            <span class="cand__ctx">{{ v.variant_note or '' }}</span>
+            <span class="cand__ctx">{{ v.context }}{% if v.volume_m3 %} · {{ v.volume_m3 }} м³{% endif %}</span>
             <button type="button" class="ghost usevariant"
-                    data-dims="{{ v.dims_raw }}"
-                    data-note="{{ v.variant_note or '' }}"
-                    data-vol="{{ v.packed_volume_m3 or '' }}"
+                    id="usevariant_{{ loop.index0 }}"
+                    data-cand="{{ v | tojson | forceescape }}"
                     {% if loop.first %}disabled{% endif %}>
               {% if loop.first %}подставлено{% else %}Подставить{% endif %}
             </button>
@@ -718,8 +719,10 @@
     // пришло, и строка описания не разошлась с полями.
     document.querySelectorAll('button.usevariant').forEach(btn =>
       btn.addEventListener('click', () => {
-        fill({ value: btn.dataset.dims, volume_m3: btn.dataset.vol || null,
-               context: btn.dataset.note });
+        // Кандидат целиком, как у техлиста: оси и объём посчитаны на
+        // сервере тем же measure(). Раньше сюда уходила только строка,
+        // и числа оставались от первого исполнения.
+        fill(JSON.parse(btn.dataset.cand));
         document.querySelectorAll('button.usevariant').forEach(other => {
           other.disabled = false;
           other.textContent = 'Подставить';
@@ -727,6 +730,28 @@
         btn.disabled = true;
         btn.textContent = 'подставлено';
       }));
+
+    // Доверие к осям — величина подставленного исполнения, а не первого.
+    // Раньше это была константа серверного рендера, и после подстановки
+    // «!» либо не появлялся, либо висел от чужого исполнения.
+    let dimsConfident = {{ (product.dims_confident if product else True) | tojson }};
+
+    function showDimsDoubt(c) {
+      dimsConfident = c.dims_confident !== false;
+      const mark = document.getElementById('dims_mark');
+      if (mark) mark.hidden = dimsConfident || !c.value;
+      const hint = document.getElementById('dims_hint');
+      if (hint) hint.textContent = dimsConfident
+        ? 'Оси разобраны по пометке высоты в источнике.'
+        : 'Числа — из источника, но какое из них высота, там не помечено: '
+          + 'раскладка по порядку. Проверьте Д/Г/В.';
+      const warn = document.getElementById('dims_warn');
+      if (warn) {
+        const list = c.warnings || [];
+        warn.textContent = list.join(' ');
+        warn.hidden = !list.length;
+      }
+    }
 
     function fill(c) {
       const set = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };
@@ -736,10 +761,29 @@
         const el = document.getElementById(id);
         if (el && v && !el.value.trim()) el.value = v;
       };
-      set('f_d', c.width_cm);
-      set('f_g', c.depth_cm);
-      set('f_v', c.height_cm);
-      set('f_vol', c.volume_m3);
+      // Габариты — ОДНА группа: подстановка заменяет её целиком, включая
+      // пустые значения. Раньше здесь стоял set, который молча
+      // пропускал undefined, и от прошлого исполнения оставались числа
+      // при новой строке размеров: у HENGE Sisma подстановка
+      // 320x150x75 считалась по объёму 300x90x75 — 1550 € перевозки
+      // вместо 2700, и в описании клиенту при этом печатался
+      // подставленный размер. Файл заявлял одно, а был оценён по другому.
+      const put = (id, v) => {
+        const el = document.getElementById(id);
+        if (el) el.value = v == null ? '' : v;
+      };
+      if ('width_cm' in c) {
+        put('f_d', c.width_cm);
+        put('f_g', c.depth_cm);
+        put('f_v', c.height_cm);
+        put('f_vol', c.volume_m3);
+        showDimsDoubt(c);
+      } else {
+        set('f_d', c.width_cm);
+        set('f_g', c.depth_cm);
+        set('f_v', c.height_cm);
+        set('f_vol', c.volume_m3);
+      }
       set('f_dims_raw', c.value);
       fillIfEmpty('f_brand', c.brand);
       fillIfEmpty('f_model', c.model);
@@ -907,7 +951,7 @@
         model: val('f_model'),
         type_ru: val('f_type'),
         dims_raw: val('f_dims_raw'),
-        dims_confident: {{ (product.dims_confident if product else True) | tojson }},
+        dims_confident: dimsConfident,
         description: val('f_desc'),
         summary_ru: val('f_summary'),
         note: val('f_note'),

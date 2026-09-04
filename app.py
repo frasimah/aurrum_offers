@@ -206,6 +206,7 @@ def lookup():
         product=product,
         description=description,
         saved_id=saved,
+        variants=product_lookup.variant_cards(product),
         types=product_lookup.TYPES_RU,
     )
 
