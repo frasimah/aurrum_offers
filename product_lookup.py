@@ -17,12 +17,14 @@ from __future__ import annotations
 import math
 import os
 import re
+from urllib.parse import urljoin
 from dataclasses import dataclass, field
 
 from firecrawl import Firecrawl
 
 import extract
 import gallery
+import safe_fetch
 import shopify
 
 # Контролируемый словарь: модель выбирает из списка, а не переводит свободно.
@@ -214,14 +216,48 @@ def _as_dict(value) -> dict:
     return getattr(value, "__dict__", {}) or {}
 
 
-def _scrape(fc: Firecrawl, url: str, timeout_ms: int = 120_000) -> tuple[str, list[str]]:
-    """Доставка: markdown страницы и её ссылки.
+# Сколько текста должно прийти обычным запросом, чтобы считать страницу
+# полученной. Ниже этого — оболочка без товара, идём за отрисовкой.
+MIN_PAGE_TEXT = 1500
+_TAGS = re.compile(r"<(script|style|noscript)[^>]*>.*?</\1>", re.S | re.I)
+_ANY_TAG = re.compile(r"<[^>]+>")
+_HREF = re.compile(r'(?:href|src)\s*=\s*["\']([^"\']+)', re.I)
+BROWSER = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                         "AppleWebKit/537.36 (KHTML, like Gecko) "
+                         "Chrome/120.0 Safari/537.36",
+           "Accept-Language": "en,it;q=0.9,ru;q=0.8"}
 
-    Firecrawl здесь именно доставщик — отрисовывает скрипты, проходит
-    антибот. Извлечение у него отключено намеренно: на живых страницах
-    оно выдумывало габариты, теряло строки таблиц и переводило названия
-    материалов. Разбирает `extract` по нашей схеме.
+
+def _plain(url: str) -> tuple[str, list[str], str] | None:
+    """Страница обычным запросом. None — не вышло, нужен доставщик."""
+    try:
+        got = safe_fetch.get(url, timeout=40, headers=BROWSER)
+    except Exception:            # noqa: BLE001 — 403, таймаут, что угодно
+        return None
+    html = got.text
+    text = " ".join(_ANY_TAG.sub(" ", _TAGS.sub(" ", html)).split())
+    if len(text) < MIN_PAGE_TEXT:
+        return None
+    links = [urljoin(url, u) for u in _HREF.findall(html)]
+    return text, links, html
+
+
+def _scrape(fc, url: str, timeout_ms: int = 120_000) -> tuple[str, list[str], str]:
+    """Доставка страницы: сначала обычным запросом, потом Firecrawl.
+
+    Порядок изменён после замера на восьми брендах. Firecrawl — не
+    всегда улучшение: у HENGE он возвращал ОДНО меню навигации, тысячу
+    знаков вместо тридцати пяти, и карточка выходила пустой; у
+    EMMEMOBILI терял размеры. Обычный запрос отдал товар у семи брендов
+    из восьми и на порядок быстрее (0,6 с против 8).
+
+    Firecrawl остаётся для того, ради чего он и брался: VENICEM отвечает
+    на простой запрос 403, и без отрисовки с антиботом его не взять.
     """
+    plain = _plain(url)
+    if plain is not None:
+        return plain
+
     doc = fc.scrape(url, formats=["markdown", "links", "html"],
                     only_main_content=False, timeout=timeout_ms)
     data = _as_dict(doc)
