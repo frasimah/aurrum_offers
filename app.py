@@ -282,12 +282,13 @@ def _parse_doc_fallback(url: str, reason: str):
 
     candidates = []
     for cand in doc_parser.find_dim_candidates(markdown):
-        w, d, h, sure = product_lookup.parse_dims(cand["value"])
+        m = product_lookup.measure(cand["value"])
         candidates.append({
             **cand, "sku": None,
-            "width_cm": w, "depth_cm": d, "height_cm": h,
-            "volume_m3": product_lookup.volume_m3(w, d, h),
-            "volume_source": "формула", "dims_confident": sure,
+            "width_cm": m.width_cm, "depth_cm": m.depth_cm,
+            "height_cm": m.height_cm,
+            "volume_m3": m.volume_m3, "volume_source": m.volume_source,
+            "dims_confident": m.confident, "warnings": m.warnings,
         })
 
     return {"candidates": candidates, "finishes": [], "source": "fallback",

@@ -143,13 +143,7 @@ def _header(ws, head: dict) -> None:
 def _write_position(ws, row: int, number: int, position: dict,
                     r: dict, values: bool) -> None:
     """Одна позиция в свою строку книги."""
-    computed = pricing.line(
-        position.get("list_price"), position.get("volume_m3"),
-        factory_discount=position.get("factory_discount"),
-        dealer_markup=position.get("dealer_markup"),
-        assembly=position.get("assembly"), rates=r,
-        swift=position.get("swift"), purchase=position.get("purchase"),
-    )
+    computed = pricing.for_position(position, r)
     fields = {**position, "number": number,
               # Ручной закуп первичен: в T уходит выведенная цена
               # прайса, и формулы книги воспроизводят тот же закуп.
@@ -276,10 +270,7 @@ def build(positions: list[dict], rates: dict | None = None,
             items_sum = sum(
                 pricing._num(p.get("price")) * max(1, int(pricing._num(p.get("qty"), 1)))
                 for p in positions) or sum(
-                pricing.line(p.get("list_price"), p.get("volume_m3"),
-                             factory_discount=p.get("factory_discount"),
-                             dealer_markup=p.get("dealer_markup"),
-                             assembly=p.get("assembly"), rates=r).price
+                pricing.for_position(p, r).price
                 * max(1, int(pricing._num(p.get("qty"), 1))) for p in positions)
             fb = pricing.final_block(items_sum, f)
             rows = [

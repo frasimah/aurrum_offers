@@ -59,21 +59,16 @@ def to_candidates(data: dict) -> tuple[list[dict], list[dict], list[str]]:
             dims_raw = (v.get("dims_raw") or "").strip()
             if not dims_raw:
                 continue
-            w, d, h, sure = pl.parse_dims(dims_raw, type_ru)
-
-            declared = v.get("packed_volume_m3")
-            if isinstance(declared, (int, float)) and declared > 0:
-                volume, source = round(float(declared), 2), "производитель"
-            else:
-                volume, source = pl.volume_m3(w, d, h), "формула"
+            m = pl.measure(dims_raw, type_ru, v.get("packed_volume_m3"))
 
             candidates.append({
                 "sku": (v.get("sku") or "").strip() or None,
                 "value": dims_raw,
                 "context": (v.get("variant_note") or "").strip(),
-                "width_cm": w, "depth_cm": d, "height_cm": h,
-                "volume_m3": volume, "volume_source": source,
-                "dims_confident": sure,
+                "width_cm": m.width_cm, "depth_cm": m.depth_cm,
+                "height_cm": m.height_cm,
+                "volume_m3": m.volume_m3, "volume_source": m.volume_source,
+                "dims_confident": m.confident, "warnings": m.warnings,
                 "brand": brand, "model": model, "type_ru": type_ru,
             })
 

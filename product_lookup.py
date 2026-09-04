@@ -62,11 +62,13 @@ class NoDelivery(RuntimeError):
 # в книге 2867 это 2415 / 780 / 2685 и 2136 / 331 / 1216.
 MM_FLOOR = 1000
 MM_MIN_AXIS = 100
-# Потолок правдоподобия объёма. Самая крупная реальная позиция из книг —
-# кухня MODULNOVA 241x78x268 см, это 7,6 м³ с упаковкой; шестиметровый
-# шкаф добирает до восемнадцати. Тридцать оставляет запас и всё равно
-# ловит ошибку на порядок.
-MAX_PLAUSIBLE_M3 = 30
+# Потолок правдоподобия объёма. Самое крупное из книг — 6,8 м³
+# (TRUSSARDI VIBES 202x241x92) и 7,6 м³ у кухни MODULNOVA. Двенадцать
+# оставляет полуторный запас и при этом ловит настоящие ошибки:
+# «L2415/2805/2415 H2685 мм» разбирается в 27,3 м³ и до сих пор шло
+# молча. Это порог для знака, а не для пересчёта: переводим только
+# когда уверены, а сомневаемся — вслух.
+MAX_PLAUSIBLE_M3 = 12
 
 PACKING_FACTOR = 1.5
 VOLUME_STEP = 0.1
@@ -172,6 +174,42 @@ def normalize_role(value: str) -> tuple[str, str | None]:
     return "Отделка", f"Роль «{value}» не из нашего списка — поставлена «Отделка»."
 
 
+_NUM = r"\d+(?:\.\d+)?"
+
+
+def _strip_noise(s: str) -> str:
+    """Убрать из строки всё, что размером не является.
+
+    Артикулы и коды моделей («ART.1200», «cod. 8801») стоят рядом с
+    размерами и становились осью. Числа с нелинейной размерностью —
+    вес, световой поток, мощность, цветовая температура — тоже.
+    """
+    s = re.sub(r"\b(?:art|cod|ref|sku|mod|model|арт|код|модель)\.?\s*\d+\S*",
+               " ", s, flags=re.I)
+    s = re.sub(rf"{_NUM}\s*(?:kg|g|гр|кг|lm|лм|вт|mah|pcs|шт)\b", " ", s, flags=re.I)
+    s = re.sub(rf"{_NUM}\s*°\s*[KК]\b", " ", s)
+    # Цветовая температура пишется и без градуса: «3000K», «2700 K».
+    s = re.sub(rf"{_NUM}\s*[KК](?![a-zA-Zа-яА-Я])", " ", s)
+    return s
+
+
+def _dimension_numbers(raw: str) -> list[float]:
+    """Числа строки, которые действительно являются размерами.
+
+    Ровно те же, что уйдут в оси. Решение о единице измерения обязано
+    приниматься по ним, а не по всей строке: иначе артикул «ART. 1200»
+    рядом со шкафом 200x120x240 делает из сантиметров миллиметры, и
+    объём падает с 8,7 м³ до 0,1 — то есть перевозка исчезает.
+    """
+    s = _strip_noise((raw or "").replace(",", ".").replace("×", "x").replace("Х", "x"))
+    s = re.sub(rf"\d+(?:\s+\d+\s*/\s*\d+)?\s*(?:\"|''|″|\bin\b)", " ", s)
+    chain = _dimension_chain(s, _NUM)
+    if len(chain) >= 2:
+        return chain
+    inches = [float(x) for x in re.findall(rf"\(\s*({_NUM})", s)]
+    return [float(x) for x in re.findall(_NUM, s) if float(x) not in inches]
+
+
 def _dimension_chain(s: str, num: str) -> list[float]:
     """Самая длинная цепочка чисел, связанных знаком «x».
 
@@ -188,9 +226,19 @@ def _dimension_chain(s: str, num: str) -> list[float]:
     return best
 
 
+# Границы ищем по буквам, а не через \b: в «H100cm» между «0» и «c»
+# границы слова нет, и единица, честно напечатанная на сайте, считалась
+# неназванной — а дальше цветовая температура «3000K» из той же строки
+# делала из сантиметров миллиметры.
+_UNIT = r"(?<![a-zA-Zа-яА-Я])(?:{})(?![a-zA-Zа-яА-Я])"
+_MM_WORD = re.compile(_UNIT.format("mm|мм"), re.I)
+_CM_WORD = re.compile(_UNIT.format("cm|см"), re.I)
+
+
 def dims_unit_stated(raw: str) -> bool:
     """Названа ли единица измерения в самой строке размеров."""
-    return re.search(r"\b(?:mm|мм|cm|см)\b", raw or "", re.I) is not None
+    s = raw or ""
+    return bool(_MM_WORD.search(s) or _CM_WORD.search(s))
 
 
 def _looks_like_millimetres(numbers: list[float]) -> bool:
@@ -200,7 +248,9 @@ def _looks_like_millimetres(numbers: list[float]) -> bool:
     мелкое число тоже. Иначе артикул «ART.1200» или год «Mod. 2024»
     внутри строки делает миллиметры из обычных сантиметров.
     """
-    if len(numbers) < 3:
+    # Двух чисел довольно: «Ø1200 H750» — это полный набор для круглого
+    # стола, и раньше он проходил мимо правила и давал 1620 м³.
+    if len(numbers) < 2:
         return False
     return min(numbers) >= MM_MIN_AXIS and max(numbers) >= MM_FLOOR
 
@@ -221,9 +271,7 @@ def dims_unit_guessed(raw: str) -> bool:
     """
     if dims_unit_stated(raw):
         return False
-    s = (raw or "").replace(",", ".")
-    return _looks_like_millimetres(
-        [float(n) for n in re.findall(r"\d+(?:\.\d+)?", s)])
+    return _looks_like_millimetres(_dimension_numbers(raw))
 
 
 def volume_m3(w: float | None, d: float | None, h: float | None) -> float | None:
@@ -233,6 +281,65 @@ def volume_m3(w: float | None, d: float | None, h: float | None) -> float | None
     raw = w * d * h * PACKING_FACTOR / 1_000_000
     # round снимает артефакт float: 6.800000000000001 -> 6.8
     return round(math.ceil(raw / VOLUME_STEP) * VOLUME_STEP, 2)
+
+
+@dataclass
+class Measured:
+    """Оси, объём и повод усомниться — всё, что даёт строка размеров."""
+    width_cm: float | None = None
+    depth_cm: float | None = None
+    height_cm: float | None = None
+    volume_m3: float | None = None
+    volume_source: str = ""
+    confident: bool = False
+    warnings: list[str] = field(default_factory=list)
+
+
+def measure(dims_raw: str, type_ru: str = "", declared=None) -> Measured:
+    """Строка размеров -> оси, объём и предупреждения.
+
+    Единственное место, где из строки получается объём. Раньше это
+    считалось в трёх — на странице товара, при разборе техлиста и в
+    запасном разборе по тексту, — и отбивки, поставленные в одну,
+    в двух других не работали. А техлист как раз и есть родина
+    миллиметровой записи: «Ø1200 H750» давало 1620 м³ и перевозку
+    810 000 € при чистой карточке без единого знака.
+    """
+    m = Measured()
+    if not dims_raw:
+        return m
+
+    w, d, h, sure = parse_dims(dims_raw, type_ru)
+    m.width_cm, m.depth_cm, m.height_cm, m.confident = w, d, h, sure
+
+    if isinstance(declared, (int, float)) and declared > 0:
+        m.volume_m3, m.volume_source = round(float(declared), 2), "производитель"
+    else:
+        calc = volume_m3(w, d, h)
+        if calc:
+            m.volume_m3, m.volume_source = round(calc, 2), "расчёт по габаритам"
+
+    # Единица не названа, но числа для сантиметров велики. Пересчёт уже
+    # сделан в parse_dims — здесь только говорим об этом вслух: вывод
+    # однозначен, но это вывод, а цена ошибки тысячекратная.
+    if dims_unit_guessed(dims_raw):
+        m.confident = False
+        m.warnings.append(
+            f"В строке «{dims_raw}» единица измерения не указана, а числа "
+            "для сантиметров велики — прочитаны как миллиметры. Сверьте "
+            "с источником."
+        )
+
+    # Потолок правдоподобия — последняя отбивка, на всё остальное,
+    # включая объём, объявленный производителем.
+    if m.volume_m3 and m.volume_m3 > MAX_PLAUSIBLE_M3:
+        m.confident = False
+        m.warnings.append(
+            f"Объём {m.volume_m3} м³ неправдоподобен для одной позиции "
+            f"(потолок {MAX_PLAUSIBLE_M3} м³). Чаще всего это единица "
+            "измерения. Перевозка считается от объёма, проверьте габариты."
+        )
+    return m
 
 
 def to_excel_description(p: Product) -> str:
@@ -552,27 +659,9 @@ def parse_dims(raw: str, type_ru: str = "") -> tuple[float | None, float | None,
     # трёхметрового стола помечались как расставленные наугад.
     s = re.sub(r"\(\s*([HНh])\s*\)", r" \1 ", s)
 
-    # Миллиметры переводим в сантиметры. Итальянские техлисты пишут
-    # в мм по умолчанию — «L2415 D780 H2685 mm», — и без перевода объём
-    # выходил в тысячу раз больше: 2450 м³ вместо 2,45. При ставке
-    # 500 € за куб это счёт на миллион вместо тысячи, и всё это
-    # помечалось «уверенно». В книге 2867 позиция MODULNOVA записана
-    # ровно так: «L2415/2805/2415 H2685 мм».
-    millimetres = (
-        (re.search(r"\b(?:mm|мм)\b", s, re.I) is not None
-         and re.search(r"\b(?:cm|см)\b", s, re.I) is None)
-        # Единица не названа вовсе — выводим по величине чисел.
-        or dims_unit_guessed(raw)
-    )
-
-    # Артикулы и коды моделей: «ART.1200 145x45x47», «cod. 8801 / ...».
-    # Номер стоит перед размерами и раньше становился длиной.
-    s = re.sub(r"\b(?:art|cod|ref|sku|mod|model|арт|код|модель)\.?\s*\d+\S*",
-               " ", s, flags=re.I)
-    # Числа с нелинейной размерностью — вес, световой поток, мощность,
-    # цветовая температура. Размерами они не являются никогда.
-    s = re.sub(rf"{num}\s*(?:kg|g|гр|кг|lm|лм|вт|mah|pcs|шт)\b", " ", s, flags=re.I)
-    s = re.sub(rf"{num}\s*°\s*[KК]\b", " ", s)
+    # Артикулы, вес, световой поток, цветовая температура — всё, что
+    # размером не является, но стоит в той же строке.
+    s = _strip_noise(s)
 
     # Дюймовые двойники выкидываем целиком. Раньше отбрасывались только те,
     # что в скобках, и у PORADA «43 1/4"» через запятую попадало в общий
@@ -611,6 +700,19 @@ def parse_dims(raw: str, type_ru: str = "") -> tuple[float | None, float | None,
     chain = _dimension_chain(s, num)
     if len(chain) >= 2:
         all_nums = chain
+
+    # Единица измерения. Названа — верим строке. Не названа — решаем по
+    # тем же числам, что уйдут в оси. Раньше решение принималось по
+    # сырой строке ДО чистки, и артикул «ART. 1200» рядом со шкафом
+    # 200x120x240 делал из сантиметров миллиметры: объём падал с 8,7 м³
+    # до 0,1, то есть перевозка исчезала. Недобор тише перебора и
+    # потому опаснее — счёт на миллион менеджер заметит, а пропавшую
+    # тысячу нет.
+    if dims_unit_stated(raw):
+        millimetres = bool(_MM_WORD.search(s)) and not _CM_WORD.search(s)
+    else:
+        millimetres = _looks_like_millimetres(
+            all_nums + [n for n in diameters if n not in all_nums])
 
     if millimetres:
         # Делим до раскладки по осям: иначе пометки и диаметры пришлось
@@ -892,6 +994,7 @@ def lookup(url: str) -> Product:
 
     # Техлист: исполнения с артикулами и объём от производителя.
     dims_from_page = True
+    axes_sure = True
     candidates = spec_pdf_candidates(p.doc_urls, p.model)
     pdf, failures = {}, []
     # Пробуем по очереди: первый кандидат бывает каталогом на 155 МБ,
@@ -926,27 +1029,12 @@ def lookup(url: str) -> Product:
     if p.variants:
         first = p.variants[0]
         p.dims_raw = str(first.get("dims_raw") or "").strip()
-        w, d, h, sure = parse_dims(p.dims_raw, p.type_ru)
-        p.width_cm, p.depth_cm, p.height_cm, p.dims_confident = w, d, h, sure
-        if p.dims_raw and not dims_unit_stated(p.dims_raw):
-            # Единица не названа — дальше в любом случае допущение, и
-            # цена ошибки тысячекратная. Правило по величине закрывает
-            # только явные миллиметры; всё остальное молча считается
-            # сантиметрами, и вот об этом менеджер должен знать. Ставим
-            # «!» — тем же знаком, что и для угаданной раскладки осей.
-            p.dims_confident = False
-            p.warnings.append(
-                f"В строке «{p.dims_raw}» не указана единица измерения. "
-                + ("Числа для сантиметров велики — прочитаны как "
-                   "миллиметры."
-                   if dims_unit_guessed(p.dims_raw) else
-                   "Приняты за сантиметры.")
-                + " Сверьте с источником: ошибка в единице умножает "
-                "перевозку на тысячу."
-            )
-        declared = first.get("packed_volume_m3")
-        if isinstance(declared, (int, float)) and declared > 0:
-            p.volume_m3, p.volume_source = round(float(declared), 2), "производитель"
+        m = measure(p.dims_raw, p.type_ru, first.get("packed_volume_m3"))
+        p.width_cm, p.depth_cm, p.height_cm = m.width_cm, m.depth_cm, m.height_cm
+        p.dims_confident = m.confident
+        p.volume_m3, p.volume_source = m.volume_m3, m.volume_source
+        axes_sure = parse_dims(p.dims_raw, p.type_ru)[3]
+        p.warnings.extend(m.warnings)
         p.package_note = str(first.get("package_dims_raw") or "").strip()
         if len(p.variants) > 1:
             # Говорим ИМЕННО какое подставлено, а не «первое». «Первое» —
@@ -981,19 +1069,6 @@ def lookup(url: str) -> Product:
         if calc:
             p.volume_m3, p.volume_source = round(calc, 2), "расчёт по габаритам"
 
-    # Последняя отбивка: объём — единственное, что уезжает в перевозку,
-    # и до сих пор его величину не проверял никто. Правило по величине
-    # чисел закрывает миллиметры без единицы; сюда попадает всё
-    # остальное, включая объём, объявленный самим производителем.
-    if p.volume_m3 and p.volume_m3 > MAX_PLAUSIBLE_M3:
-        p.dims_confident = False
-        p.warnings.append(
-            f"Объём {p.volume_m3} м³ неправдоподобен для одной позиции "
-            f"(потолок {MAX_PLAUSIBLE_M3} м³). Почти всегда это единица "
-            "измерения — миллиметры, прочитанные как сантиметры. "
-            "Перевозка считается от объёма, проверьте габариты."
-        )
-
     if not p.brand:
         p.brand = _brand_from_url(url)
 
@@ -1021,7 +1096,7 @@ def lookup(url: str) -> Product:
 
     if not (p.width_cm and p.depth_cm and p.height_cm):
         p.warnings.append("Габариты найдены не полностью — проверьте по источнику.")
-    elif not p.dims_confident:
+    elif not axes_sure:
         p.warnings.append(
             "Числа взяты из источника, но пометки высоты там нет — оси "
             "расставлены по порядку и помечены знаком «!». Проверьте раскладку."

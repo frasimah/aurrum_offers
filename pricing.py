@@ -234,6 +234,33 @@ def final_block(items_sum: float, fin: dict | None = None) -> dict:
     }
 
 
+def for_position(p: dict, rates: dict | None = None) -> Line:
+    """Расчёт одной позиции проекта: словарь -> аргументы line().
+
+    Единственное место, где позиция превращается в вызов. Раньше этот
+    список собирали трижды — на экране проекта, в выгрузке книги и в
+    итоге компреда, — и два списка отстали: выгрузка не передавала
+    ручные рентаб, транш и перевозку. Позиция с правками показывала на
+    экране 6990 €, а в файле для клиента 5270 €, и файл противоречил
+    сам себе: скрытые формулы книги эти правки знали, а колонка E нет.
+    """
+    return line(
+        p.get("list_price"), p.get("volume_m3"),
+        factory_discount=p.get("factory_discount"),
+        dealer_markup=p.get("dealer_markup"),
+        assembly=p.get("assembly"),
+        rates=rates,
+        swift=p.get("swift"),
+        purchase=p.get("purchase"),
+        margin_pct=p.get("margin_pct"),
+        margin_eur=p.get("margin_eur"),
+        transfer_pct=p.get("transfer_pct"),
+        transfer_eur=p.get("transfer_eur"),
+        freight_rate=p.get("freight_rate"),
+        freight_eur=p.get("freight_eur"),
+    )
+
+
 def project(positions: list[dict], rates: dict | None = None,
             final: dict | None = None) -> dict:
     """Позиции проекта -> расчёт по каждой и итоги."""
@@ -241,21 +268,7 @@ def project(positions: list[dict], rates: dict | None = None,
     levels_sum: dict[str, float] = {}
     for p in positions:
         qty = max(1, int(_num(p.get("qty"), 1)))
-        computed = line(
-            p.get("list_price"), p.get("volume_m3"),
-            factory_discount=p.get("factory_discount"),
-            dealer_markup=p.get("dealer_markup"),
-            assembly=p.get("assembly"),
-            rates=rates,
-            swift=p.get("swift"),
-            purchase=p.get("purchase"),
-            margin_pct=p.get("margin_pct"),
-            margin_eur=p.get("margin_eur"),
-            transfer_pct=p.get("transfer_pct"),
-            transfer_eur=p.get("transfer_eur"),
-            freight_rate=p.get("freight_rate"),
-            freight_eur=p.get("freight_eur"),
-        )
+        computed = for_position(p, rates)
         price = _num(p.get("price")) or computed.price
         lines.append({
             "list_price": computed.list_price,

@@ -23,6 +23,8 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
 import product_lookup as pl  # noqa: E402
+import pricing  # noqa: E402
+import book_export  # noqa: E402
 
 OK, BAD, WARN = "✓", "✗", "~"
 
@@ -210,17 +212,64 @@ def check_units() -> tuple[int, int]:
         checks.append((f"{raw:24}    не миллиметры",
                        pl.dims_unit_guessed(raw) is False))
 
-    # Единица не названа — «!» обязателен независимо от величины чисел.
-    checks.append(("«145x45x47» — единица не названа",
-                   pl.dims_unit_stated("145x45x47") is False))
-    checks.append(("«145x45x47 cm» — единица названа",
-                   pl.dims_unit_stated("145x45x47 cm") is True))
+    # Книжный формат — числа без единицы — это норма, а не аномалия:
+    # все пять позиций FORM записаны так. Предупреждение, которое
+    # поднимается на каждой строке, перестаёт быть сигналом, поэтому
+    # оно ставится только там, где есть повод: числа похожи на
+    # миллиметры или объём неправдоподобен.
+    for raw in ("130x47x45Н", "90x84x80Н", "66x60x44Н", "202x241x36/92Н"):
+        m = pl.measure(raw)
+        checks.append((f"{raw:24}    без предупреждений", not m.warnings))
+        checks.append((f"{raw:24}    оси уверенные", m.confident is True))
 
-    # Порог правдоподобия объёма — последняя отбивка.
-    checks.append(("потолок объёма ловит ошибку на порядок",
-                   pl.volume_m3(2415.0, 780.0, 2685.0) > pl.MAX_PLAUSIBLE_M3))
-    checks.append(("самая крупная реальная позиция потолок не задевает",
-                   pl.volume_m3(241.5, 280.5, 268.5) <= pl.MAX_PLAUSIBLE_M3))
+    # Решение о единице принимается по числам, которые уйдут в оси, —
+    # а не по сырой строке. Иначе артикул рядом с крупной мебелью, где
+    # все оси и так больше метра, делает из сантиметров миллиметры:
+    # шкаф 200x120x240 давал 0,1 м³ вместо 8,7, то есть перевозка
+    # исчезала. Недобор тише перебора и потому опаснее.
+    for raw, expect in (("ART. 1200 - 200 x 120 x 240", (200, 120, 240)),
+                        ("cod. 1140 - 250 x 100 x 200", (250, 100, 200)),
+                        ("L 240 P 100 H 105 (cod. 1580)", (240, 100, 105))):
+        w, d, h, _ = pl.parse_dims(raw)
+        got = tuple(int(x) if x else 0 for x in (w, d, h))
+        checks.append((f"{raw:24} -> {got}", got == expect))
+
+    # Единица, напечатанная вплотную к числу: «H100cm». Границы слова
+    # между цифрой и буквой нет, и по \b единица считалась неназванной —
+    # а цветовая температура из той же строки делала из неё миллиметры.
+    checks.append(("«Ø120xH100cm» — единица названа",
+                   pl.dims_unit_stated("Ø120xH100cm 3000K") is True))
+    w, d, h, _ = pl.parse_dims("Ø120xH100cm 3000K")
+    checks.append(("«Ø120xH100cm 3000K» -> 120x120x100", (w, d, h) == (120.0, 120.0, 100.0)))
+
+    # Двух осей довольно: круглый стол «Ø1200 H750» — полный набор.
+    checks.append(("«Ø1200 H750» — миллиметры",
+                   pl.dims_unit_guessed("Ø1200 H750") is True))
+    checks.append(("«Ø1200 H750» -> 1.7 м³",
+                   pl.measure("Ø1200 H750").volume_m3 == 1.7))
+
+    # Потолок правдоподобия. Настоящий максимум книг — 6,8 м³
+    # (TRUSSARDI VIBES) и 7,6 м³ у кухни MODULNOVA; 27,3 м³ на строке
+    # «L2415/2805/2415 H2685 мм» — это уже ошибка разбора, и она
+    # обязана быть помечена, а не пройти молча.
+    checks.append(("книжный максимум 6,8 м³ потолок не задевает",
+                   pl.volume_m3(202.0, 241.0, 92.0) <= pl.MAX_PLAUSIBLE_M3))
+    checks.append(("кухня MODULNOVA 7,6 м³ потолок не задевает",
+                   pl.volume_m3(241.5, 78.0, 268.5) <= pl.MAX_PLAUSIBLE_M3))
+    checks.append(("многосекционная кухня 27,3 м³ помечена",
+                   pl.measure("L2415/2805/2415 H2685 мм").confident is False))
+    checks.append(("ошибка на порядок помечена",
+                   pl.measure("Ø450 H300").confident is False))
+
+    # Отбивки стоят там, где считается объём, а не в одном из трёх
+    # мест: путь техлиста — родина миллиметровой записи.
+    import extract_agent
+    cands, _, _ = extract_agent.to_candidates(
+        {"products": [{"type_ru": "Стол", "variants": [{"dims_raw": "Ø1200 H750"}]}]})
+    checks.append(("техлист: «Ø1200 H750» -> 1.7 м³",
+                   cands and cands[0]["volume_m3"] == 1.7))
+    checks.append(("техлист: карточка помечена",
+                   bool(cands) and cands[0]["dims_confident"] is False))
 
     good = 0
     for label, hit in checks:
@@ -1409,6 +1458,65 @@ def check_position_defaults() -> tuple[int, int]:
     return good, len(cases) + 1
 
 
+def check_export_matches_screen() -> tuple[int, int]:
+    """Файл клиенту обязан считать ровно то же, что экран проекта.
+
+    Список аргументов позиции собирался в трёх местах, и два отстали:
+    выгрузка не передавала ручные рентаб, транш и перевозку. Позиция
+    с правками показывала на экране 6990 €, а в файле 5270 € — и файл
+    противоречил сам себе, потому что скрытые формулы книги эти правки
+    знали, а колонка E считалась мимо них.
+    """
+    import io
+    from openpyxl import load_workbook
+    print("\n ФАЙЛ ПРОТИВ ЭКРАНА")
+    print(" " + "-" * 74)
+
+    # Позиция, где переопределено всё, что можно переопределить.
+    p = {"list_price": 6886, "volume_m3": 0.5, "qty": 2,
+         "freight_eur": 3000, "margin_eur": 100, "transfer_eur": 250,
+         "swift": 300, "assembly": 2,
+         "brand": "TEST", "model": "X", "description": "тест"}
+
+    screen = pricing.project([p])["lines"][0]
+    export = pricing.for_position(p, pricing.DEFAULT_RATES)
+
+    checks = [
+        ("цена клиенту совпала", screen["price"] == export.price),
+        ("перевозка совпала", screen["freight"] == export.freight),
+        ("рентабельность совпала", screen["margin"] == export.margin),
+        ("транш совпал", screen["transfer"] == export.transfer),
+        ("SWIFT совпал", screen["swift"] == export.swift),
+    ]
+
+    # То же самое, но по готовому файлу: колонка E и скрытые формулы.
+    wb = load_workbook(io.BytesIO(book_export.build([p], values=True)))
+    ws = wb.active
+    row = next((i for i in range(1, ws.max_row + 1)
+                if ws.cell(i, 1).value == 1), None)
+    checks.append(("позиция найдена в книге", row is not None))
+    if row:
+        checks.append((f"E{row} = цена с экрана",
+                       ws.cell(row, 5).value == screen["price"]))
+        checks.append((f"Z{row} = ручная рентабельность",
+                       pricing._num(ws.cell(row, 26).value) == 100))
+        checks.append((f"AC{row} = ручная перевозка",
+                       pricing._num(ws.cell(row, 29).value) == 3000))
+        checks.append((f"F{row} = цена x количество",
+                       ws.cell(row, 6).value == round(screen["price"] * 2, 2)))
+
+    # Итог компреда считается тем же путём, что строки.
+    total = pricing.project([p])["sum"]
+    checks.append(("итог проекта = цена x количество",
+                   total == round(screen["price"] * 2, 2)))
+
+    good = 0
+    for label, hit in checks:
+        good += bool(hit)
+        print(f"  {OK if hit else BAD} {label}")
+    return good, len(checks)
+
+
 def check_columns() -> tuple[int, int]:
     """Колонки книги ищутся по подписям, а не по буквам.
 
@@ -1850,6 +1958,7 @@ def main() -> int:
     run("Техлист и исполнения", check_spec_choice)
     run("Строка", check_book_row)
     run("Колонки", check_columns)
+    run("Файл против экрана", check_export_matches_screen)
     run("Расчёт", check_pricing)
     run("Начальные числа", check_position_defaults)
     run("Итог", check_final_block)
