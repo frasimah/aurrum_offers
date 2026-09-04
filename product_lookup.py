@@ -726,7 +726,9 @@ def lookup(url: str) -> Product:
                 "способом, по именам файлов. Проверьте их состав."
             )
 
-    extracted = extract.from_text(page_md)
+    # Список типов передаём: ответ вне его — повод переспросить у тяжёлой
+    # модели, а не молча уронить тип в «Другое».
+    extracted = extract.from_text(page_md, known_types=TYPES_RU)
     source = str(extracted.get(extract.SOURCE_KEY) or "")
     if source and not source.startswith(extract.SOURCE_MAIN):
         p.warnings.append(

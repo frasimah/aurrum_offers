@@ -33,7 +33,22 @@ import llama_extract
 import safe_fetch
 
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+
+# Две модели на две разные задачи — разделение снято с замеров, а не
+# выбрано на вкус.
+#
+# Тяжёлая читает документы: у VENICEM размеры стоят выносками на чертеже,
+# и lite там теряет глубину — «Ø 25 x 125» вместо «125, Ø 25, 31».
+# Ошибка молчаливая и уезжает в объём, то есть в счёт за перевозку.
+#
+# Лёгкая разбирает текст страницы: на восьми брендах она дала тот же тип
+# и те же габариты, а тип даже чище (тяжёлая навешивает уточнения вроде
+# «Стол обеденный», которые мы всё равно срезаем). Работает вдвое-втрое
+# быстрее. Её слабость известна: иногда недочитывает отделки и исполнения —
+# поэтому пустой ответ переспрашивается у тяжёлой.
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "").strip() or "gemini-3.7-flash"
+GEMINI_MODEL_LIGHT = (os.environ.get("GEMINI_MODEL_LIGHT", "").strip()
+                      or "gemini-3.5-flash-lite")
 
 MAX_PDF_MB = 40
 # Меньше этого — считаем, что текстового слоя нет.
@@ -55,7 +70,8 @@ _ASK = (
 )
 
 
-def _gemini(data: bytes | None = None, text: str | None = None) -> dict:
+def _gemini(data: bytes | None = None, text: str | None = None,
+            model: str | None = None) -> dict:
     key = os.environ.get("GOOGLE_API_KEY", "").strip()
     if not key:
         raise RuntimeError("нет GOOGLE_API_KEY")
@@ -75,7 +91,7 @@ def _gemini(data: bytes | None = None, text: str | None = None) -> dict:
     }
     # Ключ заголовком, а не в адресе: httpx пишет адрес запроса в лог
     # целиком, и на проде ключ Google лежал открытым в журнале Vercel.
-    got = httpx.post(f"{GEMINI_URL}/{GEMINI_MODEL}:generateContent",
+    got = httpx.post(f"{GEMINI_URL}/{model or GEMINI_MODEL}:generateContent",
                      headers={"x-goog-api-key": key}, json=body, timeout=300)
     got.raise_for_status()
     text = got.json()["candidates"][0]["content"]["parts"][0]["text"]
@@ -91,7 +107,30 @@ SOURCE_KEY = "_извлекатель"
 SOURCE_MAIN = "Gemini"
 
 
-def from_text(text: str) -> dict:
+def _thin(answer: dict, known_types: tuple | list = ()) -> bool:
+    """Стоит ли переспросить ответ у тяжёлой модели.
+
+    Два случая, оба замерены на живых страницах. Пусто: у LONGHI и
+    EMMEMOBILI лёгкая возвращала ноль исполнений там, где тяжёлая их
+    находила. Ответ через слэш: «Скамья/Пуф» — это модель сама не
+    выбрала, и тип уезжал в «Пуф», хотя в книге стоит «Банкетка».
+    """
+    products = (answer or {}).get("products") or []
+    if not products:
+        return True
+    first = products[0] if isinstance(products[0], dict) else {}
+    type_ru = str(first.get("type_ru") or "").strip()
+    if "/" in type_ru:
+        return True
+    # Тип вне нашего списка — повод переспросить, а не молча уронить его
+    # в «Другое». Ответ модели нестабилен от прогона к прогону: на одной
+    # и той же странице VENICEM приходило то «Торшер», то мимо списка.
+    if known_types and type_ru and type_ru not in known_types:
+        return True
+    return not (first.get("variants") or first.get("finishes"))
+
+
+def from_text(text: str, known_types: tuple | list = ()) -> dict:
     """Разбор текста страницы.
 
     Очная ставка на пяти брендах: тип, число исполнений и габариты
@@ -103,8 +142,14 @@ def from_text(text: str) -> dict:
     if not text:
         return {}
     try:
-        got = _gemini(text=text)
-        got[SOURCE_KEY] = SOURCE_MAIN
+        got = _gemini(text=text, model=GEMINI_MODEL_LIGHT)
+        # Пустой ответ переспрашиваем у тяжёлой: у LONGHI и EMMEMOBILI
+        # лёгкая возвращала ноль исполнений там, где тяжёлая находила их.
+        if _thin(got, known_types):
+            got = _gemini(text=text)
+            got[SOURCE_KEY] = f"{SOURCE_MAIN} (переспрошено после лёгкой)"
+        else:
+            got[SOURCE_KEY] = SOURCE_MAIN
         return got
     except Exception as gemini_failed:   # noqa: BLE001 — есть чем заменить
         got = llama_extract.from_text(text)
