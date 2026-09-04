@@ -471,7 +471,7 @@ def check_page_contract() -> tuple[int, int]:
         | set(_re.findall(r'data-edit="([a-z0-9_]+)"', page))
     known = set(pricing.DEFAULT_POSITION) | {
         "qty", "volume_m3", "list_price", "price", "purchase", "swift",
-        "margin", "transfer", "freight", "assembly_pct",
+        "margin", "transfer", "freight", "customs", "assembly_pct",
         "factory_discount_pct", "dealer_markup_pct"}
     checks.append(("ключи ряда позиции известны расчёту",
                    bool(row_keys) and row_keys <= known))
@@ -1505,6 +1505,24 @@ def check_export_matches_screen() -> tuple[int, int]:
         checks.append((f"F{row} = цена x количество",
                        ws.cell(row, 6).value == round(screen["price"] * 2, 2)))
 
+    # Растаможка: только руками, в евро, без ставки. Пусто значит ноль,
+    # а не «взять из констант» — в отличие от рентаба, транша и
+    # транспорта. В книгу уходит в AJ, свободную колонку формы.
+    plain = pricing.project([{k: v for k, v in p.items() if k != "customs"}])["lines"][0]
+    with_customs = pricing.project([{**p, "customs": 750}])["lines"][0]
+    checks.append(("растаможка входит в СУММУ",
+                   with_customs["total"] - plain["total"] == 750))
+    checks.append(("пустая растаможка = ноль, а не ставка",
+                   pricing.for_position({"list_price": 10000, "volume_m3": 1}).customs == 0.0))
+    wb2 = load_workbook(io.BytesIO(book_export.build([{**p, "customs": 750}], values=True)))
+    ws2 = wb2.active
+    row2 = next((i for i in range(1, ws2.max_row + 1)
+                 if ws2.cell(i, 1).value == 1), None)
+    checks.append(("AJ в книге = растаможка",
+                   bool(row2) and pricing._num(ws2.cell(row2, 36).value) == 750))
+    checks.append(("цена в книге учла растаможку",
+                   bool(row2) and ws2.cell(row2, 5).value == with_customs["price"]))
+
     # Итог компреда считается тем же путём, что строки.
     total = pricing.project([p])["sum"]
     checks.append(("итог проекта = цена x количество",
@@ -1569,14 +1587,19 @@ def check_book_row() -> tuple[int, int]:
     cells = book_row.visible_row({}, R) + book_row.pricing_row({}, R)
     cols = list("ABCDEFGHIJKLMNOPQRS") + ["T", "U", "V", "W", "X", "Y", "Z",
                                           "AA", "AB", "AC", "AD", "AE", "AF",
-                                          "AG", "AH", "AI"]
+                                          "AG", "AH", "AI", "AJ"]
     got = dict(zip(cols, (str(c) for c in cells)))
     expected = {
         "F": "=D16*E16", "H": "=D16*G16", "R": "=U16", "S": "=R16*D16",
         "U": "=ROUNDUP(J16*K16*L16*1.5/1000000,1)",
         "W": "=T16-T16*V16", "Y": "=W16+W16*X16", "Z": "=Y16*($Z$1+0)/100",
         "AA": "=W16*$AA$1/100", "AC": "=U16*$AC$1",
-        "AD": "=Y16+Z16+AA16+AB16+AC16", "AE": "=AD16/1",
+        # AD отличается от формы ровно на AJ: растаможка добавлена
+        # новой колонкой в свободную AJ, а не вставкой после AC —
+        # вставка сдвинула бы AD..AI вместе со ставками $AF$1..$AI$1,
+        # и строка, вставленная в готовую книгу, считала бы по чужим
+        # ячейкам. AJ в форме занята в нуле строк.
+        "AD": "=Y16+Z16+AA16+AB16+AC16+AJ16", "AE": "=AD16/1",
         "AF": "=AE16/(1-$AF$1/100)", "AG": "=AF16/(1-$AG$1/100)",
         "AH": "=AG16/(1-$AH$1/100)", "AI": "=AH16/(1-$AI$1/100)",
     }

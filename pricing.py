@@ -14,6 +14,7 @@
     Z  = Y × 35 %                      РЕНТАБ
     AA = W × 5 %                       ТРАНШ
     AB = 200                           SWIFT, фиксированно за позицию
+    AJ                                 РАСТАМОЖКА, только руками
     AC = объём м³ × 500                ТРАНСПОРТ
     AD = Y + Z + AA + AB + AC          СУММА
     AE = AD ÷ коэффициент сборки       СУМ СО СБОРКОЙ  ← из неё цена клиенту
@@ -71,6 +72,7 @@ class Line:
     margin: float = 0.0          # Z  РЕНТАБ
     transfer: float = 0.0        # AA ТРАНШ
     swift: float = 0.0           # AB SWIFT
+    customs: float = 0.0         # AJ РАСТАМОЖКА
     freight: float = 0.0         # AC ТРАНСПОРТ
     total: float = 0.0           # AD СУММА
     with_assembly: float = 0.0   # AE СУМ СО СБОРКОЙ
@@ -89,7 +91,7 @@ def _num(value, default: float = 0.0) -> float:
 
 def line(list_price, volume_m3, *, factory_discount=None, dealer_markup=None,
          assembly=None, qty=1, rates: dict | None = None,
-         swift=None, purchase=None,
+         swift=None, purchase=None, customs=None,
          margin_pct=None, margin_eur=None,
          transfer_pct=None, transfer_eur=None,
          freight_rate=None, freight_eur=None) -> Line:
@@ -148,7 +150,11 @@ def line(list_price, volume_m3, *, factory_discount=None, dealer_markup=None,
         freight = _num(volume_m3) * _num(freight_rate)
     else:
         freight = _num(volume_m3) * r["freight"]
-    total = purchase + margin + transfer + swift + freight
+    # Растаможка только руками: формулы у неё нет и ставки тоже — она
+    # зависит от кода ТН ВЭД и партии, а не от объёма или цены. Пусто
+    # значит ноль, а не «взять из констант».
+    customs = _num(customs) if customs not in (None, "") else 0.0
+    total = purchase + margin + transfer + swift + freight + customs
 
     coefficient = own(assembly, "assembly") or 1.0
     with_assembly = total / coefficient
@@ -165,6 +171,7 @@ def line(list_price, volume_m3, *, factory_discount=None, dealer_markup=None,
         margin=round(margin, 2),
         transfer=round(transfer, 2),
         swift=round(swift, 2),
+        customs=round(customs, 2),
         freight=round(freight, 2),
         total=round(total, 2),
         with_assembly=round(with_assembly, 2),
@@ -252,6 +259,7 @@ def for_position(p: dict, rates: dict | None = None) -> Line:
         rates=rates,
         swift=p.get("swift"),
         purchase=p.get("purchase"),
+        customs=p.get("customs"),
         margin_pct=p.get("margin_pct"),
         margin_eur=p.get("margin_eur"),
         transfer_pct=p.get("transfer_pct"),
@@ -274,7 +282,8 @@ def project(positions: list[dict], rates: dict | None = None,
             "list_price": computed.list_price,
             "purchase": computed.purchase, "margin": computed.margin,
             "transfer": computed.transfer, "swift": computed.swift,
-            "freight": computed.freight, "total": computed.total,
+            "freight": computed.freight, "customs": computed.customs,
+            "total": computed.total,
             "with_assembly": computed.with_assembly,
             "price": price, "sum": round(price * qty, 2),
             "levels": computed.levels,
