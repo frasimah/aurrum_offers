@@ -172,6 +172,22 @@ def normalize_role(value: str) -> tuple[str, str | None]:
     return "Отделка", f"Роль «{value}» не из нашего списка — поставлена «Отделка»."
 
 
+def _dimension_chain(s: str, num: str) -> list[float]:
+    """Самая длинная цепочка чисел, связанных знаком «x».
+
+    Числа, соединённые «x», — это заведомо габариты. Всё, что стоит в
+    строке само по себе (артикул, год, вес), к осям отношения не имеет,
+    но раньше попадало в общий котёл и вытесняло настоящие размеры:
+    «ART.1200 145x45x47» давало длину 1200 вместо 145.
+    """
+    best: list[float] = []
+    for m in re.finditer(rf"{num}(?:\s*x\s*{num})+", s, re.I):
+        got = [float(x) for x in re.findall(num, m.group(0))]
+        if len(got) > len(best):
+            best = got
+    return best
+
+
 def dims_unit_stated(raw: str) -> bool:
     """Названа ли единица измерения в самой строке размеров."""
     return re.search(r"\b(?:mm|мм|cm|см)\b", raw or "", re.I) is not None
@@ -549,6 +565,15 @@ def parse_dims(raw: str, type_ru: str = "") -> tuple[float | None, float | None,
         or dims_unit_guessed(raw)
     )
 
+    # Артикулы и коды моделей: «ART.1200 145x45x47», «cod. 8801 / ...».
+    # Номер стоит перед размерами и раньше становился длиной.
+    s = re.sub(r"\b(?:art|cod|ref|sku|mod|model|арт|код|модель)\.?\s*\d+\S*",
+               " ", s, flags=re.I)
+    # Числа с нелинейной размерностью — вес, световой поток, мощность,
+    # цветовая температура. Размерами они не являются никогда.
+    s = re.sub(rf"{num}\s*(?:kg|g|гр|кг|lm|лм|вт|mah|pcs|шт)\b", " ", s, flags=re.I)
+    s = re.sub(rf"{num}\s*°\s*[KК]\b", " ", s)
+
     # Дюймовые двойники выкидываем целиком. Раньше отбрасывались только те,
     # что в скобках, и у PORADA «43 1/4"» через запятую попадало в общий
     # котёл чисел — высотой оказывался второй диаметр вместо 75 см.
@@ -581,6 +606,11 @@ def parse_dims(raw: str, type_ru: str = "") -> tuple[float | None, float | None,
     # Размеры в дюймах идут в скобках — они не нужны
     inches = [float(x) for x in re.findall(rf"\(\s*({num})", s)]
     all_nums = [n for n in all_nums if n not in inches]
+    # Если размеры записаны через «x», берём ровно их: постороннее
+    # число рядом (год, номер) больше не участвует в раскладке осей.
+    chain = _dimension_chain(s, num)
+    if len(chain) >= 2:
+        all_nums = chain
 
     if millimetres:
         # Делим до раскладки по осям: иначе пометки и диаметры пришлось
