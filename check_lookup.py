@@ -151,6 +151,70 @@ def check_dims() -> tuple[int, int]:
     return good, len(DIMS_CASES)
 
 
+def check_units() -> tuple[int, int]:
+    """Единица измерения не должна зависеть от слова в ответе модели.
+
+    Строку dims_raw пишет модель и копирует дословно — промпт прямо
+    запрещает ей нормализовать единицы. Пока перевод мм->см держался
+    только на слове «mm», потеря этого слова давала объём в тысячу раз
+    больше и счёт за перевозку 3 793 350 € вместо 3 800 € — с пометкой
+    «уверенно», потому что оси-то были подписаны.
+    """
+    print("\n ЕДИНИЦА ИЗМЕРЕНИЯ")
+    print(" " + "-" * 74)
+
+    # (строка, ожидаемые оси в см, выведена ли единица)
+    cases = [
+        # Кухня MODULNOVA из книги 2867 — с единицей и без неё одинаково.
+        ("L2415 D780 H2685 mm", (241, 78, 268), False),
+        ("L2415 D780 H2685", (241, 78, 268), True),
+        ("L2136 D331 H1216", (213, 33, 121), True),
+        # Сантиметры остаются сантиметрами, даже крупные.
+        ("300x90x75h cm", (300, 90, 75), False),
+        ("241,5 x 78 x 268,5 cm", (241, 78, 268), False),
+        # Ковёр 5 x 4 метра: числа велики для комнаты, но не для порога —
+        # правило по величине их не трогает.
+        ("500 x 400 x 2 cm", (500, 400, 2), False),
+        ("500 x 400 x 2", (500, 400, 2), False),
+        # Миллиметры без единицы — обычная запись техлиста.
+        ("2000 x 900 x 750", (200, 90, 75), True),
+    ]
+
+    checks = []
+    for raw, expect, guessed in cases:
+        w, d, h, _ = pl.parse_dims(raw)
+        got = tuple(int(x) if x else 0 for x in (w, d, h))
+        checks.append((f"{raw:24} -> {got}", got == expect))
+        checks.append((f"{raw:24}    единица {'выведена' if guessed else 'из строки'}",
+                       pl.dims_unit_guessed(raw) is guessed))
+
+    # Крупное число, которое не размер: артикул, год, вес, световой
+    # поток. Одного максимума мало — иначе правильные сантиметры делятся
+    # на десять и объём исчезает вместе с перевозкой.
+    for raw in ("ART.1200 145x45x47", "Mod. 2024 - 145x45x47",
+                "145x45x47, 1200 lm", "cod. 8801 / 145x45x47"):
+        checks.append((f"{raw:24}    не миллиметры",
+                       pl.dims_unit_guessed(raw) is False))
+
+    # Единица не названа — «!» обязателен независимо от величины чисел.
+    checks.append(("«145x45x47» — единица не названа",
+                   pl.dims_unit_stated("145x45x47") is False))
+    checks.append(("«145x45x47 cm» — единица названа",
+                   pl.dims_unit_stated("145x45x47 cm") is True))
+
+    # Порог правдоподобия объёма — последняя отбивка.
+    checks.append(("потолок объёма ловит ошибку на порядок",
+                   pl.volume_m3(2415.0, 780.0, 2685.0) > pl.MAX_PLAUSIBLE_M3))
+    checks.append(("самая крупная реальная позиция потолок не задевает",
+                   pl.volume_m3(241.5, 280.5, 268.5) <= pl.MAX_PLAUSIBLE_M3))
+
+    good = 0
+    for label, hit in checks:
+        good += bool(hit)
+        print(f"  {OK if hit else BAD} {label}")
+    return good, len(checks)
+
+
 def check_volume() -> tuple[int, int]:
     print("\n ОБЪЁМ ПО ФОРМУЛЕ КНИГИ")
     print(" " + "-" * 74)
@@ -1763,6 +1827,7 @@ def main() -> int:
         checks.append((label, good, total))
 
     run("Размеры", check_dims)
+    run("Единица", check_units)
     run("Объём", check_volume)
     run("Сверка", check_dims_grounding)
     run("Техлист", check_spec_pdf)
