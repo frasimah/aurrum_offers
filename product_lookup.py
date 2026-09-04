@@ -20,7 +20,6 @@ import re
 from urllib.parse import urljoin
 from dataclasses import dataclass, field
 
-from firecrawl import Firecrawl
 
 import extract
 import gallery
@@ -48,6 +47,10 @@ ROLES_RU = [
 
 # Коэффициент упаковки и шаг округления — как в рабочей книге:
 # U = ROUNDUP(Д×Г×В×1.5/1000000; 1)
+class NoDelivery(RuntimeError):
+    """Обычный запрос не прошёл, а доставщик не настроен."""
+
+
 PACKING_FACTOR = 1.5
 VOLUME_STEP = 0.1
 
@@ -191,13 +194,22 @@ def to_excel_description(p: Product) -> str:
     return "\n".join(lines).strip()
 
 
-def _client() -> Firecrawl:
+def _client():
+    """Доставщик Firecrawl. Создаётся лениво — только для запасного пути.
+
+    Раньше клиент делался в начале каждого разбора, и без ключа не
+    работало НИЧЕГО, включая семь брендов из восьми, которые отдают
+    страницу обычным запросом. Теперь ключ нужен ровно там, где без
+    него не обойтись: сайты, отвечающие на простой запрос отказом.
+    """
     key = os.environ.get("FIRECRAWL_API_KEY", "").strip()
     if not key:
-        raise RuntimeError(
-            "Не задан FIRECRAWL_API_KEY. Добавьте его в .env "
-            "(образец — в .env.example)."
+        raise NoDelivery(
+            "Сайт не отдал страницу обычным запросом, а доставщик не "
+            "настроен: добавьте FIRECRAWL_API_KEY в .env (образец — "
+            "в .env.example). Остальные бренды работают и без него."
         )
+    from firecrawl import Firecrawl
     return Firecrawl(api_key=key)
 
 
@@ -242,7 +254,7 @@ def _plain(url: str) -> tuple[str, list[str], str] | None:
     return text, links, html
 
 
-def _scrape(fc, url: str, timeout_ms: int = 120_000) -> tuple[str, list[str], str]:
+def _scrape(url: str, fc=None, timeout_ms: int = 120_000) -> tuple[str, list[str], str]:
     """Доставка страницы: сначала обычным запросом, потом Firecrawl.
 
     Порядок изменён после замера на восьми брендах. Firecrawl — не
@@ -258,7 +270,7 @@ def _scrape(fc, url: str, timeout_ms: int = 120_000) -> tuple[str, list[str], st
     if plain is not None:
         return plain
 
-    doc = fc.scrape(url, formats=["markdown", "links", "html"],
+    doc = (fc or _client()).scrape(url, formats=["markdown", "links", "html"],
                     only_main_content=False, timeout=timeout_ms)
     data = _as_dict(doc)
     links = [u for u in (data.get("links") or []) if isinstance(u, str)]
@@ -687,10 +699,9 @@ def lookup(url: str) -> Product:
     приоритет: там исполнения приходят с артикулами, а объём бывает
     указан производителем.
     """
-    fc = _client()
     p = Product(source_url=url)
 
-    page_md, links, page_html = _scrape(fc, url)
+    page_md, links, page_html = _scrape(url)
     if not page_md.strip():
         raise RuntimeError(
             "Страница не отдала содержимого. Проверьте ссылку — возможно, "

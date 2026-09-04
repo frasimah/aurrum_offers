@@ -1048,14 +1048,13 @@ def check_gallery_live() -> tuple[int, int]:
     import gallery
     print("\n ГАЛЕРЕИ НА ЖИВЫХ СТРАНИЦАХ")
     print(" " + "-" * 74)
-    fc = pl._client()
     good = 0
     rules = gallery._rules()
     for domain, rule in rules.items():
         ref = rule.get("эталон") or {}
         url, want = ref.get("url"), ref.get("фото")
         try:
-            _, _, html = pl._scrape(fc, url)
+            _, _, html = pl._scrape(url)
             got = len(gallery.photos(html, url) or [])
         except Exception as exc:  # noqa: BLE001
             print(f"  {BAD} {domain:16} ошибка: {exc}")
@@ -1410,6 +1409,71 @@ def check_book_row() -> tuple[int, int]:
     return good, len(expected) + 1
 
 
+def check_delivery() -> tuple[int, int]:
+    """Порядок доставки страницы: сначала обычный запрос.
+
+    Замер на восьми брендах показал, что Firecrawl не всегда улучшение:
+    у HENGE он возвращал одно меню навигации вместо страницы. Теперь он
+    запасной, и ключ к нему нужен только там, где обычный запрос
+    получает отказ.
+    """
+    import os
+    print("\n ДОСТАВКА СТРАНИЦЫ")
+    print(" " + "-" * 74)
+
+    calls = {"plain": 0, "fire": 0}
+
+    def fake_plain(url):
+        calls["plain"] += 1
+        return ("текст страницы " * 200, ["https://x/a.pdf"], "<html>тело</html>")
+
+    class FakeFire:
+        def scrape(self, *a, **kw):
+            calls["fire"] += 1
+            return {"markdown": "из доставщика", "links": [], "html": ""}
+
+    real_plain = pl._plain
+    pl._plain = fake_plain
+    try:
+        text, _, _ = pl._scrape("https://brand.it/x", fc=FakeFire())
+        checks = [("обычный запрос идёт первым", calls["plain"] == 1),
+                  ("доставщик не тревожится напрасно", calls["fire"] == 0),
+                  ("вернулось то, что пришло обычным запросом", "текст страницы" in text)]
+
+        # Обычный не прошёл — идём к доставщику.
+        pl._plain = lambda url: None
+        calls["fire"] = 0
+        text, _, _ = pl._scrape("https://brand.it/x", fc=FakeFire())
+        checks.append(("отказ обычного запроса включает доставщика", calls["fire"] == 1))
+        checks.append(("вернулось от доставщика", text == "из доставщика"))
+
+        # Без ключа и без доставщика — честный отказ, а не трейсбек.
+        was = os.environ.pop("FIRECRAWL_API_KEY", None)
+        try:
+            refused = False
+            try:
+                pl._scrape("https://brand.it/x")
+            except pl.NoDelivery as exc:
+                refused = "FIRECRAWL_API_KEY" in str(exc)
+            checks.append(("без ключа отказ называет причину и что делать", refused))
+        finally:
+            if was is not None:
+                os.environ["FIRECRAWL_API_KEY"] = was
+
+        # Короткий ответ — это оболочка без товара, а не страница.
+        pl._plain = real_plain
+        checks.append(("короткий ответ страницей не считается",
+                       pl.MIN_PAGE_TEXT >= 1000))
+    finally:
+        pl._plain = real_plain
+
+    good = 0
+    for label, hit in checks:
+        good += bool(hit)
+        print(f"  {OK if hit else BAD} {label}")
+    return good, len(checks)
+
+
 def check_spec_choice() -> tuple[int, int]:
     """Отбор техлиста и показ исполнений.
 
@@ -1658,7 +1722,7 @@ def show(p, expect: dict | None = None) -> None:
 
 
 def check_live() -> None:
-    print("\n ЖИВЫЕ ССЫЛКИ (нужен FIRECRAWL_API_KEY)")
+    print("\n ЖИВЫЕ ССЫЛКИ (нужен интернет)")
     print(" " + "-" * 74)
     for case in LIVE_CASES:
         print(f"\n  {case['url']}")
@@ -1703,6 +1767,7 @@ def main() -> int:
     run("Сверка", check_dims_grounding)
     run("Техлист", check_spec_pdf)
     run("Документы", check_docs_list)
+    run("Доставка", check_delivery)
     run("Техлист и исполнения", check_spec_choice)
     run("Строка", check_book_row)
     run("Колонки", check_columns)
