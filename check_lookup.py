@@ -22,6 +22,9 @@ from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
+import json as _json  # noqa: E402
+import re as _re  # noqa: E402
+
 import product_lookup as pl  # noqa: E402
 import pricing  # noqa: E402
 import book_export  # noqa: E402
@@ -1697,6 +1700,193 @@ def check_book_row() -> tuple[int, int]:
     return good, len(expected) + 1
 
 
+def check_extractors() -> tuple[int, int]:
+    """Разделение моделей и поведение при мусоре.
+
+    Приёмка этого не покрывала вовсе: check_lookup не импортировал
+    extract и не смотрел, какой моделью собрана карточка. А правил там
+    три, и каждое стоит денег: лёгкая на текст (втрое быстрее), тяжёлая
+    на документы (у VENICEM размеры нарисованы на схеме), переспрос при
+    неполном ответе (у LONGHI лёгкая возвращала ноль исполнений).
+    """
+    import extract
+    import llama_extract
+    print("\n ИЗВЛЕКАТЕЛИ")
+    print(" " + "-" * 74)
+
+    calls: list[tuple] = []
+    real_gemini, real_llama = extract._gemini, llama_extract.from_text
+    FULL = {"products": [{"type_ru": "Стол",
+                          "variants": [{"dims_raw": "130x47x45Н"}],
+                          "finishes": [{"role_ru": "Каркас", "material": "дуб"}]}]}
+
+    def stub(answers):
+        """answers — по одному на вызов: словарь или исключение."""
+        seq = list(answers)
+
+        def fake(data=None, text=None, model=None):
+            calls.append(model or extract.GEMINI_MODEL)
+            got = seq.pop(0) if seq else {}
+            if isinstance(got, Exception):
+                raise got
+            return got
+        return fake
+
+    checks = []
+    try:
+        llama_extract.from_text = lambda t: {"products": [{"type_ru": "запасной"}]}
+
+        # 1. Полный ответ лёгкой — тяжёлую не тревожим.
+        calls.clear()
+        extract._gemini = stub([FULL])
+        got = extract.from_text("текст", known_types=("Стол",))
+        checks += [
+            ("полный ответ лёгкой не идёт к тяжёлой", calls == [extract.GEMINI_MODEL_LIGHT]),
+            ("источник помечен «Gemini»", got.get(extract.SOURCE_KEY) == extract.SOURCE_MAIN),
+        ]
+
+        # 2. Неполный ответ — переспрос у тяжёлой.
+        calls.clear()
+        extract._gemini = stub([{"products": [{"type_ru": "Стол"}]}, FULL])
+        got = extract.from_text("текст", known_types=("Стол",))
+        checks += [
+            ("неполный ответ переспрашивается у тяжёлой",
+             calls == [extract.GEMINI_MODEL_LIGHT, extract.GEMINI_MODEL]),
+            ("переспрос виден в источнике",
+             "переспрошено" in str(got.get(extract.SOURCE_KEY))),
+        ]
+
+        # 3. Тип вне нашего списка — тоже повод переспросить: ответ
+        #    модели нестабилен, у VENICEM приходило то «Торшер», то мимо.
+        calls.clear()
+        extract._gemini = stub([{"products": [{"type_ru": "Table",
+                                               "variants": [{"dims_raw": "1"}]}]}, FULL])
+        extract.from_text("текст", known_types=("Стол", "Торшер"))
+        checks.append(("тип вне списка переспрашивается", len(calls) == 2))
+
+        # 4. Отказ лёгкой — переспрос, а не уход к другому поставщику.
+        calls.clear()
+        extract._gemini = stub([RuntimeError("503"), FULL])
+        got = extract.from_text("текст", known_types=("Стол",))
+        checks += [
+            ("отказ лёгкой ведёт к тяжёлой",
+             calls == [extract.GEMINI_MODEL_LIGHT, extract.GEMINI_MODEL]),
+            ("причина переспроса названа",
+             "лёгкая не ответила" in str(got.get(extract.SOURCE_KEY))),
+        ]
+
+        # 5. Отказ обеих — запасной путь, и он ПОМЕЧЕН.
+        calls.clear()
+        extract._gemini = stub([RuntimeError("503"), RuntimeError("500")])
+        got = extract.from_text("текст", known_types=("Стол",))
+        checks += [
+            ("отказ обеих уводит на запасной путь",
+             got.get("products", [{}])[0].get("type_ru") == "запасной"),
+            ("запасной путь помечен",
+             str(got.get(extract.SOURCE_KEY)).startswith("LlamaExtract")),
+        ]
+
+    finally:
+        extract._gemini, llama_extract.from_text = real_gemini, real_llama
+
+    # 6. Мусор — это отказ, а не пустой ответ. Раньше не-словарь молча
+    #    становился {} и уезжал дальше с ярлыком «Gemini»: проверка в
+    #    product_lookup молчала, а запасной путь не пробовался.
+    #    Проверяем НАСТОЯЩИЙ _gemini, поэтому после восстановления.
+    checks.append(("не-словарь считается отказом",
+                   _raises_on_answer(extract, ["не объект"])))
+    checks.append(("ответ без текста считается отказом",
+                   _raises_on_answer(extract, {"promptFeedback": {"blockReason": "SAFETY"}},
+                                     whole=True)))
+
+    # 7. Пересборка карточки в каталоге: понижение доверия обязано
+    #    перебивать сохранённое. Карточка, сохранённая до правки
+    #    единицы измерения, лежит с dims_confident=True и объёмом
+    #    7586 м³; разбор возвращал False, но флаг не был ни в EDITABLE,
+    #    ни среди пустых полей — и «!» не появлялся никогда.
+    import app as _app
+    checks.append(("флаг доверия — вывод разбора, а не правка руками",
+                   "dims_confident" in _app.DOWNGRADE_ONLY))
+    checks.append(("флаг доверия не считается правкой",
+                   "dims_confident" not in _app.EDITABLE))
+    merge = lambda stored, got: bool(stored if stored is not None else True) and bool(got)
+    checks += [
+        ("сохранённое True + разбор False -> False", merge(True, False) is False),
+        ("сохранённое False + разбор True -> False (только вниз)",
+         merge(False, True) is False),
+        ("сохранённое True + разбор True -> True", merge(True, True) is True),
+    ]
+
+    # 8. Документы всегда читает тяжёлая: у VENICEM размеры нарисованы
+    #    на схеме, и лёгкая теряет там глубину.
+    import inspect
+    src = inspect.getsource(extract.from_url)
+    checks.append(("документ читает тяжёлая", "GEMINI_MODEL_LIGHT" not in src))
+
+    # 9. Список полей запроса не должен расходиться со схемой по тем
+    #    полям, которые код действительно читает.
+    schema = _json.load(open(os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "config", "extraction_schema.json"), encoding="utf-8"))
+
+    def leaves(node, prefix=""):
+        out = []
+        for key, value in (node.get("properties") or {}).items():
+            out.append(prefix + key)
+            if value.get("type") == "array":
+                out += leaves(value.get("items") or {}, prefix + key + ".")
+            elif value.get("type") == "object":
+                out += leaves(value, prefix + key + ".")
+        return out
+
+    asked = set(_re.findall(r'"([a-z0-9_]+)":', extract._ASK))
+    used = {"package_dims_raw", "packed_volume_m3", "dims_raw", "sku",
+            "variant_note", "type_ru", "model", "collection", "brand",
+            "summary_ru", "tech_note", "role_ru", "material", "code"}
+    missing = sorted(f for f in leaves(schema)
+                     if f.split(".")[-1] in used and f.split(".")[-1] not in asked)
+    checks.append((f"поля, которые читает код, есть в запросе"
+                   + (f" — нет: {missing}" if missing else ""), not missing))
+
+    good = 0
+    for label, hit in checks:
+        good += bool(hit)
+        print(f"  {OK if hit else BAD} {label}")
+    return good, len(checks)
+
+
+def _raises_on_answer(extract, payload, whole: bool = False) -> bool:
+    """Вернул бы _gemini исключение на таком ответе сервера."""
+    import httpx
+
+    class FakeResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            if whole:
+                return payload
+            return {"candidates": [{"content": {"parts": [
+                {"text": _json.dumps(payload, ensure_ascii=False)}]}}]}
+
+    real_post, real_key = httpx.post, os.environ.get("GOOGLE_API_KEY")
+    os.environ["GOOGLE_API_KEY"] = "проверка"
+    httpx.post = lambda *a, **kw: FakeResponse()
+    try:
+        extract._gemini(text="x")
+        return False
+    except Exception:            # noqa: BLE001 — ровно этого и ждём
+        return True
+    finally:
+        httpx.post = real_post
+        if real_key is None:
+            os.environ.pop("GOOGLE_API_KEY", None)
+        else:
+            os.environ["GOOGLE_API_KEY"] = real_key
+
+
 def check_delivery() -> tuple[int, int]:
     """Порядок доставки страницы: сначала обычный запрос.
 
@@ -2056,6 +2246,7 @@ def main() -> int:
     run("Сверка", check_dims_grounding)
     run("Техлист", check_spec_pdf)
     run("Документы", check_docs_list)
+    run("Извлекатели", check_extractors)
     run("Доставка", check_delivery)
     run("Техлист и исполнения", check_spec_choice)
     run("Строка", check_book_row)

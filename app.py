@@ -403,6 +403,18 @@ def library_card(item_id: str):
 EDITABLE = ("type_ru", "dims_raw", "width_cm", "depth_cm", "height_cm",
             "volume_m3", "summary_ru", "note", "description")
 
+# Выводы разбора, а не правки руками. Их нельзя ни беречь как чужой
+# труд, ни показывать как «предложение»: понижение доверия — это и есть
+# тот сигнал, ради которого пересборку затевают. Карточка, сохранённая
+# до правки единицы измерения, лежит с dims_confident=True и объёмом
+# 7586 м³; пересборка возвращала False, но флаг не был ни в EDITABLE,
+# ни среди пустых полей — и «!» не появлялся никогда.
+#
+# Только вниз: разбор вправе усомниться в сохранённом, но не вправе
+# снять сомнение, которое там уже стоит. Числа менеджер мог поправить
+# руками, и повышать к ним доверие за него мы не будем.
+DOWNGRADE_ONLY = ("dims_confident",)
+
 
 def _incoming(data: dict) -> tuple[dict | None, str | None]:
     """Карточка из запроса редактора: проверенная и с прежним именем.
@@ -469,12 +481,20 @@ def library_refresh():
         "description": product_lookup.to_excel_description(product),
         "photos": product.photo_urls, "doc_urls": product.doc_urls,
     }
-    fresh = {k: v for k, v in fresh.items() if v not in (None, "", [], {})}
+    # False — законное значение флага, а не пустота: фильтр сравнивает
+    # по равенству, и без явной оговорки dims_confident=False уцелел бы
+    # случайно, а не по правилу.
+    fresh = {k: v for k, v in fresh.items()
+             if k in DOWNGRADE_ONLY or v not in (None, "", [], {})}
 
     filled, differs = [], {}
     updated = dict(item)
     for key, value in fresh.items():
-        if item.get(key) in (None, "", [], {}):
+        if key in DOWNGRADE_ONLY:
+            updated[key] = bool(item.get(key, True)) and bool(value)
+            if updated[key] != item.get(key):
+                filled.append(key)
+        elif item.get(key) in (None, "", [], {}):
             updated[key] = value
             filled.append(key)
         elif key in EDITABLE and item.get(key) != value:

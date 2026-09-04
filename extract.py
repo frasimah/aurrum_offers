@@ -63,7 +63,10 @@ _ASK = (
     "Разбери документ по инструкции и верни JSON вида "
     '{"brand": …, "products": [{"model": …, "collection": …, "type_ru": …, '
     '"variants": [{"sku": …, "dims_raw": …, "variant_note": …, '
-    '"packed_volume_m3": …}], '
+    # package_dims_raw читает product_lookup (p.package_note) и печатает
+    # карточка. В запросе его не было, поэтому от Gemini оно не приходило
+    # никогда — поле жило только на запасном пути, у которого схема целиком.
+    '"packed_volume_m3": …, "package_dims_raw": …}], '
     '"finishes": [{"role_ru": …, "material": …, "code": …}], '
     '"summary_ru": …, "tech_note": …}]}. '
     "Неизвестное оставляй пустым."
@@ -94,9 +97,27 @@ def _gemini(data: bytes | None = None, text: str | None = None,
     got = httpx.post(f"{GEMINI_URL}/{model or GEMINI_MODEL}:generateContent",
                      headers={"x-goog-api-key": key}, json=body, timeout=300)
     got.raise_for_status()
-    text = got.json()["candidates"][0]["content"]["parts"][0]["text"]
+    answer = got.json()
+    try:
+        text = answer["candidates"][0]["content"]["parts"][0]["text"]
+    except (KeyError, IndexError, TypeError):
+        # Ответ может кончиться не текстом: блокировка, обрыв по длине,
+        # пустой candidates. Раньше это падало KeyError с нечитаемым
+        # диагнозом — теперь причина называется словами.
+        reason = ((answer.get("promptFeedback") or {}).get("blockReason")
+                  or ((answer.get("candidates") or [{}])[0] or {}).get("finishReason")
+                  or "ответ без текста")
+        raise RuntimeError(f"Gemini не вернул разбор: {reason}") from None
     parsed = json.loads(text)
-    return parsed if isinstance(parsed, dict) else {}
+    if not isinstance(parsed, dict):
+        # Раньше не-словарь молча превращался в {}. Отказом это не
+        # считалось: пустой ответ уезжал дальше с ярлыком «Gemini»,
+        # проверка в product_lookup молчала, а запасной путь даже
+        # не пробовался.
+        raise RuntimeError(
+            f"Gemini вернул не объект, а {type(parsed).__name__} — "
+            "разбор не состоялся.")
+    return parsed
 
 
 # Каким путём собраны данные. Ключ кладётся в ответ, потому что запасной
@@ -141,15 +162,26 @@ def from_text(text: str, known_types: tuple | list = ()) -> dict:
     text = (text or "").strip()
     if not text:
         return {}
+
+    # Три ступени, а не две. Отказ лёгкой — тоже повод переспросить у
+    # тяжёлой, а не сразу уходить к другому поставщику: раньше любой её
+    # сбой (в том числе мусор в ответе) выбрасывал готовую половину
+    # работы и уводил на запасной путь, который читает только текст.
+    why_heavy = ""
     try:
         got = _gemini(text=text, model=GEMINI_MODEL_LIGHT)
-        # Пустой ответ переспрашиваем у тяжёлой: у LONGHI и EMMEMOBILI
-        # лёгкая возвращала ноль исполнений там, где тяжёлая находила их.
-        if _thin(got, known_types):
-            got = _gemini(text=text)
-            got[SOURCE_KEY] = f"{SOURCE_MAIN} (переспрошено после лёгкой)"
-        else:
+        if not _thin(got, known_types):
             got[SOURCE_KEY] = SOURCE_MAIN
+            return got
+        # У LONGHI и EMMEMOBILI лёгкая возвращала ноль исполнений там,
+        # где тяжёлая их находила.
+        why_heavy = "ответ лёгкой неполон"
+    except Exception as light_failed:    # noqa: BLE001 — есть чем заменить
+        why_heavy = f"лёгкая не ответила: {str(light_failed)[:60]}"
+
+    try:
+        got = _gemini(text=text)
+        got[SOURCE_KEY] = f"{SOURCE_MAIN} (переспрошено, {why_heavy})"
         return got
     except Exception as gemini_failed:   # noqa: BLE001 — есть чем заменить
         got = llama_extract.from_text(text)
