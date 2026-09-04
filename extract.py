@@ -73,8 +73,27 @@ _ASK = (
 )
 
 
+def _types_line(known_types: tuple | list) -> str:
+    """Наш список типов — в сам запрос.
+
+    До этого список не доходил до модели вовсе: запрос собирался из
+    config/extraction_prompt.txt и _ASK, а known_types жил только в
+    _thin, то есть служил проверкой ПОСЛЕ ответа. Модель отвечала как
+    умела, и на PORADA 37 % товаров приезжали «Другим». Спрашивать
+    словами из нашего списка дешевле, чем чинить ответ потом.
+
+    Оговорка про «Другое» обязательна: без неё модель начнёт впихивать
+    товар в ближайший тип, и честное незнание превратится в тихую ложь.
+    """
+    if not known_types:
+        return ""
+    return (" Поле type_ru обязано быть ровно одним из списка: "
+            + ", ".join(known_types)
+            + ". Если ни один не подходит — «Другое», не подбирай похожий.")
+
+
 def _gemini(data: bytes | None = None, text: str | None = None,
-            model: str | None = None) -> dict:
+            model: str | None = None, known_types: tuple | list = ()) -> dict:
     key = os.environ.get("GOOGLE_API_KEY", "").strip()
     if not key:
         raise RuntimeError("нет GOOGLE_API_KEY")
@@ -86,7 +105,8 @@ def _gemini(data: bytes | None = None, text: str | None = None,
         payload = {"text": (text or "")[:MAX_TEXT]}
 
     body = {
-        "contents": [{"parts": [payload, {"text": _ASK}]}],
+        "contents": [{"parts": [payload,
+                                {"text": _ASK + _types_line(known_types)}]}],
         "systemInstruction": {"parts": [
             {"text": llama_extract._read("extraction_prompt.txt")}
         ]},
@@ -169,7 +189,8 @@ def from_text(text: str, known_types: tuple | list = ()) -> dict:
     # работы и уводил на запасной путь, который читает только текст.
     why_heavy = ""
     try:
-        got = _gemini(text=text, model=GEMINI_MODEL_LIGHT)
+        got = _gemini(text=text, model=GEMINI_MODEL_LIGHT,
+                      known_types=known_types)
         if not _thin(got, known_types):
             got[SOURCE_KEY] = SOURCE_MAIN
             return got
@@ -180,7 +201,7 @@ def from_text(text: str, known_types: tuple | list = ()) -> dict:
         why_heavy = f"лёгкая не ответила: {str(light_failed)[:60]}"
 
     try:
-        got = _gemini(text=text)
+        got = _gemini(text=text, known_types=known_types)
         got[SOURCE_KEY] = f"{SOURCE_MAIN} (переспрошено, {why_heavy})"
         return got
     except Exception as gemini_failed:   # noqa: BLE001 — есть чем заменить
@@ -189,7 +210,7 @@ def from_text(text: str, known_types: tuple | list = ()) -> dict:
         return got
 
 
-def from_url(url: str) -> dict:
+def from_url(url: str, known_types: tuple | list = ()) -> dict:
     """Ссылка на техлист -> извлечённые данные."""
     got = safe_fetch.get(url, timeout=180, headers={"User-Agent": "Mozilla/5.0"})
     data = got.content
@@ -197,7 +218,7 @@ def from_url(url: str) -> dict:
         raise RuntimeError(f"Документ больше {MAX_PDF_MB} МБ — не разбираю.")
 
     try:
-        got = _gemini(data=data)
+        got = _gemini(data=data, known_types=known_types)
         got[SOURCE_KEY] = SOURCE_MAIN
         return got
     except Exception as gemini_failed:   # noqa: BLE001 — есть чем заменить

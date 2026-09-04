@@ -31,7 +31,12 @@ TYPES_RU = [
     "Кресло", "Диван", "Кровать", "Торшер", "Люстра", "Бра",
     "Настольная лампа", "Стол", "Стул", "Банкетка", "Пуф",
     "Тумбочка прикроватная", "Комод", "Шкаф", "Стеллаж", "Ковёр",
-    "Зеркало", "Мебель для кухни", "Другое",
+    "Зеркало", "Мебель для кухни",
+    # Добавлены по каталогу PORADA: это её отдельные разделы, и без них
+    # 37 товаров из 326 попасть никуда, кроме «Другого», не могли —
+    # consolle 14, appendiabiti 9, sgabelli 8, portatv 6.
+    "Консоль", "Тумба под ТВ", "Вешалка", "Табурет",
+    "Другое",
 ]
 
 _TYPES_LOWER = {t.lower(): t for t in TYPES_RU}
@@ -114,8 +119,12 @@ def normalize_type(value: str) -> tuple[str, str | None]:
     # уточнением («Стол обеденный» у HENGE). Оба слова наши, а строка целиком
     # не совпадает ни с чем — и товар молча уезжал в «Другое». Берём первое
     # узнанное слово, но говорим вслух, что взяли не всё.
+    # Слово ищем ЛЮБОЕ, а не только первое: по-русски определение идёт
+    # перед словом — «Журнальный столик», «Прикроватная тумба», — и
+    # первое слово там не наше. Раньше такие ответы уезжали в «Другое».
     for part in re.split(r"[/,;]|\bили\b", value):
-        for word in (part.strip(), part.strip().split()[0] if part.strip() else ""):
+        part = part.strip()
+        for word in [part] + part.split():
             hit = _TYPES_LOWER.get(word.lower())
             if hit:
                 return hit, f"Тип со страницы — «{value}», взят «{hit}»."
@@ -696,12 +705,25 @@ def parse_dims(raw: str, type_ru: str = "") -> tuple[float | None, float | None,
     # котёл чисел — высотой оказывался второй диаметр вместо 75 см.
     s = re.sub(r"\d+(?:\s+\d+\s*/\s*\d+)?\s*(?:\"|''|″|\bin\b)", " ", s)
 
+    # Ряд размеров, а не оси: «40 - 50 - 60» — это подушка трёх размеров,
+    # а не предмет 40 x 50 x 60. Оси пишут через «x», ряд — через тире.
+    # Строки с диаметром или пометкой высоты сюда не попадают: у PORADA
+    # «Ø130 - 140 - 150 - 160 h 75» — это диаметры и настоящая высота.
+    if (not re.search(r"\dx|x\s*\d", s, re.I)
+            and not re.search(r"[ØøD]|[HНh]", s)
+            and re.search(rf"{num}\s*[-–—~]\s*{num}", s)):
+        return None, None, None, False
+
     # Явная пометка высоты: «H 125», «...x125Н», «125 cm H».
     # Подпись перед числом проверяем первой: у PORADA пишут
     # «Ø130 - 140 - 150 - 160 h 75», и обратный шаблон принимал «160 h»
     # за высоту, хотя 160 — это диаметр, а высота 75.
     h_match = (
-        re.search(rf"[HНh]\s*({num})", s)
+        # Точка после буквы — обычная итальянская запись «h. 156».
+        # Без неё у AIDA прямой шаблон не срабатывал, обратный брал
+        # стоящее ПЕРЕД буквой число, и высотой становилась глубина:
+        # 114 x 114 x 14 вместо 114 x 14 x 156.
+        re.search(rf"[HНh]\.?\s*({num})", s)
         or re.search(rf"({num})\s*(?:cm|см|mm|мм)?\s*[HНh](?![a-zA-Zа-яА-Я])", s)
     )
     height = float(h_match.group(1)) if h_match else None
@@ -726,7 +748,8 @@ def parse_dims(raw: str, type_ru: str = "") -> tuple[float | None, float | None,
     # Если размеры записаны через «x», берём ровно их: постороннее
     # число рядом (год, номер) больше не участвует в раскладке осей.
     chain = _dimension_chain(s, num)
-    if len(chain) >= 2:
+    from_chain = len(chain) >= 2
+    if from_chain:
         all_nums = chain
 
     # Единица измерения. Названа — верим строке. Не названа — решаем по
@@ -748,6 +771,17 @@ def parse_dims(raw: str, type_ru: str = "") -> tuple[float | None, float | None,
         height = height / 10 if height is not None else None
         diameters = [n / 10 for n in diameters]
         all_nums = [n / 10 for n in all_nums]
+
+    # Полная цепочка «Д x Г x В» и помеченное число ВНЕ её: так у PORADA
+    # пишут высоту сиденья — «71 x 75 x 73 h 47». Прямой шаблон брал 47
+    # высотой, настоящие 73 выбрасывались, и карточка помечалась
+    # «уверенно»: из шести уверенных на PORADA три были неверны.
+    # Разделяем по величине: сиденье всегда ниже изделия. Там, где
+    # помеченное число БОЛЬШЕ (TRUSSARDI «202x241x36/92Н»), оно и есть
+    # высота, а число в цепочке — альтернатива для той же оси.
+    if (height is not None and from_chain and len(all_nums) >= 3
+            and height not in all_nums and height < all_nums[2]):
+        height = all_nums[2]
 
     if height is not None:
         # Убираем ОДНО вхождение высоты, а не все числа, равные ей.
@@ -1029,7 +1063,7 @@ def lookup(url: str) -> Product:
     # а лист позиции лежит рядом. Раньше промах стоил строки габаритов.
     for candidate in candidates[:3]:
         try:
-            pdf = _first_product(extract.from_url(candidate))
+            pdf = _first_product(extract.from_url(candidate, known_types=TYPES_RU))
             p.spec_pdf_url = candidate
             break
         except Exception as exc:  # noqa: BLE001 — техлист не критичен

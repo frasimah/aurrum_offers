@@ -26,7 +26,11 @@ CONFIG = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                       "config", "photo_selectors.json")
 
 # Пустышки-распорки: у BAROVIER такой лежит первым в галерее.
-_SPACERS = ("spacer", "blank", "dummy", "1x1", "pixel")
+# Не снимки товара: заглушки вёрстки и картинки раздела. «listing-» —
+# из og:image у PORADA: у 22 товаров из 24 там студийный кадр с
+# названием модели в имени, а у остальных общая картинка раздела вида
+# listing-13.jpg. Она встала бы обложкой карточки вместо изделия.
+_SPACERS = ("spacer", "blank", "dummy", "1x1", "pixel", "listing-")
 
 
 def _rules() -> dict:
@@ -68,8 +72,12 @@ def photos(html: str, page_url: str) -> list[str] | None:
     out, seen = [], set()
     for selector in rule.get("selectors") or []:
         for img in soup.select(selector):
+            # content — для <meta property="og:image">: у PORADA
+            # единственный студийный кадр товара (вырез на белом) лежит
+            # там и в галерее не встречается ни разу, проверено на всех
+            # 327 адресах карты сайта.
             src = (img.get("src") or img.get("data-src")
-                   or img.get("data-lazy") or "").strip()
+                   or img.get("data-lazy") or img.get("content") or "").strip()
             if not src or src.startswith("data:"):
                 continue
             name = src.split("?")[0].rsplit("/", 1)[-1].lower()
