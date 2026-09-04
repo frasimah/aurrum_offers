@@ -814,6 +814,16 @@ def parse_dims(raw: str, type_ru: str = "") -> tuple[float | None, float | None,
     if diameters and rest:
         d = max(diameters + [n for n in rest if n < max(rest)])
         return d, d, max(rest), False
+    # Ровно два числа и никакой пометки — это ковёр, панель, столешница:
+    # «200x300», «160.5x260». Высоты у них нет и в источнике. Заполняем
+    # то, что известно, а высоту оставляем пустой: объём без неё не
+    # считается, значит выдумать перевозку нельзя, а менеджеру не надо
+    # переписывать длину с шириной руками. Считаем ВСЕ числа строки, а
+    # не цепочку: у «74 x 18/46 x 76» цепочка обрывается на двух, и
+    # заполнять по ней было бы враньём.
+    if len(all_nums) == 2 and len(re.findall(num, s)) == 2 and not diameters:
+        return all_nums[0], all_nums[1], None, False
+
     if len(all_nums) >= 3:
         w, dep, h = all_nums[0], all_nums[1], all_nums[2]
         if type_ru in _TALL_TYPES:
