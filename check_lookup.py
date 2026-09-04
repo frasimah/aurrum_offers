@@ -1748,7 +1748,7 @@ def check_extractors() -> tuple[int, int]:
         """answers — по одному на вызов: словарь или исключение."""
         seq = list(answers)
 
-        def fake(data=None, text=None, model=None, known_types=()):
+        def fake(data=None, text=None, model=None, known_types=(), source=""):
             calls.append(model or extract.GEMINI_MODEL)
             got = seq.pop(0) if seq else {}
             if isinstance(got, Exception):
@@ -1851,6 +1851,33 @@ def check_extractors() -> tuple[int, int]:
         ("оговорка про «Другое» на месте", "не подбирай похожий" in line),
         ("без списка запрос не меняется", extract._types_line(()) == ""),
     ]
+
+    # 7в. Указания по бренду обязаны доходить до модели. Раньше знания
+    #     о нотации фабрики жили в brands/*.md, которые код не читал
+    #     вовсе, — то есть модель их не видела никогда.
+    checks += [
+        ("файл бренда подхватывается по домену",
+         "PORADA" in extract.brand_note("https://www.porada.it/prodotto/x")),
+        ("www. в адресе не мешает",
+         extract.brand_note("https://www.porada.it/x")
+         == extract.brand_note("https://porada.it/x")),
+        ("файл LLG подхватывается",
+         "H.B." in extract.brand_note("https://luxurylivinggroup.com/products/x")),
+        ("чужой домен добавки не получает",
+         extract.brand_note("https://example.com/x") == ""),
+        ("выдуманный домен ничего не читает с диска",
+         extract.brand_note("https://../../etc/passwd") == ""),
+    ]
+
+    # Каждый файл бренда должен быть про свой сайт и не пустой.
+    import glob as _glob
+    brand_files = sorted(_glob.glob(os.path.join(extract.BRAND_DIR, "*.md")))
+    checks.append((f"файлы брендов на месте ({len(brand_files)})", len(brand_files) >= 2))
+    for path in brand_files:
+        host = os.path.basename(path)[:-3]
+        body = open(path, encoding="utf-8").read()
+        checks.append((f"{host:26} называет свой домен", host in body))
+        checks.append((f"{host:26} не пустой", len(body.strip()) > 400))
 
     # 8. Документы всегда читает тяжёлая: у VENICEM размеры нарисованы
     #    на схеме, и лёгкая теряет там глубину.

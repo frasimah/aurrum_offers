@@ -26,6 +26,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 
 import httpx
 
@@ -73,6 +74,38 @@ _ASK = (
 )
 
 
+BRAND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         "config", "brands")
+
+
+def brand_note(source: str) -> str:
+    """Указания по конкретному сайту — прямо в запрос к модели.
+
+    Общий промпт (config/extraction_prompt.txt) описывает правила, годные
+    для любого бренда. Но нотация у каждой фабрики своя, и общими словами
+    её не покрыть: у PORADA «h 47» в конце строки — высота СИДЕНЬЯ, у
+    LLG «H.B.36» — изголовье, а «THK.3» — толщина столешницы. Раньше
+    такие знания жили либо в коде разбора, либо в brands/*.md, которые
+    код не читал вовсе, — то есть до модели не доходили никогда.
+
+    Файл называется по домену: config/brands/porada.it.md. Нет файла —
+    нет и добавки, поведение прежнее.
+    """
+    host = (source or "").strip().lower()
+    if "//" in host:
+        host = host.split("//", 1)[1]
+    host = host.split("/")[0].split(":")[0]
+    if host.startswith("www."):
+        host = host[4:]
+    if not re.fullmatch(r"[a-z0-9.-]{1,80}", host or ""):
+        return ""
+    path = os.path.join(BRAND_DIR, f"{host}.md")
+    if not os.path.exists(path):
+        return ""
+    with open(path, encoding="utf-8") as f:
+        return "\n\nУказания по этому сайту:\n" + f.read().strip()
+
+
 def _types_line(known_types: tuple | list) -> str:
     """Наш список типов — в сам запрос.
 
@@ -93,7 +126,8 @@ def _types_line(known_types: tuple | list) -> str:
 
 
 def _gemini(data: bytes | None = None, text: str | None = None,
-            model: str | None = None, known_types: tuple | list = ()) -> dict:
+            model: str | None = None, known_types: tuple | list = (),
+            source: str = "") -> dict:
     key = os.environ.get("GOOGLE_API_KEY", "").strip()
     if not key:
         raise RuntimeError("нет GOOGLE_API_KEY")
@@ -106,7 +140,8 @@ def _gemini(data: bytes | None = None, text: str | None = None,
 
     body = {
         "contents": [{"parts": [payload,
-                                {"text": _ASK + _types_line(known_types)}]}],
+                                {"text": _ASK + _types_line(known_types)
+                                         + brand_note(source)}]}],
         "systemInstruction": {"parts": [
             {"text": llama_extract._read("extraction_prompt.txt")}
         ]},
@@ -171,7 +206,8 @@ def _thin(answer: dict, known_types: tuple | list = ()) -> bool:
     return not (first.get("variants") or first.get("finishes"))
 
 
-def from_text(text: str, known_types: tuple | list = ()) -> dict:
+def from_text(text: str, known_types: tuple | list = (),
+              source: str = "") -> dict:
     """Разбор текста страницы.
 
     Очная ставка на пяти брендах: тип, число исполнений и габариты
@@ -190,7 +226,7 @@ def from_text(text: str, known_types: tuple | list = ()) -> dict:
     why_heavy = ""
     try:
         got = _gemini(text=text, model=GEMINI_MODEL_LIGHT,
-                      known_types=known_types)
+                      known_types=known_types, source=source)
         if not _thin(got, known_types):
             got[SOURCE_KEY] = SOURCE_MAIN
             return got
@@ -201,7 +237,7 @@ def from_text(text: str, known_types: tuple | list = ()) -> dict:
         why_heavy = f"лёгкая не ответила: {str(light_failed)[:60]}"
 
     try:
-        got = _gemini(text=text, known_types=known_types)
+        got = _gemini(text=text, known_types=known_types, source=source)
         got[SOURCE_KEY] = f"{SOURCE_MAIN} (переспрошено, {why_heavy})"
         return got
     except Exception as gemini_failed:   # noqa: BLE001 — есть чем заменить
@@ -210,7 +246,8 @@ def from_text(text: str, known_types: tuple | list = ()) -> dict:
         return got
 
 
-def from_url(url: str, known_types: tuple | list = ()) -> dict:
+def from_url(url: str, known_types: tuple | list = (),
+             source: str = "") -> dict:
     """Ссылка на техлист -> извлечённые данные."""
     got = safe_fetch.get(url, timeout=180, headers={"User-Agent": "Mozilla/5.0"})
     data = got.content
@@ -218,7 +255,7 @@ def from_url(url: str, known_types: tuple | list = ()) -> dict:
         raise RuntimeError(f"Документ больше {MAX_PDF_MB} МБ — не разбираю.")
 
     try:
-        got = _gemini(data=data, known_types=known_types)
+        got = _gemini(data=data, known_types=known_types, source=source or url)
         got[SOURCE_KEY] = SOURCE_MAIN
         return got
     except Exception as gemini_failed:   # noqa: BLE001 — есть чем заменить

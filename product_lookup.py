@@ -793,7 +793,14 @@ def parse_dims(raw: str, type_ru: str = "") -> tuple[float | None, float | None,
         # обычное дело: квадратный пуф, куб-тумба, зеркало, стол 90x90.
         horizontal = list(all_nums)
         if height in horizontal:
+            # ПОСЛЕДНЕЕ вхождение, а не первое: пометка высоты почти
+            # всегда стоит в конце строки. У LLG «58x45x58H.» удаление
+            # первого съедало ширину и давало 45 x 58 вместо 58 x 45 —
+            # объём тот же, а длина с глубиной переставлены местами,
+            # и в книге они уезжают в чужие колонки J и K.
+            horizontal.reverse()
             horizontal.remove(height)
+            horizontal.reverse()
         if diameters:
             d = max(diameters)
             return d, d, height, True
@@ -814,6 +821,12 @@ def parse_dims(raw: str, type_ru: str = "") -> tuple[float | None, float | None,
     if diameters and rest:
         d = max(diameters + [n for n in rest if n < max(rest)])
         return d, d, max(rest), False
+    # Один диаметр и больше ничего: круглый ковёр «Ø 220 cm». Известное
+    # заполняем, высоту оставляем пустой — объём без неё не считается.
+    if diameters and not [n for n in all_nums if n not in diameters]:
+        d = max(diameters)
+        return d, d, None, False
+
     # Ровно два числа и никакой пометки — это ковёр, панель, столешница:
     # «200x300», «160.5x260». Высоты у них нет и в источнике. Заполняем
     # то, что известно, а высоту оставляем пустой: объём без неё не
@@ -1002,7 +1015,7 @@ def lookup(url: str) -> Product:
 
     # Список типов передаём: ответ вне его — повод переспросить у тяжёлой
     # модели, а не молча уронить тип в «Другое».
-    extracted = extract.from_text(page_md, known_types=TYPES_RU)
+    extracted = extract.from_text(page_md, known_types=TYPES_RU, source=url)
     source = str(extracted.get(extract.SOURCE_KEY) or "")
     if source and not source.startswith(extract.SOURCE_MAIN):
         p.warnings.append(
@@ -1073,7 +1086,8 @@ def lookup(url: str) -> Product:
     # а лист позиции лежит рядом. Раньше промах стоил строки габаритов.
     for candidate in candidates[:3]:
         try:
-            pdf = _first_product(extract.from_url(candidate, known_types=TYPES_RU))
+            pdf = _first_product(extract.from_url(candidate, known_types=TYPES_RU,
+                                                  source=url))
             p.spec_pdf_url = candidate
             break
         except Exception as exc:  # noqa: BLE001 — техлист не критичен
