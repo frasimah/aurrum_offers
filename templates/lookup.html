@@ -153,7 +153,32 @@
       display: flex; align-items: center; gap: 8px; cursor: pointer;
       margin: 0; font-weight: 400;
     }
-    .fin__pick input { width: auto; height: auto; }
+    /* Общее правило полей выше ставит appearance: none — оно нужно
+       из-за <select> на macOS, но заодно съедает и родной вид галочки:
+       она схлопывалась в тонкую чёрточку, и список отделок читался как
+       список прочерков. Рисуем свою — той же формы, что у отбора
+       фотографий, но с видимой галочкой: там заливка лежит поверх
+       снимка и читается сама, а в списке текста нужен знак. */
+    .check {
+      flex-shrink: 0;
+      width: 18px;
+      height: 18px;
+      margin: 0;
+      padding: 0;
+      border: 1px solid #c9c9c9;
+      border-radius: 3px;
+      background: #fff;
+      cursor: pointer;
+    }
+
+    .check:checked {
+      border-color: #2d2d2d;
+      background-color: #2d2d2d;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.4l3 3 6-6' fill='none' stroke='%23fff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: center;
+      background-size: 13px 13px;
+    }
 
     button.ghost {
       background: #fff;
@@ -520,7 +545,7 @@
             Вставка в другую уведёт ссылки на соседние позиции.
           </div>
           <label style="display:flex;align-items:center;gap:8px;margin-top:10px">
-            <input type="checkbox" id="f_pricing" style="width:16px;height:16px;padding:0">
+            <input type="checkbox" id="f_pricing" class="check">
             <span>со скрытым расчётом (T…AI)</span>
           </label>
           <div class="hint">
@@ -559,7 +584,7 @@
           {% for f in product.finishes %}
           <div class="fin">
             <label class="fin__pick">
-              <input type="checkbox" checked class="finpick"
+              <input type="checkbox" checked class="finpick check"
                      data-role="{{ f.role_ru }}" data-mat="{{ f.material }}">
               <span class="hint" style="font-size:12.5px;color:#2d2d2d">
                 {{ f.role_ru }} — {{ f.material }}{% if f.code %}<span class="badge">{{ f.code }}</span>{% endif %}
