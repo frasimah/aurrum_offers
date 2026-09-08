@@ -2644,6 +2644,53 @@ def check_final_block() -> tuple[int, int]:
          > one.levels["designer"] > one.with_assembly),
     ]
 
+    # Наценка дизайнеру жила только на «Константах» — одна на все
+    # проекты. Она меняется от сделки к сделке, и у проекта должна быть
+    # своя: ставка уходит и в расчёт, и в выгружаемый файл ячейкой $AF$1.
+    rate_store = {"aurrum.current": "p1",
+                  "aurrum.draft.p1": _json.dumps(
+                      {"positions": [{"brand": "B", "qty": 1, "purchase": 1000,
+                                      "assembly": 1}],
+                       "header": {}, "rates": None, "rev": 0})}
+    set_rate = ("const el = document.getElementById('t_designer');"
+                " el.value = '25'; el.dispatchEvent({type:'change', target: el})")
+    put = _run_page(lv_scripts, lv_dom, storage=rate_store,
+                    responses=[{"notJson": True}, {"notJson": True}],
+                    actions=[set_rate, "await null"])
+    put_draft = _json.loads((put.get("storage") or {}).get("aurrum.draft.p1") or "{}")
+    sent = [_json.loads(f.get("body") or "{}") for f in put.get("fetches") or []]
+
+    cleared_store = dict(rate_store)
+    cleared_store["aurrum.draft.p1"] = _json.dumps(
+        {"positions": [{"brand": "B", "qty": 1, "purchase": 1000, "assembly": 1}],
+         "header": {}, "rates": {"designer": 25, "vat": 5}, "rev": 0})
+    cleared = _run_page(
+        lv_scripts, lv_dom, storage=cleared_store,
+        responses=[{"notJson": True}, {"notJson": True}],
+        actions=["const el = document.getElementById('t_designer');"
+                 " el.value = ''; el.dispatchEvent({type:'change', target: el})",
+                 "await null"])
+    left = _json.loads((cleared.get("storage") or {}).get("aurrum.draft.p1") or "{}")
+
+    at_10 = _pricing.project([{"qty": 1, "purchase": 1000, "assembly": 1}], rates=None,
+                             final={})
+    at_25 = _pricing.project([{"qty": 1, "purchase": 1000, "assembly": 1}],
+                             rates={"designer": 25}, final={})
+    checks += [
+        ("наценку дизайнеру можно задать у проекта",
+         soup_lv.find(id="t_designer") is not None),
+        ("правка кладётся в ставки проекта",
+         (put_draft.get("rates") or {}).get("designer") == 25),
+        ("и уходит в расчёт",
+         any((b.get("rates") or {}).get("designer") == 25 for b in sent)),
+        ("пустое поле снимает своё число, не трогая остальные ставки",
+         "designer" not in (left.get("rates") or {})
+         and (left.get("rates") or {}).get("vat") == 5),
+        ("ставка меняет верх лестницы",
+         at_25["levels"]["finserv"] > at_10["levels"]["finserv"]),
+        ("а сумму позиций не трогает", at_25["sum"] == at_10["sum"]),
+    ]
+
     # Спецификация и договор тянутся за названием, пока их не тронули.
     _, hd_scripts, hd_dom = _page("project.html", _url="/project")
     typed = ("const n = document.getElementById('h_name');"

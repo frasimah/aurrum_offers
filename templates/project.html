@@ -156,6 +156,12 @@
     }
     .totals div span { display: block; font-size: 11.5px; color: #949598; }
     .totals div b { font-size: 17px; font-weight: 500; }
+    /* Поле ставки в полосе итогов: тот же размер, что у чисел рядом,
+       иначе оно читается как подпись, а не как то, что можно править. */
+    .totals input.t_rate {
+      width: 72px; height: 30px; padding: 0 8px; font-size: 17px;
+      font-family: inherit; border: 1px solid #d9d9d9; background: #fffdf5;
+    }
 
     .dlg {
       width: min(820px, calc(100vw - 32px));
@@ -337,15 +343,15 @@
       <div class="totals" id="totals" hidden>
         <div><span>Позиций</span><b id="t_count">0</b></div>
         <div><span>Объём, м³</span><b id="t_volume">0</b></div>
-        <!-- Два уровня цены клиенту, а не сумма и надбавка к ней.
-             Наличный платит базовую, безналичный — после четырёх наценок
-             формы. Разница между ними — не «стоимость обмена»: к способу
-             оплаты относится только последний шаг, FINSERV. -->
         <!-- Названо так же, как строка «Сумма позиций» в итоге компреда:
              это одно и то же число, и разные имена у него заставляли
              искать разницу там, где её нет. -->
         <div><span title="Цена клиенту × количество, сложенная по всем позициям — колонка AE книги. Наценок формы (ДИЗАЙНЕР, УСНО, НДС, FINSERV) в ней нет. Это же число — строка «Сумма позиций» в итоге компреда">Сумма позиций, евро</span><b id="t_sum">0</b></div>
-        <div><span title="Колонка AI книги: та же сумма после четырёх наценок подряд, каждая делением — ДИЗАЙНЕР (AF) 10 % → УСНО (AG) 6 % → НДС (AH) 5 % → FINSERV (AI) 18 %. Это вершина лестницы, а не доплата за безнал: к способу оплаты относится только последний шаг">Со всеми наценками, евро</span><b id="t_finserv">0</b></div>
+        <div><span title="Колонка AI книги: та же сумма после четырёх наценок подряд, каждая делением — ДИЗАЙНЕР (AF) → УСНО (AG) → НДС (AH) → FINSERV (AI). Это вершина лестницы, а не доплата за безнал: к способу оплаты относится только последний шаг">Со всеми наценками, евро</span><b id="t_finserv">0</b></div>
+        <!-- Ставка дизайнера меняется от сделки к сделке, а жила только
+             на «Константах» — одна на все проекты. Здесь она у проекта
+             своя и стоит рядом с числом, на которое влияет. -->
+        <div><span title="Наценка дизайнеру, % — ставка ЭТОГО проекта, колонка $AF$1 книги. Меняет «Со всеми наценками» и уходит в выгружаемый файл. Пустое поле возвращает величину со страницы «Константы»">Дизайнеру, %</span><input class="manual t_rate" id="t_designer" placeholder="10"></div>
       </div>
 
       <div class="actions">
@@ -543,6 +549,34 @@
     for (const el of document.querySelectorAll('[id^="fin_"][id$="_val"], [id^="fin_"][id$="_unit"]')) {
       el.addEventListener('change', () => { save(); recalc(); });
     }
+
+    // Наценка дизайнеру — ставка ЭТОГО проекта. Правка кладёт её в
+    // снимок ставок проекта: он и уходит в файл, и по нему считается
+    // «Со всеми наценками». Пустое поле возвращает величину с
+    // «Констант» — как и у переопределений в строках позиций.
+    (() => {
+      const el = document.getElementById('t_designer');
+      if (!el) return;
+      const shown = () => {
+        const own = (state.rates || {}).designer;
+        el.value = own == null ? '' : own;
+        el.placeholder = String((AURRUM.rates() || {}).designer ?? 10);
+      };
+      shown();
+      el.addEventListener('change', () => {
+        const raw = (el.value || '').replace(',', '.').trim();
+        if (!raw) {
+          // Убрали своё число — остальные ставки проекта не трогаем.
+          if (state.rates) delete state.rates.designer;
+        } else {
+          const number = parseFloat(raw);
+          if (!isFinite(number) || number < 0 || number >= 100) { shown(); return; }
+          state.rates = { ...(state.rates || AURRUM.rates() || {}), designer: number };
+        }
+        save();
+        recalc();
+      });
+    })();
 
     let positions = state.positions || [];
     // Порядок комнат нужен ровно за двумя вещами: за пустой комнатой
