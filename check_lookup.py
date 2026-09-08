@@ -2566,6 +2566,26 @@ def check_final_block() -> tuple[int, int]:
          round((f["всего"] + 4) * 0.7 - 75 - 4300, 2) == 39999.75),
     ]
 
+    # Два уровня цены клиенту. Наличный платит базовую, безналичный —
+    # после четырёх наценок формы. Прежняя подпись «Безнал» стояла над
+    # вершиной каскада рядом с «Суммой», и разницу читали как стоимость
+    # обмена, хотя к способу оплаты относится только шаг FINSERV.
+    soup_lv, lv_scripts, lv_dom = _page("project.html", _url="/project")
+    labels = " ".join(t.get_text(" ", strip=True)
+                      for t in soup_lv.select("#totals span"))
+    import pricing as _pricing
+    one = _pricing.for_position({"purchase": 1000, "qty": 1, "assembly": 1},
+                                rates=None)
+    checks += [
+        ("наличная цена названа налом", "Нал, евро" in labels),
+        ("безналичная — безналом", "Безнал, евро" in labels),
+        ("обе цены равны по виду — безнал не приглушён",
+         soup_lv.select_one("#t_finserv").get("class") in (None, [])),
+        ("безнал — вершина каскада, а не надбавка к сумме",
+         one.levels["finserv"] > one.levels["vat"] > one.levels["usno"]
+         > one.levels["designer"] > one.with_assembly),
+    ]
+
     # Спецификация и договор тянутся за названием, пока их не тронули.
     _, hd_scripts, hd_dom = _page("project.html", _url="/project")
     typed = ("const n = document.getElementById('h_name');"
