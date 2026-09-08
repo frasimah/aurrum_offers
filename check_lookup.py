@@ -1360,6 +1360,31 @@ def check_item_edit_mode() -> tuple[int, int]:
              "templates", "lookup.html"), encoding="utf-8").read()),
     ]
 
+    # Тревога сверки: красным только то, чего в тексте НЕТ НИ ОДНИМ
+    # значащим словом. Строгое сравнение по строке кричало бы на восьми
+    # значениях из восьми — извлечение переставляет слова и склеивает их,
+    # и такое предупреждение перестают читать за день.
+    page_text = ("Aurora table lamp. Murano blown glass AE Light Pink Crystal. "
+                 "Height 28 cm Depth 11 cm Minimum diameter 6 cm.")
+    seen = _run_page(sc_full, dom_full,
+                     responses=[{"ok": True, "json": {"text": page_text,
+                                                      "chars": len(page_text)}}],
+                     actions=[
+        "document.getElementById('f_dims_raw').value = 'Height 28 cm, Depth 11 cm'",
+        "document.getElementById('f_note').value = 'выдуманное примечание кресла'",
+        "const v = document.getElementById('verify'); v.open = true;"
+        " v.dispatchEvent({ type: 'toggle', target: v })",
+        "await Promise.resolve(); await Promise.resolve(); await Promise.resolve();"
+        " await Promise.resolve()"])
+    said = (seen["ids"].get("verify_status") or {}).get("text", "")
+    alarm = (seen["ids"].get("verify_miss") or {}).get("text", "")
+    checks += [
+        ("сверка сходила за текстом страницы", "знаков" in said),
+        ("совпавшее посчитано", "Полностью совпало" in said),
+        ("переставленные знаки потерей не считаются", "Размеры" not in alarm),
+        ("выдуманное названо прямо", "НЕТ" in alarm and "Примечание" in alarm),
+    ]
+
     # Выбор проекта: позиция должна уметь уехать не только в текущий.
     _, sc_pick, dom_pick = _page(
         "lookup.html", _render=True, product=product, url=product.source_url,
@@ -1412,13 +1437,18 @@ def check_item_edit_mode() -> tuple[int, int]:
 
     # Вставка строки в книгу Excel — второстепенное действие: свёрнуто и
     # стоит последним, чтобы не спорить с «Сохранить» и «В проект».
-    tuck = soup_lib.select_one("details.tuck")
+    tuck = soup_lib.select_one("details#bookrow")
     checks += [
         ("вставка строки свёрнута в отдельный блок", tuck is not None),
         ("блок закрыт по умолчанию", bool(tuck) and not tuck.has_attr("open")),
         ("в нём и номер строки, и скрытый расчёт",
          bool(tuck) and tuck.find(id="f_row") is not None
          and tuck.find(id="f_pricing") is not None),
+        ("сверка с источником свёрнута отдельным блоком",
+         soup_lib.select_one("details#verify") is not None),
+        ("в ней текст страницы и его состояние",
+         soup_lib.select_one("#verify_text") is not None
+         and soup_lib.select_one("#verify_status") is not None),
         ("он стоит после отделок",
          bool(tuck) and bool(soup_lib.select("input.finpick"))
          and tuck.sourceline > soup_lib.select("input.finpick")[-1].sourceline),

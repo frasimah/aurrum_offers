@@ -191,6 +191,15 @@
     .diff button.link { font-size: 11.5px; color: #2d2d2d; }
     .diff button.link:hover { color: #b58900; }
 
+    .verify__text {
+      max-height: 320px; overflow: auto; margin: 8px 0 0;
+      padding: 10px 12px; border: 1px solid #ececec; background: #fafafa;
+      font-family: ui-monospace, Menlo, monospace; font-size: 11.5px;
+      line-height: 1.6; white-space: pre-wrap; word-break: break-word;
+    }
+    .verify__text mark { background: #fff3b0; color: #2d2d2d; }
+    .verify__miss { color: #d64545; }
+
     .dlg {
       width: min(440px, calc(100vw - 32px));
       border: 1px solid #2d2d2d; padding: 22px 24px; background: #fff;
@@ -630,10 +639,29 @@
           </div>
           {% endif %}
 
+          <!-- Сверка с источником. Карточка говорит, что нашла, а
+               проверить это можно было только уйдя на сайт и вычитав
+               страницу глазами. Здесь тот же текст, по которому работало
+               извлечение, и в нём подсвечено то, что попало в поля.
+               Значение, которого в тексте нет, видно сразу — именно так
+               выглядит выдумка. -->
+          {% if product.source_url %}
+          <details class="tuck" id="verify">
+            <summary>Сверить с источником</summary>
+            <div class="hint" style="margin-bottom:8px">
+              Текст страницы дословно. <mark>Подсвечено</mark> — то, что попало в поля
+              карточки. Ненайденное перечислено сверху: его в источнике нет.
+            </div>
+            <div class="hint" id="verify_status">Открываю…</div>
+            <div class="hint verify__miss" id="verify_miss" hidden></div>
+            <pre class="verify__text" id="verify_text"></pre>
+          </details>
+          {% endif %}
+
           <!-- Ручная вставка строки в книгу Excel: нужна редко, поэтому
                свёрнута и стоит последней. Основной путь — «В проект» и
                выгрузка книги оттуда. -->
-          <details class="tuck">
+          <details class="tuck" id="bookrow">
             <summary>Вставить строку в книгу Excel вручную</summary>
             <label for="f_row">Строка в книге</label>
             <div class="grid3">
@@ -718,8 +746,8 @@
     </div>
     <div class="dlg__new">
       <label for="pickdlg_name">Новый проект</label>
-      <div class="grid3">
-        <input id="pickdlg_name" placeholder="Как назвать" style="grid-column: span 2">
+      <input id="pickdlg_name" placeholder="Как назвать">
+      <div class="actions">
         <button type="button" id="pickdlg_create">Создать и положить</button>
       </div>
       <div class="hint">Имя попадёт в шапку предложения — его можно поменять на странице проекта.</div>
@@ -1202,6 +1230,98 @@
           window.location = '{{ url_for("library_page") }}';
         } catch (e) { out.textContent = e.message; del.disabled = false; }
       });
+    }
+
+    // Сверка с источником: текст страницы дословно, с подсветкой того,
+    // что попало в поля. Грузим по открытию блока, а не при загрузке
+    // страницы: запрос идёт на сайт бренда и занимает секунды.
+    const verify = document.getElementById('verify');
+    if (verify) {
+      let loaded = false;
+      verify.addEventListener('toggle', async () => {
+        if (!verify.open || loaded) return;
+        loaded = true;
+        const out = document.getElementById('verify_text');
+        const status = document.getElementById('verify_status');
+        try {
+          const r = await fetch('{{ url_for("source_text") }}?url='
+            + encodeURIComponent({{ (product.source_url if product else '') | tojson }}));
+          const data = await r.json();
+          if (!r.ok) throw new Error(data.error || 'страница не открылась');
+          render(data.text || '', data.chars || 0);
+        } catch (e) {
+          loaded = false;                 // дать повторить
+          status.textContent = e.message;
+        }
+      });
+
+      // Значения карточки ищем в тексте целиком. Найденные подсвечиваем,
+      // ненайденные называем: именно они и есть повод не верить полю.
+      function wanted() {
+        const val = id => ((document.getElementById(id) || {}).value || '').trim();
+        const out = [['Размеры', val('f_dims_raw')], ['Примечание', val('f_note')],
+                     ['Модель', val('f_model')]];
+        document.querySelectorAll('input.finpick').forEach(cb =>
+          out.push(['Отделка', cb.dataset.mat || '']));
+        return out.filter(([, v]) => v.length > 2);
+      }
+
+      // Сравниваем по значащим словам, а не по строке целиком — та же
+      // мерка, что у _grounded в разборе. Извлечение переставляет слова,
+      // склеивает («blownglass» вместо «blown glass») и дописывает
+      // пояснения; строгое сравнение кричало бы «нет в источнике» на
+      // восьми строках из восьми, и читать это перестали бы за день.
+      //
+      // Три состояния, а не два. Красное — когда НИ ОДНОГО слова нет в
+      // тексте: именно так выглядит выдумка, ради которой всё и затеяно.
+      const bare = t => (t || '').toLowerCase()
+        .replace(/[.,;:()«»"'\u2019\u2018\u201c\u201d–—-]/g, ' ')
+        .replace(/\s+/g, ' ').trim();
+      const words = v => bare(v).split(' ').filter(t => t.length >= 4);
+
+      function render(text, chars) {
+        const status = document.getElementById('verify_status');
+        const out = document.getElementById('verify_text');
+        const flat = bare(text);
+        const whole = [], part = [], none = [];
+        for (const [label, value] of wanted()) {
+          const w = words(value);
+          const hit = w.filter(t => flat.includes(t)).length;
+          (hit === w.length && w.length ? whole : hit ? part : none)
+            .push([label, value]);
+        }
+        const esc = t => t.replace(/[&<>]/g, c =>
+          ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+
+        // Подсвечиваем сами слова: целые строки в тексте почти никогда не
+        // встречаются дословно, а слова встречаются.
+        const marks = [...new Set(
+          [...whole, ...part].flatMap(([, v]) => words(v)))]
+          .sort((a, b) => b.length - a.length);
+        let html = esc(text);
+        for (const token of marks) {
+          const safe = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          html = html.replace(new RegExp(safe, 'gi'), m => '<mark>' + m + '</mark>');
+        }
+        out.innerHTML = html;
+
+        const parts = ['Текст страницы: ' + chars + ' знаков.',
+                       'Полностью совпало: ' + whole.length + '.'];
+        if (part.length) {
+          parts.push('Частично (слова есть, запись другая): ' + part.length + '.');
+        }
+        status.textContent = parts.join(' ');
+
+        // Тревога — отдельной строкой, а не куском разметки внутри сводки:
+        // так её видно, и так её может прочитать приёмка.
+        const miss = document.getElementById('verify_miss');
+        miss.textContent = none.length
+          ? 'В тексте НЕТ: '
+            + none.map(([l, v]) => l + ' «' + v.slice(0, 40) + '»').join(', ')
+            + ' — проверьте, не выдумано ли.'
+          : '';
+        miss.hidden = !none.length;
+      }
     }
 
     // Выбор проекта: окно со списком и полем для нового. Раньше позиция
