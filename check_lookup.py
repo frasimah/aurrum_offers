@@ -521,6 +521,7 @@ def _page(name: str, **context) -> tuple[object, list[str], dict]:
     selectors: dict[str, list[str]] = {}
     for selector in ('[id^="fin_"][id$="_val"], [id^="fin_"][id$="_unit"]',
                      "input.finpick", ".ph", ".parse", "button[data-del]",
+                     "[data-meta]",
                      "input[data-k]", "td[data-edit]", ".diff",
                      "#parse_result button[data-f]", "#parse_result button[data-i]",
                      ".diff button.link", "button.usevariant", ".pickrow"):
@@ -549,7 +550,11 @@ def _run_page(scripts: list[str], dom: dict, **kw) -> dict:
     got = subprocess.run(["node", runner], input=_json.dumps(payload, ensure_ascii=False),
                          capture_output=True, text=True, timeout=60)
     if got.returncode != 0:
-        return {"error": (got.stderr or "").strip()[:300], "ids": {}, "storage": {},
+        # Молчаливый провал прогона красит проверки в красный без причины:
+        # снимок пустой, а почему — не сказано. Говорим вслух.
+        why = (got.stderr or "").strip()[:300]
+        print(f"  ! прогон страницы не состоялся: {why or 'без вывода'}")
+        return {"error": why, "ids": {}, "storage": {},
                 "fetches": [], "throws": []}
     return _json.loads(got.stdout)
 
@@ -790,6 +795,34 @@ def check_variant_pick() -> tuple[int, int]:
          cleared["f_d"]["value"] == ""),
         ("исполнение без размеров очищает объём",
          cleared["f_vol"]["value"] == ""),
+    ]
+
+    import app as flask_app
+
+    # Подстановка правит ТУ строку описания, где стоял прежний размер.
+    # Раньше правилась третья по счёту — а третья это размер только
+    # когда есть и модель, и тип; без типа туда попадала аннотация, и
+    # подстановка молча затирала её размером.
+    no_type = pl.Product(source_url="https://x/y", model="Sisma",
+                         dims_raw="300x90x75", width_cm=300, depth_cm=90,
+                         height_cm=75, summary_ru="Кровать с изголовьем.")
+    no_type.variants = [{"dims_raw": "300x90x75"}, {"dims_raw": "320x150x75"}]
+    text = pl.to_excel_description(no_type, with_finishes=False)
+    _, sc_nt, dom_nt = _page("lookup.html", _render=True, product=no_type,
+                             url=no_type.source_url, description=text,
+                             variants=pl.variant_cards(no_type),
+                             types=pl.TYPES_RU, project_choices=[],
+                             card_base=flask_app._card_base(no_type, text))
+    swapped = _run_page(sc_nt, dom_nt,
+                        actions=["document.getElementById('usevariant_1').click()"])
+    got = swapped["ids"].get("f_desc", {}).get("value", "")
+    checks += [
+        ("подстановка не затирает аннотацию",
+         "Кровать с изголовьем." in got),
+        ("и ставит новый размер на место прежнего",
+         "320x150x75" in got and "300x90x75" not in got),
+        ("о подстановке сказано там, где нажали",
+         "320x150x75" in swapped["ids"].get("variant_said", {}).get("text", "")),
     ]
 
     good = 0
@@ -1554,8 +1587,14 @@ def check_item_edit_mode() -> tuple[int, int]:
         ("и при разборе тоже нет", soup_new.find(id="f_summary") is None),
         ("текст аннотации стоит в описании",
          stored["summary_ru"] in (soup_lib.select_one("#f_desc").get_text() or "")),
-        ("галочки фотографий сняты по умолчанию",
-         not any(cb.has_attr("checked") for cb in soup_lib.select(".ph input"))),
+        # Первый снимок отмечен нарочно: он обложка карточки, и без
+        # него клиенту не уходило бы ни одного фото, если менеджер до
+        # отбора не дошёл. Остальные — руками.
+        ("первый снимок отмечен",
+         soup_lib.select(".ph input")[0].has_attr("checked")),
+        ("остальные снимки не отмечены",
+         not any(cb.has_attr("checked")
+                 for cb in soup_lib.select(".ph input")[1:])),
         ("галочки отделок сняты по умолчанию",
          not any(cb.has_attr("checked") for cb in soup_lib.select("input.finpick"))),
         ("описание на экране без строки отделок",
