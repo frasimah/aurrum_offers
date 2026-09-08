@@ -157,6 +157,25 @@
     .totals div span { display: block; font-size: 11.5px; color: #949598; }
     .totals div b { font-size: 17px; font-weight: 500; }
 
+    .shelf {
+      display: grid; gap: 12px; margin: 0 0 18px;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    }
+    .shelf__item { border: 1px solid #ececec; background: #fff; overflow: hidden; }
+    .shelf__item img,
+    .shelf__none {
+      display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover;
+      background: #f4f4f4;
+    }
+    .shelf__none {
+      display: flex; align-items: center; justify-content: center;
+      color: #c4c4c4; font-size: 11.5px;
+    }
+    .shelf__cap { padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 2px; }
+    .shelf__brand { color: #949598; font-size: 10.5px; text-transform: uppercase; }
+    .shelf__name { font-size: 12.5px; font-weight: 500; line-height: 1.3; }
+    .shelf__meta { color: #949598; font-size: 11px; }
+
     .empty { padding: 40px 0; text-align: center; color: #949598; }
 
     .actions { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; align-items: center; }
@@ -203,6 +222,7 @@
         как сейчас.
       </div>
       <div class="head">
+        <label><span>Название</span><input id="h_name" placeholder="Владимир, гостиная"></label>
         <label><span>Спецификация №</span><input id="h_number" placeholder="2867/3"></label>
         <label><span>Договор</span><input id="h_contract" placeholder="2867"></label>
         <label><span>Покупатель</span><input id="h_buyer" placeholder="Иванов И. И."></label>
@@ -235,6 +255,12 @@
       <div id="empty" class="empty" hidden>
         Пока пусто. Найдите товар по ссылке — и он появится здесь.
       </div>
+
+      <!-- Витрина проекта: что в нём уже лежит, лицом. Таблица считает
+           деньги, а глазами позицию узнают по снимку — до этого проект
+           открывался рядами чисел, и понять, что в нём, можно было
+           только вчитавшись. -->
+      <div class="shelf" id="shelf" hidden></div>
 
       <div style="overflow-x:auto">
         <table id="rows" hidden>
@@ -444,7 +470,9 @@
 
     // Шапка своя у каждого проекта — в отличие от ставок, которые одни
     // на все. Лежит рядом с позициями и так же переживает перезагрузку.
-    const HEAD_FIELDS = ['number', 'contract', 'buyer', 'date'];
+    // «name» первым: проект заводят по названию, а номер спецификации и
+    // покупатель появляются позже.
+    const HEAD_FIELDS = ['name', 'number', 'contract', 'buyer', 'date'];
 
     const header = () => {
       const out = {};
@@ -481,7 +509,32 @@
     const esc = s => String(s == null ? '' : s)
       .replace(/[&<>"]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
 
+    // Витрина рисуется из тех же позиций, что и таблица: отдельного
+    // состояния у неё нет, значит и разойтись им не с чего.
+    function renderShelf() {
+      const shelf = document.getElementById('shelf');
+      if (!shelf) return;
+      shelf.hidden = !positions.length;
+      if (!positions.length) { shelf.innerHTML = ''; return; }
+      shelf.innerHTML = positions.map((p, i) => {
+        const photo = (p.photos || [])[0];
+        const dims = [p.width_cm, p.depth_cm, p.height_cm]
+          .filter(n => n != null && n !== '').join('×');
+        return '<div class="shelf__item" title="' + esc(p.brand + ' ' + p.model) + '">'
+          + (photo ? '<img src="' + esc(photo) + '" alt="" loading="lazy">'
+                   : '<div class="shelf__none">нет фото</div>')
+          + '<div class="shelf__cap">'
+          + '<span class="shelf__brand">' + esc(p.brand || '') + '</span>'
+          + '<span class="shelf__name">' + esc(p.model || '') + '</span>'
+          + '<span class="shelf__meta">' + esc(p.type_ru || '')
+          + (dims ? ' · ' + esc(dims) : '')
+          + ((p.qty || 1) > 1 ? ' · ' + p.qty + ' шт.' : '') + '</span>'
+          + '</div></div>';
+      }).join('');
+    }
+
     function render(calc) {
+      renderShelf();
       const table = document.getElementById('rows');
       const body = table.querySelector('tbody');
       const empty = document.getElementById('empty');

@@ -87,7 +87,15 @@
       <input type="search" name="q" value="{{ query }}"
              placeholder="номер спецификации, договор, покупатель, дата…">
       <button type="submit">Найти</button>
-      <a class="btn ghost" href="{{ url_for('project') }}">Новый проект</a>
+      <a class="btn ghost" href="{{ url_for('project') }}">Пустой проект</a>
+    </form>
+
+    <!-- Проект заводят по названию, а номера и суммы появляются позже.
+         Раньше «Новый проект» открывал пустую страницу без имени, и в
+         списке он потом назывался «Без имени». -->
+    <form class="panel" id="newproj">
+      <input id="newproj_name" placeholder="Название нового проекта — например «Владимир, гостиная»">
+      <button type="submit" id="newproj_go">Создать</button>
     </form>
 
     {% if not rows %}
@@ -123,6 +131,7 @@
     <div class="status" id="status"></div>
   </div>
 
+  <script src="{{ url_for('static', filename='project_store.js') }}"></script>
   <script>
     const status = document.getElementById('status');
 
@@ -155,6 +164,19 @@
       } catch (e) { status.textContent = e.message; }
       btn.disabled = false;
     });
+    const newproj = document.getElementById('newproj');
+    if (newproj) newproj.addEventListener('submit', e => {
+      e.preventDefault();
+      const name = (document.getElementById('newproj_name').value || '').trim();
+      if (!name) { document.getElementById('newproj_name').focus(); return; }
+      const id = AURRUM.newId();
+      AURRUM.setCurrent(id);
+      const state = AURRUM.draft(id);
+      state.header = { ...(state.header || {}), name: name };
+      AURRUM.saveDraft(id, state);
+      window.location = '{{ url_for("project") }}';
+    });
+
   </script>
 </body>
 

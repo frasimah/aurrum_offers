@@ -588,6 +588,20 @@ def check_page_contract() -> tuple[int, int]:
 
     head = _re.search(r"HEAD_FIELDS = \[([^\]]*)\]", page)
     fields = _re.findall(r"'([a-z0-9_]+)'", head.group(1)) if head else []
+    # Название проекта — своё поле: проект заводят по имени, а номер
+    # спецификации и покупатель появляются позже. Без него в списке он
+    # назывался «Без имени».
+    import projects as _projects
+    checks += [
+        ("своё название сильнее собранного",
+         _projects.title({"header": {"name": "Владимир, гостиная",
+                                     "number": "2867"}}) == "Владимир, гостиная"),
+        ("без своего собирается как раньше",
+         _projects.title({"header": {"number": "2867", "buyer": "Иванов"}})
+         == "Спецификация № 2867 · Иванов"),
+        ("пустая шапка — «Без имени»", _projects.title({}) == "Без имени"),
+    ]
+
     checks.append(("поля шапки есть в разметке",
                    bool(fields) and all(f"h_{f}" in ids for f in fields)))
 
@@ -601,6 +615,13 @@ def check_page_contract() -> tuple[int, int]:
         "factory_discount_pct", "dealer_markup_pct"}
     checks.append(("ключи ряда позиции известны расчёту",
                    bool(row_keys) and row_keys <= known))
+
+    # Витрина проекта: что в нём лежит — лицом, а не рядами чисел.
+    checks += [
+        ("витрина проекта есть в разметке", "shelf" in set(dom["ids"])),
+        ("она рисуется из тех же позиций", "function renderShelf" in page
+         and "renderShelf();" in page),
+    ]
 
     # Константы: списки полей против величин расчёта.
     _, set_scripts, set_dom = _page("settings.html", _url="/settings")

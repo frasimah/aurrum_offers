@@ -755,7 +755,9 @@ def _project_choices() -> list[dict]:
     черновик и новый проект, и это рабочий путь.
     """
     try:
-        return [{"id": r.get("id"), "name": r.get("name") or r.get("id")}
+        # В строке индекса имя лежит в «title» — «name» там нет вовсе,
+        # и окно выбора показывало опознаватели вместо названий.
+        return [{"id": r.get("id"), "name": r.get("title") or r.get("id")}
                 for r in projects.read_index() if r.get("id")]
     except Exception:            # noqa: BLE001 — карточка важнее списка
         return []

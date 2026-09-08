@@ -52,8 +52,16 @@ class Conflict(RuntimeError):
 
 
 def title(project: dict) -> str:
-    """Имя для списка — из шапки, по которой менеджер его и узнаёт."""
+    """Имя для списка — из шапки, по которой менеджер его и узнаёт.
+
+    Своё название сильнее собранного: проект часто заводят до того, как
+    появились номер спецификации и покупатель, — «Владимир, гостиная»
+    понятнее, чем «Без имени».
+    """
     header = project.get("header") or {}
+    own = str(header.get("name") or "").strip()
+    if own:
+        return own
     parts = []
     number = str(header.get("number") or "").strip()
     if number:
