@@ -2249,6 +2249,69 @@ def check_palette() -> tuple[int, int]:
     return good, len(checks)
 
 
+def check_position_constants() -> tuple[int, int]:
+    """Умолчания позиции: константы, местная правка и её судьба.
+
+    Договор: величина берётся из «Констант», менеджер правит её в строке
+    под конкретный заказ, и обновление констант эту правку НЕ отменяет.
+    Раньше кнопка ровняла всё подряд, и правка исчезала молча — заметить
+    её пропажу можно было только по цене.
+    """
+    import json as _json
+
+    print("\n УМОЛЧАНИЯ ПОЗИЦИИ")
+    print(" " + "-" * 74)
+
+    _, scripts, dom = _page("project.html", _url="/project")
+
+    def storage(positions):
+        return {"aurrum.position_defaults":
+                _json.dumps({"factory_discount": 0.45, "dealer_markup": 0.12,
+                             "assembly": 1}),
+                "aurrum.current": "p1",
+                "aurrum.draft.p1": _json.dumps(
+                    {"positions": positions, "header": {}, "rates": None})}
+
+    say = ("const d = JSON.parse(localStorage.getItem('aurrum.draft.p1'));"
+           " document.getElementById('status').textContent = JSON.stringify("
+           " d.positions.map(p => [p.factory_discount, p.dealer_markup]))")
+
+    # Новая позиция наследует константы, а не заводские 50 / 0.
+    fresh = _run_page(scripts, dom, storage=storage([]),
+                      responses=[{"notJson": True}],
+                      actions=["AURRUM.addPosition({brand: 'X', model: 'Y', price: 1000})",
+                               say])
+    inherited = fresh["ids"].get("status", {}).get("text", "")
+
+    # Две позиции: у первой скидка правлена руками, вторая нетронута.
+    # Жмём «взять из констант» — первая обязана остаться при своём.
+    two = [{"brand": "A", "qty": 1, "factory_discount": 0.3, "dealer_markup": 0.0,
+            "assembly": 1, "own": {"factory_discount": True}},
+           {"brand": "B", "qty": 1, "factory_discount": 0.5, "dealer_markup": 0.0,
+            "assembly": 1}]
+    after = _run_page(scripts, dom, storage=storage(two),
+                      responses=[{"notJson": True}, {"notJson": True}],
+                      actions=["document.getElementById('fromdefaults').click()",
+                               "await null", "await null", say])
+    numbers = after["ids"].get("status", {}).get("text", "")
+
+    checks = [
+        ("новая позиция берёт скидку из «Констант»", "0.45" in inherited),
+        ("и наценку тоже", "0.12" in inherited),
+        ("правленная руками скидка переживает обновление констант",
+         "0.3" in numbers),
+        ("нетронутая — обновляется", numbers.count("0.45") == 1),
+        ("наценка нетронутого поля тоже обновляется",
+         numbers.count("0.12") == 2),
+    ]
+
+    good = 0
+    for label, hit in checks:
+        good += bool(hit)
+        print(f"  {OK if hit else BAD} {label}")
+    return good, len(checks)
+
+
 def check_photos() -> tuple[int, int]:
     """Отбор фотографий изделия среди всей галереи страницы.
 
@@ -3260,6 +3323,7 @@ def main() -> int:
     run("Правила галерей", check_gallery_rules)
     run("Вход", check_login)
     run("Фото", check_photos)
+    run("Умолчания позиции", check_position_constants)
     run("Витрина отделок", check_palette)
     run("Тип по адресу", check_url_types)
     run("Тип из извлечения", check_type_norm)
