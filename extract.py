@@ -106,6 +106,23 @@ def brand_note(source: str) -> str:
         return "\n\nУказания по этому сайту:\n" + f.read().strip()
 
 
+def _roles_line(known_roles: tuple | list) -> str:
+    """Наш список ролей отделки — в сам запрос.
+
+    Роль печатается клиенту («Стекло - MURANO BLOWN GLASS»), а модель
+    выбирала её как умела: у BAROVIER AURORA стекло приезжало то
+    «Стеклом», то «Обивкой», а один раз — мусором «ОбиglVertex».
+    Спрашивать словами из списка дешевле, чем чинить ответ потом.
+    """
+    if not known_roles:
+        return ""
+    return (" Поле role_ru обязано быть ровно одним из списка: "
+            + ", ".join(known_roles)
+            + ". Смотри на МАТЕРИАЛ: стекло — «Стекло», ткань или кожа — "
+              "«Обивка», металл — «Металл». Если ни один не подходит — "
+              "«Отделка».")
+
+
 def _types_line(known_types: tuple | list) -> str:
     """Наш список типов — в сам запрос.
 
@@ -127,7 +144,7 @@ def _types_line(known_types: tuple | list) -> str:
 
 def _gemini(data: bytes | None = None, text: str | None = None,
             model: str | None = None, known_types: tuple | list = (),
-            source: str = "") -> dict:
+            known_roles: tuple | list = (), source: str = "") -> dict:
     key = os.environ.get("GOOGLE_API_KEY", "").strip()
     if not key:
         raise RuntimeError("нет GOOGLE_API_KEY")
@@ -141,6 +158,7 @@ def _gemini(data: bytes | None = None, text: str | None = None,
     body = {
         "contents": [{"parts": [payload,
                                 {"text": _ASK + _types_line(known_types)
+                                         + _roles_line(known_roles)
                                          + brand_note(source)}]}],
         "systemInstruction": {"parts": [
             {"text": llama_extract._read("extraction_prompt.txt")}
@@ -183,6 +201,25 @@ SOURCE_KEY = "_извлекатель"
 SOURCE_MAIN = "Gemini"
 
 
+# Артикул исполнения: две заглавные буквы отдельным словом — «AE», «CL».
+# Ровно две: «MATT» и «BLACK» из настоящего названия материала
+# («Металл LIGHT BURNISHED BRASS + MATT BLACK NICKEL» в книге) под это
+# не подходят, и склейкой такая строка не считается.
+_CODE = re.compile(r"(?<![A-Za-z])[A-Z]{2}(?![A-Za-z])")
+
+
+def looks_glued(material: str) -> bool:
+    """Не склеена ли в одну отделку вся таблица исполнений.
+
+    У BAROVIER AURORA пять цветов стекла с артикулами, и модель то
+    раскладывает их по строкам, то сваливает в одну: «Murano blownglass
+    AE Light Pink/Crystal FL Aquamarine/Crystal CF Liquid Citron/Crystal
+    CI Grey/Crystal CW Brown/Crystal». Ответ при этом выглядит успешным,
+    и без этой проверки карточка молча теряет пять исполнений из шести.
+    """
+    return len(_CODE.findall(str(material or ""))) >= 2
+
+
 def _thin(answer: dict, known_types: tuple | list = ()) -> bool:
     """Стоит ли переспросить ответ у тяжёлой модели.
 
@@ -203,11 +240,16 @@ def _thin(answer: dict, known_types: tuple | list = ()) -> bool:
     # и той же странице VENICEM приходило то «Торшер», то мимо списка.
     if known_types and type_ru and type_ru not in known_types:
         return True
+    # Склеенная таблица исполнений — тоже повод переспросить: ответ
+    # выглядит полным, а исполнений в нём вместо шести одно.
+    if any(looks_glued((f or {}).get("material"))
+           for f in (first.get("finishes") or []) if isinstance(f, dict)):
+        return True
     return not (first.get("variants") or first.get("finishes"))
 
 
 def from_text(text: str, known_types: tuple | list = (),
-              source: str = "") -> dict:
+              known_roles: tuple | list = (), source: str = "") -> dict:
     """Разбор текста страницы.
 
     Очная ставка на пяти брендах: тип, число исполнений и габариты
@@ -226,7 +268,7 @@ def from_text(text: str, known_types: tuple | list = (),
     why_heavy = ""
     try:
         got = _gemini(text=text, model=GEMINI_MODEL_LIGHT,
-                      known_types=known_types, source=source)
+                      known_types=known_types, known_roles=known_roles, source=source)
         if not _thin(got, known_types):
             got[SOURCE_KEY] = SOURCE_MAIN
             return got
@@ -237,7 +279,8 @@ def from_text(text: str, known_types: tuple | list = (),
         why_heavy = f"лёгкая не ответила: {str(light_failed)[:60]}"
 
     try:
-        got = _gemini(text=text, known_types=known_types, source=source)
+        got = _gemini(text=text, known_types=known_types,
+                      known_roles=known_roles, source=source)
         got[SOURCE_KEY] = f"{SOURCE_MAIN} (переспрошено, {why_heavy})"
         return got
     except Exception as gemini_failed:   # noqa: BLE001 — есть чем заменить
@@ -247,7 +290,7 @@ def from_text(text: str, known_types: tuple | list = (),
 
 
 def from_url(url: str, known_types: tuple | list = (),
-             source: str = "") -> dict:
+             known_roles: tuple | list = (), source: str = "") -> dict:
     """Ссылка на техлист -> извлечённые данные."""
     got = safe_fetch.get(url, timeout=180, headers={"User-Agent": "Mozilla/5.0"})
     data = got.content
@@ -255,7 +298,8 @@ def from_url(url: str, known_types: tuple | list = (),
         raise RuntimeError(f"Документ больше {MAX_PDF_MB} МБ — не разбираю.")
 
     try:
-        got = _gemini(data=data, known_types=known_types, source=source or url)
+        got = _gemini(data=data, known_types=known_types,
+                      known_roles=known_roles, source=source or url)
         got[SOURCE_KEY] = SOURCE_MAIN
         return got
     except Exception as gemini_failed:   # noqa: BLE001 — есть чем заменить

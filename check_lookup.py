@@ -2046,7 +2046,7 @@ def check_extractors() -> tuple[int, int]:
         """answers — по одному на вызов: словарь или исключение."""
         seq = list(answers)
 
-        def fake(data=None, text=None, model=None, known_types=(), source=""):
+        def fake(data=None, text=None, model=None, known_types=(), known_roles=(), source=""):
             calls.append(model or extract.GEMINI_MODEL)
             got = seq.pop(0) if seq else {}
             if isinstance(got, Exception):
@@ -2137,6 +2137,37 @@ def check_extractors() -> tuple[int, int]:
         ("сохранённое False + разбор True -> False (только вниз)",
          merge(False, True) is False),
         ("сохранённое True + разбор True -> True", merge(True, True) is True),
+    ]
+
+    # Склеенная таблица исполнений: ответ выглядит полным, а исполнений
+    # в нём одно вместо шести. У BAROVIER AURORA страница отдавала
+    # «Murano blownglass AE Light Pink/Crystal FL Aquamarine/Crystal …»
+    # одной строкой, и карточка молча теряла пять из шести.
+    GLUED = ("Murano blownglass AE Light Pink/Crystal FL Aquamarine/Crystal "
+             "CF Liquid Citron/Crystal CI Grey/Crystal CW Brown/Crystal")
+    checks += [
+        ("склейка распознаётся", extract.looks_glued(GLUED) is True),
+        ("обычная отделка склейкой не считается",
+         extract.looks_glued("Light Pink/Crystal") is False),
+        ("артикул в названии — не склейка",
+         extract.looks_glued("CL Polished Chrome") is False),
+        ("две прописные в названии материала — не склейка",
+         extract.looks_glued("Металл LIGHT BURNISHED BRASS + MATT BLACK NICKEL") is False),
+        ("склейка переспрашивается у тяжёлой",
+         extract._thin({"products": [{"type_ru": "Настольная лампа",
+                                      "variants": [{"dims_raw": "1"}],
+                                      "finishes": [{"material": GLUED}]}]},
+                       known_types=("Настольная лампа",)) is True),
+    ]
+
+    # Список ролей обязан доходить до модели: роль печатается клиенту,
+    # а модель выбирала её как умела — стекло приезжало «Обивкой», а
+    # однажды мусором «ОбиglVertex».
+    roles = extract._roles_line(pl.ROLES_RU)
+    checks += [
+        ("список ролей уходит в запрос", "Стекло" in roles and "Обивка" in roles),
+        ("сказано смотреть на материал", "МАТЕРИАЛ" in roles),
+        ("без списка запрос не меняется", extract._roles_line(()) == ""),
     ]
 
     # 7б. Наш список типов обязан доходить до модели. Раньше он жил

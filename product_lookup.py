@@ -1070,7 +1070,8 @@ def lookup(url: str) -> Product:
 
     # Список типов передаём: ответ вне его — повод переспросить у тяжёлой
     # модели, а не молча уронить тип в «Другое».
-    extracted = extract.from_text(page_md, known_types=TYPES_RU, source=url)
+    extracted = extract.from_text(page_md, known_types=TYPES_RU,
+                                  known_roles=ROLES_RU, source=url)
     source = str(extracted.get(extract.SOURCE_KEY) or "")
     if source and not source.startswith(extract.SOURCE_MAIN):
         p.warnings.append(
@@ -1142,7 +1143,7 @@ def lookup(url: str) -> Product:
     for candidate in candidates[:3]:
         try:
             pdf = _first_product(extract.from_url(candidate, known_types=TYPES_RU,
-                                                  source=url))
+                                                  known_roles=ROLES_RU, source=url))
             p.spec_pdf_url = candidate
             break
         except Exception as exc:  # noqa: BLE001 — техлист не критичен
@@ -1156,8 +1157,22 @@ def lookup(url: str) -> Product:
         if pdf_variants:
             p.variants = pdf_variants
             dims_from_page = False
-        if not p.finishes:
-            p.finishes = [_as_dict(f) for f in (pdf.get("finishes") or [])]
+        # Отделки из техлиста берём не только когда страница молчит, но и
+        # когда она отдала МЕНЬШЕ или отдала склейку. Раньше условие было
+        # «если со страницы не пришло ничего», а склеенная строка — это
+        # «что-то»: у BAROVIER AURORA страница возвращала две отделки
+        # вместо шести, и разложенная таблица из техлиста игнорировалась.
+        pdf_finishes = [_as_dict(f) for f in (pdf.get("finishes") or [])]
+        page_glued = any(extract.looks_glued(f.get("material")) for f in p.finishes)
+        if pdf_finishes and (not p.finishes or page_glued
+                             or len(pdf_finishes) > len(p.finishes)):
+            if p.finishes:
+                p.warnings.append(
+                    f"Отделки взяты из техлиста ({len(pdf_finishes)}), а не со "
+                    f"страницы ({len(p.finishes)}): "
+                    + ("страница склеила таблицу исполнений в одну строку."
+                       if page_glued else "в техлисте их больше."))
+            p.finishes = pdf_finishes
         if not p.tech_note:
             p.tech_note = str(pdf.get("tech_note") or "").strip()
     else:
@@ -1241,6 +1256,14 @@ def lookup(url: str) -> Product:
         p.warnings.append(
             "Числа взяты из источника, но пометки высоты там нет — оси "
             "расставлены по порядку и помечены знаком «!». Проверьте раскладку."
+        )
+    glued = [f.get("material") for f in p.finishes
+             if extract.looks_glued(f.get("material"))]
+    if glued:
+        p.warnings.append(
+            f"Отделки похожи на склеенную таблицу исполнений: в одной строке "
+            f"{len(extract._CODE.findall(str(glued[0])))} артикулов. Разберите "
+            "их вручную или пересоберите — исполнений тут больше, чем показано."
         )
     if not p.photo_urls:
         p.warnings.append("Фотографии не найдены.")
