@@ -579,6 +579,7 @@
           <input id="f_vol" value="{{ product.volume_m3 or '' }}">
           <div class="hint">
             {% if product.volume_source == 'производитель' %}Указан производителем в техлисте.{% elif
+            product.volume_source == 'задан вручную' %}Поставлен руками: с расчётом по габаритам не совпадает.{% elif
             product.volume_source %}Расчёт по габаритам: Д×Г×В×1,5 с округлением вверх до 0,1.{% else %}Не определён.{%
             endif %}
           </div>

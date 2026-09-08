@@ -393,6 +393,25 @@ def _card_base(product, description: str, item: dict | None = None) -> dict:
     return base
 
 
+def _volume_source_of(item: dict) -> str:
+    """Откуда объём, если в карточке это не записано.
+
+    Карточки, сохранённые до того, как экран стал приносить всё
+    состояние целиком, лежат без volume_source — и подпись под
+    заполненным полем говорила «Не определён». Восстановить можно
+    точно, без догадок: если объём совпадает с расчётом по осям, он
+    расчётный; если стоит и не совпадает — его поставили руками.
+    """
+    volume = item.get("volume_m3")
+    if not isinstance(volume, (int, float)) or not volume:
+        return ""
+    calc = product_lookup.volume_m3(item.get("width_cm"), item.get("depth_cm"),
+                                    item.get("height_cm"))
+    if calc is not None and abs(calc - float(volume)) < 0.005:
+        return "расчёт по габаритам"
+    return "задан вручную"
+
+
 def _as_product(item: dict):
     """Сохранённая карточка -> Product: редактор у каталога и разбора один.
 
@@ -417,7 +436,8 @@ def _as_product(item: dict):
         dims_confident=bool(item.get("dims_confident", True)),
         dims_from_spec=bool(item.get("dims_from_spec")),
         volume_m3=item.get("volume_m3"),
-        volume_source=item.get("volume_source") or "",
+        volume_source=(item.get("volume_source")
+                       or _volume_source_of(item)),
         finishes=item.get("finishes") or [],
         tech_note=item.get("note") or "",
         summary_ru=item.get("summary_ru") or "",

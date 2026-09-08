@@ -366,6 +366,43 @@ def check_units() -> tuple[int, int]:
     return good, len(checks)
 
 
+def check_volume_source() -> tuple[int, int]:
+    """Откуда объём — должно быть сказано, а не «не определён».
+
+    Карточки, сохранённые до того, как экран стал приносить состояние
+    целиком, лежат без volume_source, и подпись под заполненным полем
+    говорила «Не определён». Восстанавливается точно: совпал с расчётом
+    по осям — расчётный; стоит и не совпал — поставлен руками.
+    """
+    import app as flask_app
+    print("\n ОТКУДА ОБЪЁМ")
+    print(" " + "-" * 74)
+    cases = [
+        ("совпал с расчётом — расчётный",
+         {"volume_m3": 0.2, "width_cm": 70.0, "depth_cm": 18.0, "height_cm": 58.0},
+         "расчёт по габаритам"),
+        ("не совпал — поставлен руками",
+         {"volume_m3": 0.35, "width_cm": 70.0, "depth_cm": 18.0, "height_cm": 58.0},
+         "задан вручную"),
+        ("ковёр без высоты — руками",
+         {"volume_m3": 0.35, "width_cm": 200.0, "depth_cm": 300.0, "height_cm": None},
+         "задан вручную"),
+        ("объёма нет — и источника нет", {"volume_m3": None}, ""),
+        ("записанное не перетирается",
+         {"volume_m3": 0.2, "width_cm": 70.0, "depth_cm": 18.0, "height_cm": 58.0,
+          "volume_source": "производитель"}, "производитель"),
+    ]
+    checks = []
+    for label, item, want in cases:
+        got = (item.get("volume_source") or flask_app._volume_source_of(item))
+        checks.append((f"{label:34} -> {got or '—'}", got == want))
+    good = 0
+    for label, hit in checks:
+        good += bool(hit)
+        print(f"  {OK if hit else BAD} {label}")
+    return good, len(checks)
+
+
 def check_volume() -> tuple[int, int]:
     print("\n ОБЪЁМ ПО ФОРМУЛЕ КНИГИ")
     print(" " + "-" * 74)
@@ -2728,6 +2765,7 @@ def main() -> int:
     run("Нотация размеров", check_book_dims)
     run("Единица", check_units)
     run("Объём", check_volume)
+    run("Откуда объём", check_volume_source)
     run("Сверка", check_dims_grounding)
     run("Техлист", check_spec_pdf)
     run("Документы", check_docs_list)
