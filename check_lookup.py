@@ -1249,6 +1249,47 @@ def check_item_edit_mode() -> tuple[int, int]:
     checks.append(("отметка добавляет отделку в описание",
                    "Стекло - CRYSTAL" in (picked.get("f_desc", {}).get("value") or "")))
 
+    # Сохранение обязано нести КАРТОЧКУ ЦЕЛИКОМ. Экран показывает не всё,
+    # а запись идёт без слияния — непоказанное стиралось молча: правка
+    # одного примечания уносила ссылку на техлист, а смена модели клала
+    # дубль под новым опознавателем, оставляя исходную карточку старой.
+    full = dict(stored)
+    full.update({"collection": "Sisma", "volume_source": "производитель",
+                 "doc_urls": ["https://example.com/spec.pdf"]})
+    full["finishes"] = [{"role_ru": "Стекло", "material": "Crystal", "code": "AE"}]
+    prod_full = flask_app._as_product(full)
+    base = flask_app._card_base(prod_full, full["description"], full)
+    _, sc_full, dom_full = _page(
+        "lookup.html", _render=True, product=prod_full, url=prod_full.source_url,
+        description=full["description"], variants=pl.variant_cards(prod_full),
+        card_base=base, project_choices=[], types=pl.TYPES_RU,
+        from_library=full["id"])
+    sent = _run_page(sc_full, dom_full, actions=[
+        "document.getElementById('f_model').value = 'Aurora 2'",
+        "document.getElementById('tolibrary').click()"])
+    body = _json.loads((sent.get("fetches") or [{}])[0].get("body") or "{}")
+    checks += [
+        ("сохранение несёт опознаватель", body.get("id") == full["id"]),
+        ("и не теряет ссылки на документы", body.get("doc_urls") == full["doc_urls"]),
+        ("и коллекцию", body.get("collection") == "Sisma"),
+        ("и источник объёма", body.get("volume_source") == "производитель"),
+        ("артикул отделки переживает сохранение",
+         (body.get("finishes") or [{}])[0].get("code") == "AE"),
+        ("правка модели уходит", body.get("model") == "Aurora 2"),
+    ]
+
+    # «Пересобрать с сайта» вернулась вместе со старым шаблоном.
+    checks += [
+        ("«Пересобрать» есть у карточки из каталога",
+         soup_lib.find(id="refresh") is not None),
+        ("при разборе её нет — страница только что разобрана",
+         soup_new.find(id="refresh") is None),
+        ("маршрут пересборки не осиротел",
+         "library_refresh" in open(os.path.join(
+             os.path.dirname(os.path.abspath(__file__)),
+             "templates", "lookup.html"), encoding="utf-8").read()),
+    ]
+
     # Выбор проекта: позиция должна уметь уехать не только в текущий.
     _, sc_pick, dom_pick = _page(
         "lookup.html", _render=True, product=product, url=product.source_url,

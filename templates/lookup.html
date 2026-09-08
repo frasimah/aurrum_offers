@@ -184,6 +184,13 @@
 
     /* Свёрнутый блок второстепенного действия: заметен ровно настолько,
        чтобы его нашли, когда он понадобится. */
+    .diff {
+      display: flex; align-items: baseline; gap: 8px; margin-top: 4px;
+      font-size: 11.5px; color: #b58900;
+    }
+    .diff button.link { font-size: 11.5px; color: #2d2d2d; }
+    .diff button.link:hover { color: #b58900; }
+
     /* Выбор проекта стоит рядом с кнопкой и не растягивается на всю
        ширину, как остальные поля. */
     #project_pick { width: auto; max-width: 15rem; }
@@ -560,6 +567,7 @@
             <button type="button" class="ghost" id="toproject">В проект</button>
             <button type="button" class="ghost" id="copy">Скопировать описание</button>
             {% if from_library %}
+            <button type="button" class="ghost" id="refresh">Пересобрать с сайта</button>
             <button type="button" class="link" id="del">Удалить</button>
             {% endif %}
           </div>
@@ -1013,9 +1021,16 @@
     // Список живёт в браузере — базы у приложения нет, а перезагрузку
     // страницы он переживает.
     // Карточка со всеми правками — одна сборка на оба назначения.
+    // Полное состояние карточки с сервера: опознаватель, коллекция,
+    // ссылки на документы, источник объёма, артикулы отделок — всего
+    // этого на экране нет, а сохранение пишет карточку целиком. Без
+    // этой основы правка одного поля стирала непоказанное.
+    const CARD_BASE = {{ (card_base or {}) | tojson }};
+
     function card() {
       const val = id => (document.getElementById(id) || {}).value || '';
       return {
+        ...CARD_BASE,
         source_url: {{ (product.source_url if product else '') | tojson }},
         brand: val('f_brand'),
         model: val('f_model'),
@@ -1030,9 +1045,10 @@
         note: val('f_note'),
         width_cm: val('f_d'), depth_cm: val('f_g'), height_cm: val('f_v'),
         volume_m3: val('f_vol'),
-        finishes: [...document.querySelectorAll('input.finpick')]
-          .filter(cb => cb.checked)
-          .map(cb => ({ role_ru: cb.dataset.role, material: cb.dataset.mat })),
+        // Галочки правят СТРОКУ ОТДЕЛОК В ОПИСАНИИ, а не состав карточки:
+        // в карточке остаётся всё, что нашёл разбор, вместе с артикулами.
+        // Иначе правка описания снимала галочки и сохраняла finishes: [].
+        finishes: CARD_BASE.finishes || [],
         photos: [...document.querySelectorAll('.ph')]
           .filter(t => t.querySelector('input').checked && !t.dataset.local)
           .map(t => t.dataset.src),
@@ -1069,6 +1085,72 @@
     // режим чтения с кнопкой «Редактировать» был нужен, пока экранов
     // было два и каталожный выглядел нередактируемым.
     const FROM_LIBRARY = {{ (from_library or '') | tojson }};
+
+    // Пересборка со страницы бренда. Пропала вместе со старым каталожным
+    // шаблоном, а с ней и единственный способ вернуть в карточку ссылку
+    // на техлист. Маршруты /library/refresh и /library/update при этом
+    // остались живыми и без вызывающих.
+    const refresh = document.getElementById('refresh');
+    if (refresh) {
+      refresh.addEventListener('click', async () => {
+        if (!confirm('Разобрать страницу бренда заново? Пустые поля заполнятся, ваши правки останутся.')) return;
+        const out = document.getElementById('library_status');
+        refresh.disabled = true;
+        out.textContent = 'Разбираю страницу — это занимает до минуты…';
+        try {
+          const r = await fetch('{{ url_for("library_refresh") }}', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ item: card() }),
+          });
+          const data = await r.json();
+          if (!r.ok) throw new Error(data.error || 'не удалось пересобрать');
+          Object.assign(CARD_BASE, data.item);
+          for (const [key, id] of Object.entries({
+            type_ru: 'f_type', dims_raw: 'f_dims_raw', width_cm: 'f_d',
+            depth_cm: 'f_g', height_cm: 'f_v', volume_m3: 'f_vol',
+            note: 'f_note', description: 'f_desc',
+          })) {
+            const el = document.getElementById(id);
+            if (el && data.item[key] != null) el.value = data.item[key];
+          }
+          syncFinishChecks();
+          showDiffs(data.differs || {});
+          const parts = [data.filled && data.filled.length
+            ? 'Заполнено пустых полей: ' + data.filled.length + '.'
+            : 'Пустых полей не было — ничего не тронуто.'];
+          if (Object.keys(data.differs || {}).length) {
+            parts.push('Разбор нашёл другие значения — они под полями, взять решаете вы.');
+          }
+          if (data.warnings && data.warnings.length) parts.push(data.warnings.join(' '));
+          out.textContent = parts.join(' ');
+        } catch (e) { out.textContent = e.message; }
+        refresh.disabled = false;
+      });
+    }
+
+    // Свежее значение, разошедшееся с заполненным, не подменяем — кладём
+    // под поле кнопкой. Иначе пересборка молча меняет выверенные числа.
+    function showDiffs(differs) {
+      const FIELD = { type_ru: 'f_type', dims_raw: 'f_dims_raw', width_cm: 'f_d',
+                      depth_cm: 'f_g', height_cm: 'f_v', volume_m3: 'f_vol',
+                      note: 'f_note', description: 'f_desc' };
+      document.querySelectorAll('.diff').forEach(el => el.remove());
+      for (const [key, value] of Object.entries(differs)) {
+        const el = document.getElementById(FIELD[key] || ('f_' + key));
+        if (!el) continue;
+        const box = document.createElement('div');
+        box.className = 'diff';
+        const text = document.createElement('span');
+        text.textContent = 'на сайте: ' + value;
+        const take = document.createElement('button');
+        take.type = 'button';
+        take.className = 'link';
+        take.textContent = 'взять';
+        take.addEventListener('click', () => { el.value = value; box.remove(); });
+        box.append(text, take);
+        el.insertAdjacentElement('afterend', box);
+      }
+    }
 
     // Удаление есть только у сохранённой карточки: разобранной ещё
     // нечего удалять.

@@ -207,6 +207,7 @@ def lookup():
         description=description,
         saved_id=saved,
         variants=product_lookup.variant_cards(product),
+        card_base=_card_base(product, description),
         project_choices=_project_choices(),
         types=product_lookup.TYPES_RU,
     )
@@ -361,6 +362,37 @@ def library_page():
         total=len(items), found=len(found), page=page, pages=pages, error=None)
 
 
+def _card_base(product, description: str, item: dict | None = None) -> dict:
+    """Полное состояние карточки для экрана.
+
+    Экран показывает не всё, что в карточке лежит: опознаватель,
+    коллекция, ссылки на документы, источник объёма, артикулы отделок
+    полей на нём не имеют. А сохранение пишет карточку ЦЕЛИКОМ, без
+    слияния (иначе задержка хранилища съедала бы только что сделанную
+    правку). Значит экран обязан принести всё — иначе непоказанное
+    стирается молча: правка одного примечания уносила ссылку на техлист
+    вместе с кнопкой «Распарсить».
+
+    Второе: без `id` сохранение считает его как slug(бренд, модель) —
+    и правка производителя или модели клала ДУБЛЬ под новым именем,
+    оставляя исходную карточку со старыми данными.
+    """
+    base = dict(item or {})
+    base.update({
+        "source_url": product.source_url, "brand": product.brand,
+        "model": product.model, "type_ru": product.type_ru,
+        "collection": product.collection, "dims_raw": product.dims_raw,
+        "dims_confident": product.dims_confident,
+        "width_cm": product.width_cm, "depth_cm": product.depth_cm,
+        "height_cm": product.height_cm, "volume_m3": product.volume_m3,
+        "volume_source": product.volume_source, "finishes": product.finishes,
+        "note": product.tech_note, "summary_ru": product.summary_ru,
+        "description": description, "photos": product.photo_urls,
+        "doc_urls": product.doc_urls,
+    })
+    return base
+
+
 def _as_product(item: dict):
     """Сохранённая карточка -> Product: редактор у каталога и разбора один.
 
@@ -417,6 +449,7 @@ def library_item(item_id: str):
         "lookup.html", product=product, url=product.source_url,
         description=item.get("description") or "",
         variants=product_lookup.variant_cards(product),
+        card_base=_card_base(product, item.get("description") or "", item),
         project_choices=_project_choices(),
         types=product_lookup.TYPES_RU, from_library=item_id)
 
