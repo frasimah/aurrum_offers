@@ -1344,8 +1344,14 @@ def check_rooms() -> tuple[int, int]:
     # секции и «(Италия)» стоят в колонке D, а даты в блоке «Покупатель»
     # нет вовсе, она рядом с заголовком предложения.
     import os
+    # Рабочие книги в хранилище не лежат — в них данные заказчиков. Без
+    # них часть проверок пропускается; сколько именно — говорим вслух:
+    # молча уменьшившийся счёт читается как «всё проверено».
+    skipped = []
     form = os.path.join(os.path.dirname(os.path.abspath(__file__)), "samples",
                         "0000-Offer-AUR-FORM.xlsx")
+    if not os.path.exists(form):
+        skipped.append("форма заказчика (4)")
     if os.path.exists(form):
         real = spec_parser.parse(open(form, "rb").read())
         checks.append(("форма заказчика: комнаты прочитаны все пять",
@@ -1364,6 +1370,7 @@ def check_rooms() -> tuple[int, int]:
     import os
     sample = os.path.join(os.path.dirname(os.path.abspath(__file__)), "samples",
                           "2867_Спецификация_20260311_PRJ_VLADIMIR_MODULNOVA_GAL.xlsx")
+    old_book = None
     if os.path.exists(sample):
         old_book = spec_parser.parse(open(sample, "rb").read())
         # Маршруты: список комнат проверяется до сборки файла.
@@ -1390,9 +1397,20 @@ def check_rooms() -> tuple[int, int]:
                    printed.status_code == 200
                    and "Холл" in printed.get_data(as_text=True)))
 
-    checks.append(("книга без комнат читается одним блоком",
+    # Рабочие книги в хранилище не лежат — в них клиентские данные. Без
+    # них проверку пропускаем и ГОВОРИМ об этом: раньше здесь падала вся
+    # приёмка, и проверить состояние можно было только на машине, где
+    # книги есть. Сегодня это дважды скрыло настоящую поломку.
+    if old_book is None:
+        skipped.append("книга без комнат (1)")
+    else:
+        checks.append(("книга без комнат читается одним блоком",
                        len(old_book.blocks) == 1 and old_book.blocks[0].title == ""
                        and len(old_book.blocks[0].items) == len(old_book.items)))
+
+    if skipped:
+        print("  · книг-образцов нет в хранилище, пропущено: "
+              + ", ".join(skipped))
 
     good = 0
     for label, hit in checks:
