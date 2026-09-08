@@ -992,6 +992,87 @@ def check_page_logic() -> tuple[int, int]:
     return good, len(checks)
 
 
+def check_parse_progress() -> tuple[int, int]:
+    """Ход разбора: полоса, лента и готовая карточка последней строкой.
+
+    Разбор идёт полминуты и дольше, и всё это время экран был пуст.
+    Проверяем не вид, а договор: что уходит на сервер, что делают
+    строки потока и чем всё кончается — карточкой или honest-ошибкой.
+    """
+    import app as flask_app
+    print("\n ХОД РАЗБОРА")
+    print(" " + "-" * 74)
+
+    _, scripts, dom = _page("lookup.html", _render=True)
+    nl = chr(10)
+
+    def submit(body: str, **kw):
+        return _run_page(
+            scripts, dom,
+            actions=["document.getElementById('url').value = 'https://porada.it/x'",
+                     "document.getElementById('form').dispatchEvent("
+                     "{ type: 'submit', preventDefault() {} })",
+                     "await null", "await null", "await null"],
+            responses=[{"text": body}], **kw)
+
+    steps = nl.join([
+        _json.dumps({"share": 0.15, "line": "Страница получена: 11423 знаков"},
+                    ensure_ascii=False),
+        _json.dumps({"share": 0.55, "line": "Прочитано: Porada Infinity · Стол"},
+                    ensure_ascii=False),
+        _json.dumps({"html": "<html>карточка</html>"}, ensure_ascii=False),
+    ])
+    done = submit(steps)
+    sent = (done.get("fetches") or [{}])[0]
+
+    broken = submit(nl.join([
+        _json.dumps({"share": 0.3, "line": "Читаю страницу моделью…"},
+                    ensure_ascii=False),
+        _json.dumps({"error": "Страница не отдала содержимого."},
+                    ensure_ascii=False),
+    ]))
+
+    # Строка, разрезанная посередине куска, не должна ронять разбор.
+    half = submit('{"share": 0.4, "li')
+
+    checks = [
+        ("разбор уходит потоком", "/lookup/stream" in (sent.get("url") or "")),
+        ("ссылка уходит в теле", "porada.it" in (sent.get("body") or "")),
+        ("полоса на месте", _page("lookup.html", _render=True)[0].find(id="run_fill")
+         is not None),
+        ("полоса доходит до конца",
+         done["ids"].get("run_fill", {}).get("style", {}).get("width") == "55%"),
+        ("последняя веха видна",
+         "Прочитано" in done["ids"].get("run_now", {}).get("text", "")),
+        ("лента держит все строки",
+         done["ids"].get("run_log", {}).get("text", "").count(nl) == 1),
+        ("готовая карточка выводится, а не разбирается заново",
+         done.get("written") == "<html>карточка</html>"),
+        ("ошибка названа словами",
+         "не отдала" in broken["ids"].get("run_now", {}).get("text", "")),
+        ("после ошибки кнопку можно нажать снова",
+         broken["ids"].get("go", {}).get("disabled") is False),
+        ("ошибка не подменяет страницу", not broken.get("written")),
+        ("разрезанная строка ничего не роняет", not half.get("error")),
+        ("страница карточки собирается одним местом",
+         "_card_page" in open(os.path.join(
+             os.path.dirname(os.path.abspath(__file__)), "app.py"),
+             encoding="utf-8").read()),
+    ]
+
+    # Вехи ставит сам разбор: без обходчика поток нечем наполнить.
+    import inspect
+    checks.append(("разбор принимает обходчик хода работы",
+                   "progress" in inspect.signature(
+                       flask_app.product_lookup.lookup).parameters))
+
+    good = 0
+    for label, hit in checks:
+        good += bool(hit)
+        print(f"  {OK if hit else BAD} {label}")
+    return good, len(checks)
+
+
 def check_projects() -> tuple[int, int]:
     """Хранилище проектов: счётчик правок и то, что он обязан ловить.
 
@@ -3041,6 +3122,7 @@ def main() -> int:
     run("Контракт страниц", check_page_contract)
     run("Формулы страниц", check_page_formats)
     run("Поведение страниц", check_page_logic)
+    run("Ход разбора", check_parse_progress)
     run("Подстановка исполнения", check_variant_pick)
     run("Комнаты", check_rooms)
     run("Шапка", check_header_roundtrip)
