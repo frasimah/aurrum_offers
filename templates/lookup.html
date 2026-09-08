@@ -1372,6 +1372,43 @@
       window.location = '{{ url_for("project") }}';
     }
 
+    // «Сохранить» до правки ничего не меняет, и по виду не отличить,
+    // нужно ли её нажимать. Пока карточку не тронули — кнопка тихая;
+    // первая же правка делает её главной и говорит об этом словами.
+    (function () {
+      const save = document.getElementById('tolibrary');
+      if (!save) return;
+      const out = document.getElementById('library_status');
+      const quiet = 'btn ghost';
+      save.className = quiet;
+      let dirty = false;
+
+      function touched() {
+        if (dirty) return;
+        dirty = true;
+        save.className = '';
+        if (out) out.textContent = 'Есть несохранённые правки.';
+      }
+
+      // Подписываемся на сами поля, а не на общего предка: обход вверх
+      // по дереву заглушке приёмки недоступен, и правило нельзя было бы
+      // проверить — а непроверяемое правило рано или поздно отваливается.
+      for (const id of ['f_brand', 'f_model', 'f_type', 'f_dims_raw', 'f_d',
+                        'f_g', 'f_v', 'f_vol', 'f_note', 'f_desc']) {
+        const el = document.getElementById(id);
+        if (el) { el.addEventListener('input', touched); }
+      }
+      document.querySelectorAll('input.finpick').forEach(cb =>
+        cb.addEventListener('change', touched));
+
+      save.addEventListener('click', () => {
+        // Отметку снимает сам обработчик сохранения — по успеху; здесь
+        // только возвращаем вид, чтобы не оставалась «главной» навсегда.
+        dirty = false;
+        save.className = quiet;
+      });
+    })();
+
     const toproject = document.getElementById('toproject');
     if (toproject && dlg) {
       toproject.addEventListener('click', () => dlg.showModal());

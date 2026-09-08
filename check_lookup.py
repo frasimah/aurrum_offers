@@ -1383,6 +1383,14 @@ def check_item_edit_mode() -> tuple[int, int]:
         ("отбор фотографий на месте", len(soup_lib.select(".ph")) == 1),
         ("строки ввода ссылки из каталога нет", soup_lib.find(id="url") is None),
         ("при разборе она есть", soup_new.find(id="url") is not None),
+        ("до правки «Сохранить» молчит",
+         not (_run_page(scripts_lib, dom_lib, actions=[])["ids"]
+              .get("library_status", {}).get("text"))),
+        ("первая правка говорит о несохранённом",
+         "несохранённые" in (_run_page(scripts_lib, dom_lib, actions=[
+             "const f = document.getElementById('f_note'); f.value = 'правка';"
+             " f.dispatchEvent({type:'input', target: f})"])["ids"]
+             .get("library_status", {}).get("text", ""))),
         ("сверху есть возврат в библиотеку и в проект",
          len(soup_lib.select(".crumbs a")) == 2),
         ("удаление только у сохранённой",

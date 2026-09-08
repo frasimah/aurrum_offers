@@ -488,7 +488,24 @@ def library_item(item_id: str):
                                brands=[], types=[], total=0, found=0,
                                page=1, pages=1), 502
     if not item:
-        return redirect(url_for("library_page"))
+        # Строка в списке есть, а файла нет: индекс и карточки пишутся
+        # врозь, и сохранение, начатое до удаления, возвращает строку.
+        # Кнопка «Редактировать» при этом молча отскакивала обратно —
+        # выглядело как «удалил, а он вернулся и не работает». Убираем
+        # осиротевшую строку сразу и говорим, что произошло.
+        healed = False
+        try:
+            rows = library.read_index()
+            if any(r.get("id") == item_id for r in rows):
+                library._write_index([r for r in rows if r.get("id") != item_id])
+                healed = True
+        except Exception:        # noqa: BLE001 — сообщение важнее уборки
+            pass
+        return render_template(
+            "library.html", items=[], query="", brand="", type_ru="",
+            brands=[], types=[], total=0, found=0, page=1, pages=1,
+            error=("Эта карточка удалена, а строка в списке отстала — "
+                   "убрал её." if healed else "Такой карточки нет.")), 404
     # Описание берём сохранённое, а не собранное заново: в нём могли
     # быть правки руками, и пересборка их бы стёрла.
     product = _as_product(item)
