@@ -110,6 +110,7 @@ class Product:
     # который публикует размеры чертежом.
     dims_from_spec: bool = False
     finishes_from_spec: bool = False
+    sku: str = ""
     warnings: list[str] = field(default_factory=list)
 
 
@@ -442,6 +443,8 @@ def to_excel_description(p: Product, with_finishes: bool = True) -> str:
     dims = book_dims(p)
     if dims:
         lines.append(dims)
+    if p.sku:
+        lines.append(f"Артикул — {p.sku}")
     # Аннотация — часть описания, а не отдельное поле. Модель пересказывает
     # по-русски конкретику со страницы бренда, и место этому тексту в той
     # же колонке «Описание», куда он раньше переносился кнопкой руками.
@@ -1296,6 +1299,11 @@ def lookup(url: str, progress=None) -> Product:
         axes_sure = parse_dims(p.dims_raw, p.type_ru)[3]
         p.warnings.extend(m.warnings)
         p.package_note = str(first.get("package_dims_raw") or "").strip()
+        # Код подставленного исполнения. У Luxury Living Group три
+        # исполнения бывают с ОДНИМИ размерами и разными кодами — 06E,
+        # 06M, 06E/SCZ. Без кода карточка у всех трёх одинаковая, и
+        # выбор исполнения ничего не меняет ни на экране, ни в файле.
+        p.sku = str(first.get("sku") or "").strip()
         if len(p.variants) > 1:
             # Говорим ИМЕННО какое подставлено, а не «первое». «Первое» —
             # это порядок вёрстки страницы, а не совпадение с заказом: у

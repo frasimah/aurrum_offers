@@ -1055,9 +1055,10 @@
         const said = document.getElementById('variant_said');
         if (said) {
           const c = JSON.parse(btn.dataset.cand);
-          said.textContent = 'Подставлено: ' + c.value
+          said.textContent = 'Подставлено: '
+            + (c.sku ? c.sku + ' · ' : '') + c.value
             + (c.volume_m3 ? ' · ' + c.volume_m3 + ' м³' : '')
-            + '. Поля размеров наверху обновлены.';
+            + '. Описание и поля наверху обновлены.';
         }
       }));
 
@@ -1122,10 +1123,30 @@
       fillIfEmpty('f_model', c.model);
       fillIfEmpty('f_type', c.type_ru);
       const desc = document.getElementById('f_desc');
-      if (desc && was) {
+      if (desc) {
         const lines = desc.value.split('\n');
-        const at = lines.indexOf(was);
-        if (at >= 0) { lines[at] = c.value; desc.value = lines.join('\n'); }
+        let dimsAt = -1;
+        if (was) {
+          dimsAt = lines.indexOf(was);
+          if (dimsAt >= 0) lines[dimsAt] = c.value;
+        }
+        // Код исполнения. У части брендов исполнения различаются ТОЛЬКО
+        // им: у Luxury Living Group три штуки с одними размерами —
+        // 06E, 06M, 06E/SCZ. Без этой строки нажатие «Подставить»
+        // ничего не меняло ни на экране, ни в файле.
+        const mark = 'Артикул — ';
+        const had = lines.findIndex(l => l.startsWith(mark));
+        if (c.sku) {
+          if (had >= 0) lines[had] = mark + c.sku;
+          // Ставим сразу за размерами — там же, где его печатает сервер.
+          else lines.splice(dimsAt >= 0 ? dimsAt + 1 : Math.min(1, lines.length),
+                            0, mark + c.sku);
+          CARD_BASE.sku = c.sku;
+        } else if (had >= 0) {
+          lines.splice(had, 1);
+          CARD_BASE.sku = '';
+        }
+        desc.value = lines.join('\n');
       }
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }

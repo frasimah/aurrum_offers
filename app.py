@@ -425,6 +425,7 @@ def _card_base(product, description: str, item: dict | None = None) -> dict:
         "description": description, "photos": product.photo_urls,
         "doc_urls": product.doc_urls, "dims_from_spec": product.dims_from_spec,
         "finishes_from_spec": product.finishes_from_spec,
+        "sku": product.sku,
     })
     return base
 
@@ -472,6 +473,7 @@ def _as_product(item: dict):
         dims_confident=bool(item.get("dims_confident", True)),
         dims_from_spec=bool(item.get("dims_from_spec")),
         finishes_from_spec=bool(item.get("finishes_from_spec")),
+        sku=item.get("sku") or "",
         volume_m3=item.get("volume_m3"),
         volume_source=(item.get("volume_source")
                        or _volume_source_of(item)),

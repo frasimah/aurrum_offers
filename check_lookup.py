@@ -799,6 +799,39 @@ def check_variant_pick() -> tuple[int, int]:
 
     import app as flask_app
 
+    # Исполнения с ОДНИМИ размерами и разными кодами: у Luxury Living
+    # Group их три — 06E, 06M, 06E/SCZ. Размеры совпадают до знака,
+    # поэтому подстановка не меняла ни поля, ни описание: кнопка
+    # нажималась, и не происходило ничего. Различает их только код.
+    same = pl.Product(source_url="https://x/y", model="Casilia",
+                      type_ru="Консоль", dims_raw="150x45x89",
+                      width_cm=150, depth_cm=45, height_cm=89,
+                      sku="COB (06E)")
+    same.variants = [{"dims_raw": "150x45x89", "sku": "COB (06E)"},
+                     {"dims_raw": "150x45x89", "sku": "COB (06M)"},
+                     {"dims_raw": "150x45x89", "sku": "COB (06E/SCZ)"}]
+    same_text = pl.to_excel_description(same, with_finishes=False)
+    _, sc_same, dom_same = _page(
+        "lookup.html", _render=True, product=same, url=same.source_url,
+        description=same_text, variants=pl.variant_cards(same),
+        types=pl.TYPES_RU, project_choices=[],
+        card_base=flask_app._card_base(same, same_text))
+    picked_code = _run_page(sc_same, dom_same,
+                            actions=["document.getElementById('usevariant_1').click()"])
+    desc_after = picked_code["ids"].get("f_desc", {}).get("value", "")
+    checks += [
+        ("код подставленного исполнения попадает в описание сразу",
+         "Артикул — COB (06E)" in same_text),
+        ("выбор другого исполнения меняет описание, хотя размеры те же",
+         "Артикул — COB (06M)" in desc_after),
+        ("прежний код при этом не остаётся",
+         "COB (06E)" not in desc_after.replace("COB (06E/SCZ)", "")),
+        ("строка кода одна, а не копится",
+         desc_after.count("Артикул — ") == 1),
+        ("ответ называет код — при равных размерах меняется только он",
+         "COB (06M)" in picked_code["ids"].get("variant_said", {}).get("text", "")),
+    ]
+
     # Подстановка правит ТУ строку описания, где стоял прежний размер.
     # Раньше правилась третья по счёту — а третья это размер только
     # когда есть и модель, и тип; без типа туда попадала аннотация, и
