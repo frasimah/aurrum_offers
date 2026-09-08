@@ -799,6 +799,37 @@ def check_variant_pick() -> tuple[int, int]:
 
     import app as flask_app
 
+    # Исполнения обязаны пережить сохранение. Их не хранили вовсе, и
+    # после «Сохранить» список размеров исчезал: у Bentley Dalston это
+    # три артикула, между которыми и выбирают. Пересобирать ради них
+    # разбор значит платить за модель второй раз.
+    import app as flask_app2
+
+    keep = pl.Product(source_url="https://x/y", brand="Bentley Home",
+                      model="Dalston console", type_ru="Консоль",
+                      dims_raw="150x45x89H.", width_cm=150, depth_cm=45,
+                      height_cm=89, sku="COB (06M)")
+    keep.variants = [{"dims_raw": "150x45x89H.", "sku": "COB (06E)"},
+                     {"dims_raw": "150x45x89H.", "sku": "COB (06M)"},
+                     {"dims_raw": "150x45x89H.", "sku": "COB (06E/SCZ)"}]
+    stored_card = flask_app2._card_base(keep, "описание")
+    reborn = flask_app2._as_product(stored_card)
+    soup_keep, _, _ = _page(
+        "lookup.html", _render=True, product=reborn, url=reborn.source_url,
+        description="описание", variants=pl.variant_cards(reborn),
+        types=pl.TYPES_RU, project_choices=[], from_library="x",
+        card_base=flask_app2._card_base(reborn, "описание"))
+    marked = [b.get_text(strip=True) for b in soup_keep.select("button.usevariant")]
+    checks += [
+        ("исполнения уходят в карточку при сохранении",
+         len(stored_card.get("variants") or []) == 3),
+        ("и возвращаются из неё", len(reborn.variants) == 3),
+        ("на сохранённой карточке список исполнений виден",
+         len(soup_keep.select("button.usevariant")) == 3),
+        ("отмечено то исполнение, что стоит в карточке",
+         marked == ["Подставить", "подставлено", "Подставить"]),
+    ]
+
     # Скрипт карточки не должен объявлять НИЧЕГО в общей области.
     # Готовую карточку страница получает через document.write в уже живое
     # окно, и объявления верхнего уровня остаются от предыдущей: вторая

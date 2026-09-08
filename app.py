@@ -426,6 +426,12 @@ def _card_base(product, description: str, item: dict | None = None) -> dict:
         "doc_urls": product.doc_urls, "dims_from_spec": product.dims_from_spec,
         "finishes_from_spec": product.finishes_from_spec,
         "sku": product.sku,
+        # Исполнения хранятся вместе с карточкой. Раньше их не
+        # сохраняли вовсе, и после «Сохранить» список размеров
+        # исчезал: у Bentley Dalston это три артикула, между
+        # которыми и выбирают. Пересобирать ради них весь разбор
+        # значит платить за модель второй раз.
+        "variants": product.variants,
     })
     return base
 
@@ -474,6 +480,7 @@ def _as_product(item: dict):
         dims_from_spec=bool(item.get("dims_from_spec")),
         finishes_from_spec=bool(item.get("finishes_from_spec")),
         sku=item.get("sku") or "",
+        variants=[v for v in (item.get("variants") or []) if isinstance(v, dict)],
         volume_m3=item.get("volume_m3"),
         volume_source=(item.get("volume_source")
                        or _volume_source_of(item)),

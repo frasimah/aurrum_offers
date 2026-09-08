@@ -695,7 +695,14 @@
             Подставлено первое по порядку страницы, а не по совпадению с
             заказом. У кровати под другой матрац числа выглядели бы так же.
           </div>
+          {#- Отмечено то исполнение, что СТОИТ В КАРТОЧКЕ, а не первое
+              по порядку: у сохранённой карточки это может быть второе
+              или третье, и «подставлено» на первом было бы неправдой. -#}
+          {% set mark = namespace(done=false) %}
           {% for v in variants %}
+          {% set mine = (v.sku and v.sku == product.sku and not mark.done)
+                        or (not product.sku and loop.first) %}
+          {% if mine %}{% set mark.done = true %}{% endif %}
           <div class="cand">
             <span class="cand__dims">{{ v.value }}{% if v.sku %}<span
               class="badge">{{ v.sku }}</span>{% endif %}</span>
@@ -703,8 +710,8 @@
             <button type="button" class="ghost usevariant"
                     id="usevariant_{{ loop.index0 }}"
                     data-cand="{{ v | tojson | forceescape }}"
-                    {% if loop.first %}disabled{% endif %}>
-              {% if loop.first %}подставлено{% else %}Подставить{% endif %}
+                    {% if mine %}disabled{% endif %}>
+              {% if mine %}подставлено{% else %}Подставить{% endif %}
             </button>
           </div>
           {% endfor %}
