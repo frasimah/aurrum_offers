@@ -2691,6 +2691,41 @@ def check_final_block() -> tuple[int, int]:
         ("а сумму позиций не трогает", at_25["sum"] == at_10["sum"]),
     ]
 
+    # НДС — решение «да/нет», а не величина: облагается сделка или нет.
+    off = _run_page(lv_scripts, lv_dom, storage=rate_store,
+                    responses=[{"notJson": True}, {"notJson": True}],
+                    actions=["const el = document.getElementById('t_vat');"
+                             " el.checked = false;"
+                             " el.dispatchEvent({type:'change', target: el})",
+                             "await null"])
+    off_draft = _json.loads((off.get("storage") or {}).get("aurrum.draft.p1") or "{}")
+    back_store = dict(rate_store)
+    back_store["aurrum.draft.p1"] = _json.dumps(
+        {"positions": [{"brand": "B", "qty": 1, "purchase": 1000, "assembly": 1}],
+         "header": {}, "rates": {"vat": 0, "designer": 25}, "rev": 0})
+    back = _run_page(lv_scripts, lv_dom, storage=back_store,
+                     responses=[{"notJson": True}, {"notJson": True}],
+                     actions=["const el = document.getElementById('t_vat');"
+                              " el.checked = true;"
+                              " el.dispatchEvent({type:'change', target: el})",
+                              "await null"])
+    back_draft = _json.loads((back.get("storage") or {}).get("aurrum.draft.p1") or "{}")
+    no_vat = _pricing.project([{"qty": 1, "purchase": 1000, "assembly": 1}],
+                              rates={"vat": 0}, final={})
+    checks += [
+        ("НДС спрашивается галочкой, а не процентом",
+         soup_lv.find(id="t_vat") is not None
+         and soup_lv.find(id="t_vat").get("type") == "checkbox"),
+        ("снятая галочка обнуляет шаг НДС",
+         (off_draft.get("rates") or {}).get("vat") == 0),
+        ("а поставленная возвращает величину с «Констант»",
+         "vat" not in (back_draft.get("rates") or {})
+         and (back_draft.get("rates") or {}).get("designer") == 25),
+        ("без НДС верх лестницы ниже",
+         no_vat["levels"]["finserv"] < at_10["levels"]["finserv"]),
+        ("а сумма позиций та же", no_vat["sum"] == at_10["sum"]),
+    ]
+
     # Спецификация и договор тянутся за названием, пока их не тронули.
     _, hd_scripts, hd_dom = _page("project.html", _url="/project")
     typed = ("const n = document.getElementById('h_name');"

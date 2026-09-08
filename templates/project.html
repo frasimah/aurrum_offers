@@ -158,6 +158,12 @@
     .totals div b { font-size: 17px; font-weight: 500; }
     /* Поле ставки в полосе итогов: тот же размер, что у чисел рядом,
        иначе оно читается как подпись, а не как то, что можно править. */
+    .t_toggle {
+      display: inline-flex; align-items: center; gap: 8px;
+      font-size: 17px; color: #2d2d2d; cursor: pointer;
+    }
+    .t_toggle input { width: 17px; height: 17px; accent-color: #2d2d2d; }
+
     .totals input.t_rate {
       width: 72px; height: 30px; padding: 0 8px; font-size: 17px;
       font-family: inherit; border: 1px solid #d9d9d9; background: #fffdf5;
@@ -352,6 +358,10 @@
              на «Константах» — одна на все проекты. Здесь она у проекта
              своя и стоит рядом с числом, на которое влияет. -->
         <div><span title="Наценка дизайнеру, % — ставка ЭТОГО проекта, колонка $AF$1 книги. Меняет «Со всеми наценками» и уходит в выгружаемый файл. Пустое поле возвращает величину со страницы «Константы»">Дизайнеру, %</span><input class="manual t_rate" id="t_designer" placeholder="10"></div>
+        <!-- НДС — не величина, а решение: облагается сделка или нет.
+             Процентом его правили бы через ноль, а это ответ «да/нет»,
+             и выглядеть он должен так же. -->
+        <div><span title="Облагается ли сделка НДС. Снятая галочка обнуляет шаг НДС (колонка $AH$1 книги) в этом проекте; поставленная берёт ставку со страницы «Константы»">НДС</span><label class="t_toggle"><input type="checkbox" id="t_vat" checked><span id="t_vat_word">да</span></label></div>
       </div>
 
       <div class="actions">
@@ -549,6 +559,31 @@
     for (const el of document.querySelectorAll('[id^="fin_"][id$="_val"], [id^="fin_"][id$="_unit"]')) {
       el.addEventListener('change', () => { save(); recalc(); });
     }
+
+    // НДС — решение «да/нет», а не число. Снятая галочка кладёт в
+    // ставки проекта ноль: шаг НДС перестаёт умножать, а остальные
+    // ступени лестницы остаются на своих величинах.
+    (() => {
+      const el = document.getElementById('t_vat');
+      const word = document.getElementById('t_vat_word');
+      if (!el) return;
+      const shown = () => {
+        el.checked = (state.rates || {}).vat !== 0;
+        word.textContent = el.checked ? 'да' : 'нет';
+      };
+      shown();
+      el.addEventListener('change', () => {
+        if (el.checked) {
+          // Обратно к величине с «Констант», а не к вбитому нулю.
+          if (state.rates) delete state.rates.vat;
+        } else {
+          state.rates = { ...(state.rates || AURRUM.rates() || {}), vat: 0 };
+        }
+        word.textContent = el.checked ? 'да' : 'нет';
+        save();
+        recalc();
+      });
+    })();
 
     // Наценка дизайнеру — ставка ЭТОГО проекта. Правка кладёт её в
     // снимок ставок проекта: он и уходит в файл, и по нему считается
