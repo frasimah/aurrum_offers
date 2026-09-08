@@ -80,6 +80,20 @@
     .card__meta { margin-top: 6px; color: #949598; font-size: 12px; }
     /* Две кнопки в ряд: правка была только по клику на саму карточку,
        и её не находили — кнопки «Редактировать» на плитке не было. */
+    /* Корзина поверх снимка, в правом верхнем углу. Показывается при
+       наведении: удаление необратимо и не должно попадаться под руку. */
+    .card { position: relative; }
+    .card__del {
+      position: absolute; top: 8px; right: 8px; z-index: 1;
+      width: 28px; height: 28px; padding: 0;
+      background: rgba(255, 255, 255, 0.92); color: #2d2d2d;
+      border: 1px solid #d9d9d9; cursor: pointer;
+      opacity: 0; transition: opacity 0.15s, background 0.15s, color 0.15s;
+    }
+    .card__del svg { width: 15px; height: 15px; }
+    .card:hover .card__del, .card__del:focus-visible { opacity: 1; }
+    .card__del:hover { background: #d64545; color: #fff; border-color: #d64545; }
+
     .card__acts {
       margin-top: auto; padding-top: 12px;
       display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
@@ -160,6 +174,13 @@
     <div class="grid">
       {% for it in items %}
       <div class="card">
+        <button type="button" class="card__del" data-del="{{ it.id }}"
+                data-name="{{ it.brand }} {{ it.model }}" title="Удалить из каталога">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6" />
+          </svg>
+        </button>
         <a href="{{ url_for('library_item', item_id=it.id) }}" style="text-decoration:none;color:inherit">
           {% if it.photo %}
           <img class="card__photo" src="{{ it.photo }}" alt="" loading="lazy">
@@ -212,6 +233,28 @@
       status.classList.add('on');
       setTimeout(() => status.classList.remove('on'), 2600);
     }
+
+    // Удаление из каталога прямо с плитки: раньше за этим надо было
+    // открыть карточку. Спрашиваем подтверждение и называем что именно —
+    // отменить это нельзя.
+    document.querySelectorAll('.card__del').forEach(btn =>
+      btn.addEventListener('click', async () => {
+        const name = btn.dataset.name || 'карточку';
+        if (!confirm('Удалить ' + name + ' из каталога? Это нельзя отменить.')) return;
+        btn.disabled = true;
+        try {
+          const r = await fetch('{{ url_for("library_delete") }}', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: btn.dataset.del }),
+          });
+          const data = await r.json();
+          if (!r.ok) throw new Error(data.error || 'не удалось удалить');
+          btn.closest('.card').remove();
+        } catch (e) {
+          btn.disabled = false;
+          alert(e.message);
+        }
+      }));
 
     document.querySelectorAll('.toproject').forEach(btn =>
       btn.addEventListener('click', async () => {

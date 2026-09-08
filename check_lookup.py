@@ -843,7 +843,7 @@ def check_page_logic() -> tuple[int, int]:
             collection="", designer="", dims_raw="", width_cm=None, depth_cm=None,
             height_cm=None, dims_confident=True, volume_m3=None, volume_source="",
             package_note="", tech_note="", summary_ru="", photo_urls=[], doc_urls=[],
-            spec_pdf_url="", variants=[], warnings=[],
+            spec_pdf_url="", variants=[], warnings=[], dims_from_spec=False,
             finishes=[{"role_ru": "Стекло", "material": "Crystal", "code": "CC"},
                       {"role_ru": "Стекло", "material": "Crystal/Grey/Olive", "code": "ED"}],
     ).items():
@@ -1288,6 +1288,8 @@ def check_item_edit_mode() -> tuple[int, int]:
         ("отбор фотографий на месте", len(soup_lib.select(".ph")) == 1),
         ("строки ввода ссылки из каталога нет", soup_lib.find(id="url") is None),
         ("при разборе она есть", soup_new.find(id="url") is not None),
+        ("сверху есть возврат в библиотеку и в проект",
+         len(soup_lib.select(".crumbs a")) == 2),
         ("удаление только у сохранённой",
          soup_lib.find(id="del") is not None and soup_new.find(id="del") is None),
     ]
@@ -1534,7 +1536,8 @@ def check_library_card() -> tuple[int, int]:
     with flask_app.app.test_request_context():
         html = render_template("library.html", items=[item], brands=[], types=[],
                                total=1, found=1, page=1, pages=1, args={}, q="")
-    acts = BeautifulSoup(html, "html.parser").select_one(".card__acts")
+    tile = BeautifulSoup(html, "html.parser")
+    acts = tile.select_one(".card__acts")
     edit = acts.find("a") if acts else None
     to_project = acts.find("button") if acts else None
 
@@ -1546,6 +1549,11 @@ def check_library_card() -> tuple[int, int]:
          bool(edit) and edit.get("href", "").endswith(item["id"])),
         ("«В проект» на месте",
          bool(to_project) and "проект" in to_project.get_text(strip=True)),
+        ("корзина в правом верхнем углу плитки",
+         tile.select_one(".card__del") is not None),
+        ("корзина знает, что удаляет",
+         bool(tile.select_one(".card__del"))
+         and tile.select_one(".card__del").get("data-del") == item["id"]),
     ]
     good = 0
     for label, hit in checks:
@@ -2282,6 +2290,11 @@ def check_extractors() -> tuple[int, int]:
     import glob as _glob
     brand_files = sorted(_glob.glob(os.path.join(extract.BRAND_DIR, "*.md")))
     checks.append((f"файлы брендов на месте ({len(brand_files)})", len(brand_files) >= 2))
+    # Сверка сравнивает с текстом СТРАНИЦЫ. У техлиста свой текст: семь
+    # брендов из восьми публикуют размеры чертежом, и требовать их чисел
+    # на странице значило бы кричать «нет в источнике» на каждом.
+    checks.append(("разбор помечает, что размеры из техлиста",
+                   "dims_from_spec" in pl.Product.__dataclass_fields__))
     for path in brand_files:
         host = os.path.basename(path)[:-3]
         body = open(path, encoding="utf-8").read()

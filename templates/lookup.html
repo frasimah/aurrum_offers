@@ -191,6 +191,11 @@
     .diff button.link { font-size: 11.5px; color: #2d2d2d; }
     .diff button.link:hover { color: #b58900; }
 
+    .crumbs {
+      display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap;
+    }
+    .crumbs .btn { height: 30px; padding: 0 12px; font-size: 12.5px; }
+
     .verify__text {
       max-height: 320px; overflow: auto; margin: 8px 0 0;
       padding: 10px 12px; border: 1px solid #ececec; background: #fafafa;
@@ -525,6 +530,12 @@
     {% for w in product.warnings %}<div class="warn">{{ w }}</div>{% endfor %}
 
     <div class="card">
+      <!-- Возврат туда, откуда пришли: карточка — тупик, из неё вели
+           только пункты общего меню. -->
+      <div class="crumbs">
+        <a class="btn ghost" href="{{ url_for('library_page') }}">← К библиотеке</a>
+        <a class="btn ghost" href="{{ url_for('project') }}">К проекту →</a>
+      </div>
       <h2>Карточка</h2>
       <div class="src">Источник: <a href="{{ product.source_url }}" target="_blank"
           rel="noopener">{{ product.source_url }}</a></div>
@@ -650,7 +661,9 @@
             <summary>Сверить с источником</summary>
             <div class="hint" style="margin-bottom:8px">
               Текст страницы дословно. <mark>Подсвечено</mark> — то, что попало в поля
-              карточки. Ненайденное перечислено сверху: его в источнике нет.
+              карточки. Ненайденное названо отдельной строкой: его в источнике нет.
+              {% if product.dims_from_spec %}Размеры сюда не входят — они из техлиста,
+              и в тексте страницы их быть не должно.{% endif %}
             </div>
             <div class="hint" id="verify_status">Открываю…</div>
             <div class="hint verify__miss" id="verify_miss" hidden></div>
@@ -1257,10 +1270,17 @@
 
       // Значения карточки ищем в тексте целиком. Найденные подсвечиваем,
       // ненайденные называем: именно они и есть повод не верить полю.
+      // Размеры сверяем с текстом страницы только если они СО СТРАНИЦЫ.
+      // У техлиста свой текст: требовать его чисел на странице значит
+      // кричать «нет в источнике» на каждом бренде, который публикует
+      // размеры чертежом, — а это семь брендов из восьми проверенных.
+      const DIMS_FROM_SPEC =
+        {{ (product.dims_from_spec if product else False) | default(false, true) | tojson }};
+
       function wanted() {
         const val = id => ((document.getElementById(id) || {}).value || '').trim();
-        const out = [['Размеры', val('f_dims_raw')], ['Примечание', val('f_note')],
-                     ['Модель', val('f_model')]];
+        const out = [['Примечание', val('f_note')], ['Модель', val('f_model')]];
+        if (!DIMS_FROM_SPEC) out.unshift(['Размеры', val('f_dims_raw')]);
         document.querySelectorAll('input.finpick').forEach(cb =>
           out.push(['Отделка', cb.dataset.mat || '']));
         return out.filter(([, v]) => v.length > 2);

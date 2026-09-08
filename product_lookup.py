@@ -101,6 +101,11 @@ class Product:
     doc_urls: list[str] = field(default_factory=list)
     spec_pdf_url: str = ""
     variants: list[dict] = field(default_factory=list)   # исполнения со страницы
+    # Откуда взята строка размеров. Сверка с текстом страницы годится
+    # только для страничных: у техлиста свой текст, и требовать его чисел
+    # на странице — значит кричать «нет в источнике» на каждом бренде,
+    # который публикует размеры чертежом.
+    dims_from_spec: bool = False
     warnings: list[str] = field(default_factory=list)
 
 
@@ -1157,6 +1162,7 @@ def lookup(url: str) -> Product:
         if pdf_variants:
             p.variants = pdf_variants
             dims_from_page = False
+            p.dims_from_spec = True
         # Отделки из техлиста берём не только когда страница молчит, но и
         # когда она отдала МЕНЬШЕ или отдала склейку. Раньше условие было
         # «если со страницы не пришло ничего», а склеенная строка — это
