@@ -1557,6 +1557,22 @@ def check_item_edit_mode() -> tuple[int, int]:
                        actions=["document.getElementById('savedock').click()",
                                 "await null"],
                        responses=[{"json": {"id": "x"}}]))),
+        # Нажимают чаще угловую, а отвечала верхняя — с угла нажатие
+        # выглядело несработавшим.
+        ("после записи обе кнопки говорят «в библиотеке»",
+         (lambda r: all("в библиотеке" in (r["ids"].get(i, {}).get("text") or "")
+                        for i in ("tolibrary", "savedock")))(
+             _run_page(scripts_new, dom_new,
+                       actions=["document.getElementById('savedock').click()",
+                                "await null", "await null"],
+                       responses=[{"json": {"id": "x"}}]))),
+        ("и обе становятся тихими — белыми в обводке",
+         (lambda r: all(r["ids"].get(i, {}).get("className") == "btn ghost"
+                        for i in ("tolibrary", "savedock")))(
+             _run_page(scripts_new, dom_new,
+                       actions=["document.getElementById('savedock').click()",
+                                "await null", "await null"],
+                       responses=[{"json": {"id": "x"}}]))),
         ("и о несохранённом говорит вместе с верхней",
          "несохранённые" in (_run_page(scripts_lib, dom_lib, actions=[
              "const f = document.getElementById('f_note'); f.value = 'правка';"

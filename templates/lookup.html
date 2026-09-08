@@ -1344,7 +1344,11 @@
           if (FROM_LIBRARY) {
             out.textContent = 'Сохранено в каталоге.';
           } else {
-            tolibrary.textContent = '✓ в библиотеке';
+            // Отвечают ОБЕ кнопки. Нажимали чаще угловую, а менялась
+            // верхняя — с угла казалось, что нажатие не сработало вовсе.
+            for (const b of [tolibrary, document.getElementById('savedock')]) {
+              if (b) { b.textContent = '✓ в библиотеке'; b.className = 'btn ghost'; }
+            }
             out.textContent = 'Карточка «' + data.id + '» сохранена. Она доступна всем и переживёт браузер.';
           }
         } catch (e) {
