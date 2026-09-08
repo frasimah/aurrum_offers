@@ -654,7 +654,7 @@
       <div class="photos" id="photos">
         {% for src in product.photo_urls %}
         <div class="ph" data-src="{{ src }}">
-          <label><input type="checkbox" checked><img src="{{ src }}" alt="" loading="lazy"></label>
+          <label><input type="checkbox"><img src="{{ src }}" alt="" loading="lazy"></label>
           <a class="ph__open" href="{{ src }}" target="_blank" rel="noopener" title="Открыть оригинал">↗</a>
           <button type="button" class="ph__del" title="Убрать фото">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -671,8 +671,8 @@
         <button type="button" class="ghost" id="dl">Скачать отмеченные</button>
       </div>
       <div class="hint">
-        Отмеченные фото идут дальше. Снимки из салона добавьте с диска — они остаются только в этой вкладке,
-        на сервер не уходят.
+        Отметьте те, что идут клиенту, — дальше уходят только они. Снимки из салона добавьте с диска:
+        они остаются только в этой вкладке, на сервер не уходят.
       </div>
     </div>
 
@@ -983,7 +983,7 @@
           tile.className = 'ph';
           tile.dataset.local = '1';
           const url = URL.createObjectURL(f);
-          tile.innerHTML = '<label><input type="checkbox" checked><img alt=""></label>'
+          tile.innerHTML = '<label><input type="checkbox"><img alt=""></label>'
             + '<a class="ph__open" target="_blank" rel="noopener" title="Открыть оригинал">↗</a>'
             + TRASH + '<span class="ph__tag">салон</span>';
           tile.querySelector('img').src = url;
