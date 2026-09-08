@@ -1176,6 +1176,51 @@ def check_download_headers() -> tuple[int, int]:
     return good, len(checks)
 
 
+def check_library_card() -> tuple[int, int]:
+    """У плитки каталога должна быть кнопка правки.
+
+    Правка была только по клику на саму карточку, и её не находили:
+    на плитке стояла одна кнопка «В проект», а страница товара — она же
+    и редактор — открывалась только если догадаться нажать на фото.
+    """
+    from bs4 import BeautifulSoup
+    from flask import render_template
+    import importlib
+    import os as _os
+
+    print("\n ПЛИТКА КАТАЛОГА")
+    print(" " + "-" * 74)
+    _os.environ.setdefault("AURRUM_PASSWORD", "проверка")
+    _os.environ.setdefault("AURRUM_SECRET_KEY", "x" * 32)
+    import app as flask_app
+    importlib.reload(flask_app)
+
+    item = {"id": "barovier-toso-aurora", "brand": "Barovier&Toso",
+            "model": "Aurora", "type_ru": "Настольная лампа",
+            "dims_raw": "H. 28 x 11 x 10 cm", "photo": None}
+    with flask_app.app.test_request_context():
+        html = render_template("library.html", items=[item], brands=[], types=[],
+                               total=1, found=1, page=1, pages=1, args={}, q="")
+    acts = BeautifulSoup(html, "html.parser").select_one(".card__acts")
+    edit = acts.find("a") if acts else None
+    to_project = acts.find("button") if acts else None
+
+    checks = [
+        ("у плитки есть кнопка правки", edit is not None),
+        ("она названа словом, а не значком",
+         bool(edit) and "едактир" in edit.get_text(strip=True)),
+        ("она ведёт на страницу товара",
+         bool(edit) and edit.get("href", "").endswith(item["id"])),
+        ("«В проект» на месте",
+         bool(to_project) and "проект" in to_project.get_text(strip=True)),
+    ]
+    good = 0
+    for label, hit in checks:
+        good += bool(hit)
+        print(f"  {OK if hit else BAD} {label}")
+    return good, len(checks)
+
+
 def check_library() -> tuple[int, int]:
     """Библиотека: опознаватель, поиск и вход под замком.
 
@@ -2325,6 +2370,7 @@ def main() -> int:
     run("Тип из извлечения", check_type_norm)
     run("Источник фото", check_shops)
     run("Библиотека", check_library)
+    run("Плитка каталога", check_library_card)
     run("Проекты", check_projects)
     run("Контракт страниц", check_page_contract)
     run("Формулы страниц", check_page_formats)
