@@ -47,7 +47,7 @@ _TYPES_LOWER = {t.lower(): t for t in TYPES_RU}
 # отдал «Основание» (лакированное основание дивана), FENDI ARPEGGIO —
 # «Полки». Обе роли настоящие и различимые, а падали в общую «Отделку».
 ROLES_RU = [
-    "Обивка", "Отделка", "Металл", "Топ", "Кант", "Камень",
+    "Обивка", "Отделка", "Металл", "Столешница", "Кант", "Камень",
     "Стекло", "Дерево", "Ножки", "Каркас", "Фасады",
     "Основание", "Полки",
 ]
@@ -181,9 +181,15 @@ def type_from_url(url: str) -> str:
     return hits.pop() if len(hits) == 1 else ""
 
 
+# Старые названия ролей. Карточки с ними лежат в каталоге, и ругаться
+# на них незачем — это то же самое, названное прежним словом.
+ROLE_ALIASES = {"Топ": "Столешница"}
+
+
 def normalize_role(value: str) -> tuple[str, str | None]:
     """Роль отделки -> (значение из нашего списка, предупреждение)."""
     value = (value or "").strip()
+    value = ROLE_ALIASES.get(value, value)
     if value in ROLES_RU:
         return value, None
     if not value:
@@ -1059,16 +1065,26 @@ def _first_product(data: dict) -> dict:
     return _as_dict(products[0]) if products else {}
 
 
-def lookup(url: str) -> Product:
+def lookup(url: str, progress=None) -> Product:
     """Ссылка на товар -> карточка.
 
-    Firecrawl доставляет страницу, `extract` её разбирает. Если
-    у товара есть техлист — он забирается тем же извлекателем и имеет
-    приоритет: там исполнения приходят с артикулами, а объём бывает
-    указан производителем.
+    Страницу доставляет обычный запрос (Firecrawl — запасной путь),
+    `extract` её разбирает. Если у товара есть техлист — он забирается
+    тем же извлекателем и имеет приоритет: там исполнения приходят с
+    артикулами, а объём бывает указан производителем.
+
+    `progress(доля, строка)` — необязательный обходчик для показа хода
+    работы. Разбор идёт полминуты и дольше, и до сих пор это была пустая
+    страница: непонятно, работает ли вообще. Вехи здесь настоящие — это
+    то, что действительно только что произошло, а не отсчёт времени.
     """
+    def step(share: float, line: str) -> None:
+        if progress:
+            progress(share, line)
+
     p = Product(source_url=url)
 
+    step(0.05, "Открываю страницу…")
     page_md, links, page_html = _scrape(url)
     if not page_md.strip():
         raise RuntimeError(
@@ -1076,6 +1092,7 @@ def lookup(url: str) -> Product:
             "сайт закрыт от автоматических запросов."
         )
 
+    step(0.15, f"Страница получена: {len(page_md)} знаков")
     p.doc_urls = _docs_from(links)
 
     # Если магазин на Shopify, список фотографий отдаёт он сам — точный,
@@ -1105,8 +1122,12 @@ def lookup(url: str) -> Product:
                 "способом, по именам файлов. Проверьте их состав."
             )
 
+    step(0.25, f"Фотографий на странице: {len(photo_candidates)} "
+               f"(источник — {photo_source})")
+
     # Список типов передаём: ответ вне его — повод переспросить у тяжёлой
     # модели, а не молча уронить тип в «Другое».
+    step(0.30, "Читаю страницу моделью…")
     extracted = extract.from_text(page_md, known_types=TYPES_RU,
                                   known_roles=ROLES_RU, source=url)
     source = str(extracted.get(extract.SOURCE_KEY) or "")
@@ -1118,6 +1139,10 @@ def lookup(url: str) -> Product:
         )
     page = _first_product(extracted)
     p.brand = str(extracted.get("brand") or "").strip()
+    step(0.55, "Прочитано: "
+               + " ".join(x for x in (p.brand,
+                                      str(page.get("model") or "").strip()) if x)
+               + (f" · {page.get('type_ru')}" if page.get("type_ru") else ""))
     p.model = str(page.get("model") or "").strip()
     p.collection = str(page.get("collection") or "").strip()
 
@@ -1174,6 +1199,8 @@ def lookup(url: str) -> Product:
     dims_from_page = True
     axes_sure = True
     candidates = spec_pdf_candidates(p.doc_urls, p.model)
+    step(0.60, f"Техлист: {candidates[0].rsplit('/', 1)[-1].split('?')[0][:60]}"
+         if candidates else "Техлиста у товара нет")
     pdf, failures = {}, []
     # Пробуем по очереди: первый кандидат бывает каталогом на 155 МБ,
     # а лист позиции лежит рядом. Раньше промах стоил строки габаритов.
@@ -1188,6 +1215,11 @@ def lookup(url: str) -> Product:
             pdf = {}
     if failures and not p.spec_pdf_url:
         p.warnings.append("Техлист не прочитался — " + "; ".join(failures[:2]))
+    if candidates:
+        step(0.80, f"Из техлиста: исполнений "
+                   f"{len(pdf.get('variants') or [])}, отделок "
+                   f"{len(pdf.get('finishes') or [])}"
+             if p.spec_pdf_url else "Техлист не прочитался")
     if p.spec_pdf_url:
         pdf_variants = [v for v in (_as_dict(x) for x in (pdf.get("variants") or []))
                         if str(v.get("dims_raw") or "").strip()]
@@ -1277,6 +1309,8 @@ def lookup(url: str) -> Product:
     # тремя группами вместо плоского списка без снимков.
     shelf = palette.from_html(page_html, url)
     if shelf:
+        step(0.88, f"Витрина отделок: {len(shelf)} в "
+                   f"{len({f['group'] for f in shelf})} группах")
         p.finishes = shelf
         p.finishes_from_spec = False
     elif shelf is not None:
@@ -1331,4 +1365,9 @@ def lookup(url: str) -> Product:
     if not p.type_ru:
         p.warnings.append("Тип предмета не определён — выберите вручную.")
 
+    step(1.0, "Готово: "
+              + (f"{book_dims(p)} см · " if p.dims_raw else "габаритов нет · ")
+              + (f"{p.volume_m3} м³ ({p.volume_source})"
+                 if p.volume_m3 else "объём не посчитан")
+              + f" · отделок {len(p.finishes)} · фото {len(p.photo_urls)}")
     return p

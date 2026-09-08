@@ -9,8 +9,10 @@ from __future__ import annotations
 import hmac
 import json
 import os
+import queue
 import re
 import secrets
+import threading
 import time
 from collections import defaultdict
 from datetime import timedelta
@@ -21,7 +23,7 @@ from markupsafe import Markup, escape
 
 from dotenv import load_dotenv
 from flask import (Flask, Response, redirect, render_template, request,
-                   session, url_for)
+                   session, stream_with_context, url_for)
 
 # Ключи и пароли живут в .env (в git не попадает; образец — .env.example).
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
@@ -194,12 +196,16 @@ def lookup():
     except Exception as exc:  # noqa: BLE001 — причину показываем пользователю
         return render_template("lookup.html", url=url, error=str(exc)), 502
 
-    description = product_lookup.to_excel_description(product, with_finishes=False)
     # В каталог карточка попадает ТОЛЬКО по кнопке. Раньше разбор клал её
     # туда сам — «чтобы не терять работу», — и библиотека наполнялась
     # тем, чего никто не добавлял. Работу бережёт предупреждение при
     # уходе со страницы, а не запись за спиной.
+    return _card_page(url, product)
 
+
+def _card_page(url: str, product) -> str:
+    """Готовая страница карточки. Одна на оба пути — обычный ответ и поток."""
+    description = product_lookup.to_excel_description(product, with_finishes=False)
     return render_template(
         "lookup.html",
         url=url,
@@ -210,6 +216,61 @@ def lookup():
         project_choices=_project_choices(),
         types=product_lookup.TYPES_RU,
     )
+
+
+@app.route("/lookup/stream", methods=["POST"])
+def lookup_stream():
+    """Тот же разбор, но с ходом работы.
+
+    Разбор идёт полминуты и дольше: страница, модель, техлист. Всё это
+    время экран был пуст, и отличить работу от зависания было нельзя.
+    Отдаём построчный поток: доля и то, что ТОЛЬКО ЧТО произошло, —
+    отсчёт времени врал бы, а вехи настоящие.
+
+    Последней строкой идёт готовая страница карточки: разбирать второй
+    раз ради неё значит платить за модель дважды.
+    """
+    url = (request.form.get("url") or "").strip()
+    if not url.startswith(("http://", "https://")):
+        return {"error": "Ссылка должна начинаться с http:// или https://"}, 400
+
+    steps: queue.Queue = queue.Queue()
+    outcome: dict = {}
+
+    def work() -> None:
+        try:
+            outcome["product"] = product_lookup.lookup(
+                url, progress=lambda share, line: steps.put((share, line)))
+        except Exception as exc:      # noqa: BLE001 — причину показываем
+            outcome["error"] = str(exc)
+        finally:
+            steps.put(None)
+
+    worker = threading.Thread(target=work, daemon=True)
+
+    @stream_with_context
+    def emit():
+        worker.start()
+        while True:
+            item = steps.get()
+            if item is None:
+                break
+            share, line = item
+            yield json.dumps({"share": share, "line": line},
+                             ensure_ascii=False) + "\n"
+        worker.join()
+        if "error" in outcome:
+            yield json.dumps({"error": outcome["error"]},
+                             ensure_ascii=False) + "\n"
+            return
+        yield json.dumps({"html": _card_page(url, outcome["product"])},
+                         ensure_ascii=False) + "\n"
+
+    # Заголовок против буферизации посредниками: без него строки копятся
+    # и приходят разом в конце — то есть полосы нет вовсе.
+    return Response(emit(), mimetype="application/x-ndjson",
+                    headers={"X-Accel-Buffering": "no",
+                             "Cache-Control": "no-store"})
 
 
 @app.route("/parse-doc", methods=["POST"])

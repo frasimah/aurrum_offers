@@ -2004,8 +2004,14 @@ def check_palette() -> tuple[int, int]:
     soup = BeautifulSoup(html, "html.parser")
     base = flask_app._card_base(product, "")
     checks += [
-        ("на экране заголовки групп",
-         [g.get_text(strip=True) for g in soup.select(".fingroup")] == ["BASE", "TOP"]),
+        # Заголовок — наша подкатегория по-русски, а рядом слово бренда:
+        # по нему сверяют с сайтом.
+        ("на экране подкатегории по-русски",
+         [g.contents[0].strip() for g in soup.select(".fingroup")]
+         == ["Основание", "Столешница"]),
+        ("и заголовок бренда рядом",
+         [g.get_text(strip=True) for g in soup.select(".fingroup__src")]
+         == ["BASE", "TOP"]),
         ("витрина разбита по группам", len(soup.select(".fintiles")) == 2),
         ("плиток столько же, сколько отделок",
          len(soup.select(".fintile")) == 3),

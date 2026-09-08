@@ -154,10 +154,12 @@
     /* Витрина отделок: заголовок группы и образцы под ним. Крупных
        групп бывает по три сотни тканей — поэтому со своей прокруткой,
        иначе одна отделка уводит карточку на два экрана вниз. */
+    /* Подкатегория своя, по-русски: «Основание», «Столешница». Рядом —
+       заголовок, как его печатает бренд: по нему сверяют с сайтом. */
     .fingroup {
-      margin: 14px 0 6px; font-size: 12px; color: #949598;
-      text-transform: uppercase;
+      margin: 16px 0 8px; font-size: 13px; color: #2d2d2d;
     }
+    .fingroup__src { font-size: 11px; color: #949598; }
     .fintiles {
       display: flex; flex-wrap: wrap; gap: 10px;
       max-height: 300px; overflow-y: auto;
@@ -691,12 +693,18 @@
           {#- Витрина, а не список: бренд печатает отделки группами и с
               образцами, и клиенту показывают именно их. Заголовок
               выводим при смене группы — палитра приходит по порядку. -#}
-          {% set ns = namespace(group='\x00') %}
+          {% set ns = namespace(key='\x00') %}
           {% for f in product.finishes %}
-          {% if (f.group or '') != ns.group %}
+          {% set key = (f.role_ru or 'Отделка') ~ '|' ~ (f.group or '') %}
+          {% if key != ns.key %}
           {% if not loop.first %}</div>{% endif %}
-          {% set ns.group = f.group or '' %}
-          {% if ns.group %}<div class="fingroup">{{ ns.group }}</div>{% endif %}
+          {% set ns.key = key %}
+          <div class="fingroup">
+            {{ f.role_ru or 'Отделка' }}
+            {%- if f.group and f.group|lower != (f.role_ru or '')|lower %}
+            <span class="fingroup__src">{{ f.group }}</span>
+            {%- endif %}
+          </div>
           <div class="fintiles">
           {% endif %}
             <label class="fintile{% if not f.swatch %} fintile--bare{% endif %}">
