@@ -32,7 +32,13 @@
   }
 
   .menu__toggle:hover { border-color: #2d2d2d; }
-  .menu__toggle span { display: block; height: 1.5px; background: #2d2d2d; }
+  /* Ширина полоскам нужна явно: у страниц есть общее правило кнопок с
+     align-items: center, и без неё полоски схлопываются в ноль — бургер
+     выходит пустым квадратом. */
+  .menu__toggle { align-items: stretch; }
+  .menu__toggle span {
+    display: block; width: 100%; height: 1.5px; background: #2d2d2d;
+  }
 
   .menu__list {
     position: absolute;
@@ -69,7 +75,7 @@
     {% set here = request.endpoint %}
     <a href="{{ url_for('project_list') }}" {% if here == 'project_list' %}class="current"{% endif %}>Проекты</a>
     <a href="{{ url_for('project') }}" {% if here in ('project', 'project_open') %}class="current"{% endif %}>Проект</a>
-    <a href="{{ url_for('lookup') }}" {% if here == 'lookup' %}class="current"{% endif %}>Позиция по ссылке</a>
+    <a href="{{ url_for('lookup') }}" {% if here == 'lookup' %}class="current"{% endif %}>Добавить по ссылке</a>
     <a href="{{ url_for('library_page') }}" {% if here == 'library_page' %}class="current"{% endif %}>Библиотека</a>
     <a href="{{ url_for('settings') }}" {% if here == 'settings' %}class="current"{% endif %}>Константы</a>
     <hr class="menu__sep">

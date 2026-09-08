@@ -501,6 +501,26 @@ def library_item(item_id: str):
         types=product_lookup.TYPES_RU, from_library=item_id)
 
 
+@app.route("/library/pick.json")
+def library_pick():
+    """Каталог в JSON — для выбора позиции на странице проекта.
+
+    Порядок работы такой: сперва собирается библиотека, потом из неё
+    формируется проект. Ссылку на сайт бренда разбирают один раз, и
+    карточка живёт в каталоге; в проект она попадает уже оттуда.
+    """
+    query = (request.args.get("q") or "").strip()
+    try:
+        rows = library.all_items()
+    except library.NotConfigured as exc:
+        return {"error": str(exc), "items": []}, 200
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"Каталог не открылся: {exc}", "items": []}, 200
+    if query:
+        rows = library.search(rows, query)
+    return {"items": rows[:200], "total": len(rows)}
+
+
 @app.route("/library/card/<item_id>")
 def library_card(item_id: str):
     """Полная карточка в JSON — для кнопки «В проект» из каталога.

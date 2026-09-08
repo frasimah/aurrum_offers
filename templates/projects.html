@@ -87,7 +87,6 @@
       <input type="search" name="q" value="{{ query }}"
              placeholder="номер спецификации, договор, покупатель, дата…">
       <button type="submit">Найти</button>
-      <a class="btn ghost" href="{{ url_for('project') }}">Пустой проект</a>
     </form>
 
     <!-- Проект заводят по названию, а номера и суммы появляются позже.
@@ -121,13 +120,6 @@
     </div>
     {% endfor %}
 
-    <div class="foot">
-      <button type="button" class="ghost" id="reindex">Пересобрать список</button>
-      <span class="hint">
-        Если проект открывается по ссылке, но пропал из перечня — список
-        отстал от записей. Пересборка читает сами файлы и возвращает строку.
-      </span>
-    </div>
     <div class="status" id="status"></div>
   </div>
 
@@ -150,31 +142,34 @@
         } catch (e) { status.textContent = e.message; btn.disabled = false; }
       }));
 
-    document.getElementById('reindex').addEventListener('click', async () => {
-      const btn = document.getElementById('reindex');
-      btn.disabled = true;
-      status.textContent = 'Пересобираю…';
+    const newproj = document.getElementById('newproj');
+    if (newproj) newproj.addEventListener('submit', async e => {
+      e.preventDefault();
+      const field = document.getElementById('newproj_name');
+      const name = (field.value || '').trim();
+      if (!name) { field.focus(); return; }
+      const id = AURRUM.newId();
+      const header = { name: name };
+
+      // Кладём СРАЗУ НА СЕРВЕР. Черновик живёт в браузере, а список
+      // читает записи с сервера: проект, заведённый только черновиком,
+      // в перечне не появлялся — «я создал, а его нет».
+      status.textContent = 'Создаю…';
       try {
-        const r = await fetch('{{ url_for("project_reindex") }}', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+        const r = await fetch('{{ url_for("project_save") }}', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: id, header: header, positions: [],
+                                 final: {}, rates: null, rev: 0 }),
         });
         const data = await r.json();
-        if (!r.ok) throw new Error(data.error || 'не удалось пересобрать');
-        status.textContent = 'Готово: проектов ' + data.projects + '. Обновите страницу.';
-      } catch (e) { status.textContent = e.message; }
-      btn.disabled = false;
-    });
-    const newproj = document.getElementById('newproj');
-    if (newproj) newproj.addEventListener('submit', e => {
-      e.preventDefault();
-      const name = (document.getElementById('newproj_name').value || '').trim();
-      if (!name) { document.getElementById('newproj_name').focus(); return; }
-      const id = AURRUM.newId();
-      AURRUM.setCurrent(id);
-      const state = AURRUM.draft(id);
-      state.header = { ...(state.header || {}), name: name };
-      AURRUM.saveDraft(id, state);
-      window.location = '{{ url_for("project") }}';
+        if (!r.ok) throw new Error(data.error || 'не удалось создать');
+        AURRUM.setCurrent(id);
+        AURRUM.saveDraft(id, { positions: [], header: header, final: {},
+                               rates: null, rev: data.rev || 0 });
+        window.location = '/project/open/' + encodeURIComponent(id);
+      } catch (err) {
+        status.textContent = err.message;
+      }
     });
 
   </script>

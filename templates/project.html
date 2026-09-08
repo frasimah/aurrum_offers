@@ -157,6 +157,38 @@
     .totals div span { display: block; font-size: 11.5px; color: #949598; }
     .totals div b { font-size: 17px; font-weight: 500; }
 
+    .dlg {
+      width: min(820px, calc(100vw - 32px));
+      border: 1px solid #2d2d2d; padding: 22px 24px; background: #fff;
+      font-family: inherit; color: #2d2d2d;
+    }
+    .dlg::backdrop { background: rgba(45, 45, 45, 0.35); }
+    .dlg h3 { margin: 0 0 12px; font-size: 15px; font-weight: 500; }
+    .dlg__foot { margin-top: 16px; display: flex; justify-content: flex-end; }
+    .bookgrid {
+      display: grid; gap: 10px; margin-top: 10px; max-height: 52vh; overflow: auto;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    }
+    .bookgrid button {
+      display: block; width: 100%; height: auto; padding: 0; text-align: left;
+      background: #fff; color: #2d2d2d; border: 1px solid #ececec; overflow: hidden;
+    }
+    .bookgrid button:hover { border-color: #2d2d2d; background: #fff; color: #2d2d2d; }
+    .bookgrid img, .bookgrid .none {
+      display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; background: #f4f4f4;
+    }
+    .bookgrid .none {
+      display: flex; align-items: center; justify-content: center;
+      color: #c4c4c4; font-size: 11px;
+    }
+    .bookgrid .cap { padding: 7px 9px 9px; display: flex; flex-direction: column; gap: 2px; }
+    .bookgrid .cap b { font-size: 12.5px; font-weight: 500; }
+    .bookgrid .cap span { color: #949598; font-size: 10.5px; }
+    .bookgrid .added { border-color: #2d2d2d; }
+
+    .crumbs { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+    .crumbs .btn { height: 30px; padding: 0 12px; font-size: 12.5px; }
+
     .shelf {
       display: grid; gap: 12px; margin: 0 0 18px;
       grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
@@ -214,6 +246,13 @@
 
   <div class="wrap">
 
+    <!-- Возврат к перечню: со страницы проекта вели только пункты общего
+         меню, а список проектов — то место, откуда сюда и приходят. -->
+    <div class="crumbs">
+      <a class="btn ghost" href="{{ url_for('project_list') }}">← К списку проектов</a>
+      <a class="btn ghost" href="{{ url_for('library_page') }}">К библиотеке</a>
+    </div>
+
     <div class="card">
       <h2>Шапка предложения</h2>
       <div class="hint" style="margin-bottom:12px">
@@ -232,14 +271,14 @@
 
     <div class="card">
       <h2>Добавить позицию</h2>
-      <div class="hint" style="margin-bottom:10px">
-        Ссылка на товар на сайте бренда. Карточка соберётся и ляжет в проект —
-        оттуда её можно поправить.
-      </div>
-      <form class="add" method="post" action="{{ url_for('lookup') }}">
-        <input type="url" name="url" placeholder="https://www.venicem.com/product/circle-floor/" required>
-        <button type="submit">Найти</button>
-      </form>
+        <div class="hint" style="margin-bottom:10px">
+          Из библиотеки: сперва собирается каталог, потом из него — проект.
+          Разбирать ссылку каждый раз заново не нужно, карточка уже готова.
+        </div>
+        <div class="actions">
+          <button type="button" id="frombook">Выбрать из библиотеки</button>
+          <a class="btn ghost" href="{{ url_for('lookup') }}">Нет в библиотеке? Разобрать по ссылке →</a>
+        </div>
     </div>
 
     <div class="card">
@@ -350,6 +389,16 @@
     </div>
 
   </div>
+
+  <dialog id="bookdlg" class="dlg">
+    <h3>Что положить в проект</h3>
+    <input id="bookdlg_q" placeholder="Бренд, модель, тип…">
+    <div class="hint" id="bookdlg_status">Открываю каталог…</div>
+    <div class="bookgrid" id="bookdlg_grid"></div>
+    <div class="dlg__foot">
+      <button type="button" class="ghost" id="bookdlg_close">Готово</button>
+    </div>
+  </dialog>
 
   <script src="{{ url_for('static', filename='project_store.js') }}"></script>
   <script>
@@ -511,6 +560,79 @@
 
     // Витрина рисуется из тех же позиций, что и таблица: отдельного
     // состояния у неё нет, значит и разойтись им не с чего.
+    // Выбор из библиотеки. Порядок работы: сперва собирается каталог,
+    // потом из него формируется проект. Ссылку на сайт бренда разбирают
+    // один раз — карточка после этого живёт в каталоге, и в проект она
+    // попадает уже оттуда, со всеми правками, которые в ней сделали.
+    const bookdlg = document.getElementById('bookdlg');
+    if (bookdlg) {
+      let rows = null;
+      const grid = document.getElementById('bookdlg_grid');
+      const status = document.getElementById('bookdlg_status');
+
+      document.getElementById('frombook')
+        .addEventListener('click', async () => { bookdlg.showModal(); await load(''); });
+      document.getElementById('bookdlg_close')
+        .addEventListener('click', () => bookdlg.close());
+      document.getElementById('bookdlg_q').addEventListener('input', e => {
+        if (rows) paint(filter(rows, e.target.value));
+      });
+
+      async function load(query) {
+        if (rows) { paint(filter(rows, query)); return; }
+        status.textContent = 'Открываю каталог…';
+        try {
+          const r = await fetch('{{ url_for("library_pick") }}');
+          const data = await r.json();
+          if (data.error) { status.textContent = data.error; return; }
+          rows = data.items || [];
+          paint(rows);
+        } catch (e) { status.textContent = 'Каталог не открылся: ' + e.message; }
+      }
+
+      const filter = (list, q) => {
+        const needle = (q || '').trim().toLowerCase();
+        if (!needle) return list;
+        return list.filter(it => [it.brand, it.model, it.type_ru]
+          .some(v => String(v || '').toLowerCase().includes(needle)));
+      };
+
+      function paint(list) {
+        status.textContent = list.length
+          ? 'Нажмите на товар — он ляжет в проект. Показано: ' + list.length + '.'
+          : 'Ничего не нашлось.';
+        grid.innerHTML = list.map(it =>
+          '<button type="button" data-id="' + esc(it.id) + '">'
+          + (it.photo ? '<img src="' + esc(it.photo) + '" alt="" loading="lazy">'
+                      : '<div class="none">нет фото</div>')
+          + '<div class="cap"><b>' + esc(it.model || '') + '</b>'
+          + '<span>' + esc(it.brand || '') + ' · ' + esc(it.type_ru || '') + '</span>'
+          + '</div></button>').join('');
+        grid.querySelectorAll('button[data-id]').forEach(b =>
+          b.addEventListener('click', () => take(b)));
+      }
+
+      // За полной карточкой идём в файл: в индексе её нет — там выжимка,
+      // без описания, отделок и остальных фотографий.
+      async function take(button) {
+        button.disabled = true;
+        try {
+          const r = await fetch('/library/card/' + encodeURIComponent(button.dataset.id));
+          const card = await r.json();
+          if (!r.ok || card.error) throw new Error(card.error || 'карточка не открылась');
+          positions.push({ ...card, qty: 1, ...posDefaults() });
+          save();
+          render(null);
+          recalc();
+          button.classList.add('added');
+          button.querySelector('b').textContent = '✓ ' + button.querySelector('b').textContent;
+        } catch (e) {
+          status.textContent = e.message;
+        }
+        button.disabled = false;
+      }
+    }
+
     function renderShelf() {
       const shelf = document.getElementById('shelf');
       if (!shelf) return;

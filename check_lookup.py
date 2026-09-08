@@ -602,6 +602,26 @@ def check_page_contract() -> tuple[int, int]:
         ("пустая шапка — «Без имени»", _projects.title({}) == "Без имени"),
     ]
 
+    # Новый проект кладётся СРАЗУ НА СЕРВЕР: черновик живёт в браузере, а
+    # список читает записи с сервера — заведённый только черновиком в
+    # перечне не появлялся, «я создал, а его нет».
+    projects_page = "\n".join(_page("projects.html", _render=True, rows=[], query="",
+                                     total=0, error=None)[1])
+    checks += [
+        ("создание проекта пишет на сервер",
+         "project_save" in projects_page or "/project/save" in projects_page),
+        ("и открывает созданный, а не пустой",
+         "/project/open/" in projects_page),
+        ("«Пересобрать список» убрана", "reindex" not in projects_page),
+    ]
+
+    # Бургер: полоскам нужна явная ширина — общее правило кнопок ставит
+    # align-items: center, и без неё они схлопываются в ноль.
+    nav = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "templates", "_nav.html"), encoding="utf-8").read()
+    checks.append(("у полосок бургера есть ширина",
+                   ".menu__toggle span" in nav and "width: 100%" in nav))
+
     checks.append(("поля шапки есть в разметке",
                    bool(fields) and all(f"h_{f}" in ids for f in fields)))
 
@@ -615,6 +635,23 @@ def check_page_contract() -> tuple[int, int]:
         "factory_discount_pct", "dealer_markup_pct"}
     checks.append(("ключи ряда позиции известны расчёту",
                    bool(row_keys) and row_keys <= known))
+
+    # Позиции берутся ИЗ БИБЛИОТЕКИ, а не по ссылке. Порядок работы:
+    # сперва собирается каталог, потом из него формируется проект;
+    # ссылку разбирают один раз, дальше карточка живёт в каталоге.
+    checks += [
+        ("сверху проекта есть возврат к списку",
+         any("списку проектов" in a.get_text() for a in soup.select(".crumbs a"))),
+        ("на странице проекта есть выбор из библиотеки",
+         "frombook" in set(dom["ids"])),
+        ("выбор открывается окном", "bookdlg" in set(dom["ids"])),
+        ("в окне есть поиск", "bookdlg_q" in set(dom["ids"])),
+        ("поля ввода ссылки на странице проекта нет",
+         not soup.select_one('form.add input[type="url"]')),
+        ("но путь к разбору со страницы виден",
+         any("Разобрать по ссылке" in a.get_text() for a in soup.select("a"))),
+        ("за полной карточкой идут в файл", "/library/card/" in page),
+    ]
 
     # Витрина проекта: что в нём лежит — лицом, а не рядами чисел.
     checks += [
