@@ -162,6 +162,9 @@
       {% if query or brand or type_ru %}
       <a class="btn ghost" href="{{ url_for('library_page') }}">Сбросить</a>
       {% endif %}
+      <!-- Пополнение библиотеки начинается здесь: искать нечего, пока
+           карточку неоткуда взять. -->
+      <a class="btn ghost" href="{{ url_for('lookup') }}">Добавить</a>
     </form>
 
     {% if not items %}

@@ -1417,6 +1417,19 @@ def check_item_edit_mode() -> tuple[int, int]:
              .get("library_status", {}).get("text", ""))),
         ("сверху есть возврат в библиотеку и в проект",
          len(soup_lib.select(".crumbs a")) == 2),
+        # Угловая кнопка своей записи не ведёт: карточка ушла бы дважды.
+        ("угловая кнопка сохраняет тем же запросом",
+         (lambda r: len(r.get("fetches") or []) == 1
+          and "/library/save" in (r.get("fetches") or [{}])[0].get("url", ""))(
+             _run_page(scripts_lib, dom_lib,
+                       actions=["document.getElementById('savedock').click()",
+                                "await null"],
+                       responses=[{"json": {"id": "x"}}]))),
+        ("и о несохранённом говорит вместе с верхней",
+         "несохранённые" in (_run_page(scripts_lib, dom_lib, actions=[
+             "const f = document.getElementById('f_note'); f.value = 'правка';"
+             " f.dispatchEvent({type:'input', target: f})"])["ids"]
+             .get("savedock_status", {}).get("text", ""))),
         ("удаление только у сохранённой",
          soup_lib.find(id="del") is not None and soup_new.find(id="del") is None),
     ]

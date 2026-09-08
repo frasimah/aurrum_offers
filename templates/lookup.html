@@ -196,6 +196,16 @@
     }
     .crumbs .btn { height: 30px; padding: 0 12px; font-size: 12.5px; }
 
+    .savedock {
+      position: fixed; right: 24px; bottom: 24px; z-index: 5;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .savedock__note {
+      max-width: 260px; padding: 6px 10px; background: #fff;
+      border: 1px solid #ececec; text-align: right;
+    }
+    .savedock__note:empty { display: none; }
+
     .verify__text {
       max-height: 320px; overflow: auto; margin: 8px 0 0;
       padding: 10px 12px; border: 1px solid #ececec; background: #fafafa;
@@ -603,6 +613,15 @@
           </div>
           <div class="hint" id="library_status"></div>
 
+          <!-- Та же кнопка, приклеенная к углу: карточка длинная, и
+               настоящая уезжает за верхний край на первом же прокруте.
+               Своей работы у неё нет — она нажимает настоящую, поэтому
+               сохранение остаётся одно. -->
+          <div class="savedock">
+            <div class="hint savedock__note" id="savedock_status"></div>
+            <button type="button" id="savedock">{{ 'Сохранить' if from_library else 'В библиотеку' }}</button>
+          </div>
+
           {% if variants and variants|length > 1 %}
           <label>Исполнения — выберите то, что в заказе</label>
           <div class="hint" style="margin-bottom:6px">
@@ -732,7 +751,7 @@
       <h2>Документы</h2>
       <div class="hint" style="margin-bottom:12px">
         «Распарсить» достанет из техлиста исполнения с артикулами, габаритами и отделками —
-        там, где Firecrawl теряет структуру. Выбор за вами: подставится только отмеченное.
+        того, чего в тексте страницы нет. Выбор за вами: подставится только отмеченное.
       </div>
       {% for d in product.doc_urls %}
       <div class="doc-row">
@@ -1131,7 +1150,16 @@
     const tolibrary = document.getElementById('tolibrary');
     if (tolibrary) {
       tolibrary.addEventListener('click', async () => {
-        const out = document.getElementById('library_status');
+        // Ответ показываем в обоих местах: нажать могли снизу, а
+        // читать сообщение у описания — значит не прочитать вовсе.
+        const near = document.getElementById('library_status');
+        const dock = document.getElementById('savedock_status');
+        const out = {
+          set textContent(text) {
+            near.textContent = text;
+            if (dock) dock.textContent = text;
+          },
+        };
         tolibrary.disabled = true;
         out.textContent = 'Сохраняю…';
         try {
@@ -1151,6 +1179,16 @@
           out.textContent = e.message;
         }
         tolibrary.disabled = false;
+      });
+    }
+
+    const savedock = document.getElementById('savedock');
+    if (savedock && tolibrary) {
+      savedock.addEventListener('click', () => {
+        // Пока идёт запись, настоящая кнопка заперта — вторая запись
+        // отсюда положила бы карточку дважды.
+        if (tolibrary.disabled) return;
+        tolibrary.click();
       });
     }
 
@@ -1378,16 +1416,20 @@
     (function () {
       const save = document.getElementById('tolibrary');
       if (!save) return;
-      const out = document.getElementById('library_status');
+      // Обе кнопки — верхняя и угловая — ведут себя одинаково: разное
+      // поведение у одного действия читалось бы как два разных.
+      const twins = [save, document.getElementById('savedock')].filter(Boolean);
+      const notes = [document.getElementById('library_status'),
+                     document.getElementById('savedock_status')].filter(Boolean);
       const quiet = 'btn ghost';
-      save.className = quiet;
+      for (const b of twins) b.className = quiet;
       let dirty = false;
 
       function touched() {
         if (dirty) return;
         dirty = true;
-        save.className = '';
-        if (out) out.textContent = 'Есть несохранённые правки.';
+        for (const b of twins) b.className = '';
+        for (const n of notes) n.textContent = 'Есть несохранённые правки.';
       }
 
       // Подписываемся на сами поля, а не на общего предка: обход вверх
