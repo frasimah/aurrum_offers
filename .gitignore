@@ -1,4 +1,4 @@
-.venv/
+.venv
 __pycache__/
 *.pyc
 .vercel
@@ -9,5 +9,5 @@ __pycache__/
 !.env.example
 
 # Образцы спецификаций содержат данные клиентов и внутренние расчёты
-samples/
+samples
 .env*
