@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 
 import extract
 import gallery
+import palette
 import safe_fetch
 import shopify
 
@@ -660,7 +661,10 @@ def _verify_finishes(finishes: list[dict], sources: str) -> tuple[list[dict], li
         material = str(f.get("material") or "").strip()
         if not material:
             continue
-        if _grounded(material, sources):
+        # Отделки из витрины сверять не с чем: они и есть текст
+        # страницы, слово в слово. Их не модель придумала, а разметка
+        # отдала.
+        if f.get("source") == "палитра" or _grounded(material, sources):
             kept.append(f)
         else:
             dropped.append(material)
@@ -1266,6 +1270,20 @@ def lookup(url: str) -> Product:
 
     if not p.brand:
         p.brand = _brand_from_url(url)
+
+    # Витрина отделок со страницы: группы и образцы, прочитанные
+    # разметкой. Она полнее и точнее всего, что берётся текстом, —
+    # поэтому перебивает и страницу, и техлист: у Porada это 50 отделок
+    # тремя группами вместо плоского списка без снимков.
+    shelf = palette.from_html(page_html, url)
+    if shelf:
+        p.finishes = shelf
+        p.finishes_from_spec = False
+    elif shelf is not None:
+        p.warnings.append(
+            "Витрина отделок у этого бренда описана правилом, но на "
+            "странице ничего не нашла — возможно, сайт переверстали."
+        )
 
     # Роли приводим к нашему списку и схлопываем повторы.
     unique: list[dict] = []

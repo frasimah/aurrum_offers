@@ -1917,6 +1917,115 @@ def check_gallery_rules() -> tuple[int, int]:
     return good, len(rules)
 
 
+def check_palette() -> tuple[int, int]:
+    """Витрина отделок: группы и образцы.
+
+    Бренд печатает отделки не списком, а группами с кружками-образцами,
+    и клиенту показывают именно их. Модель отдавала плоский список без
+    снимков; витрину читает разметка.
+    """
+    import os
+
+    from bs4 import BeautifulSoup
+
+    import app as flask_app
+    import palette
+    print("\n ВИТРИНА ОТДЕЛОК")
+    print(" " + "-" * 74)
+
+    # Разметка Porada, ужатая до сути, и НАРОЧНО повторённая: страница
+    # несёт витрину дважды — для широкого экрана и для узкого.
+    one = """
+      <div class="characteristics_tabs_finiture_block">
+        <div class="characteristics_tabs_finiture_title">BASE</div>
+        <div class="finiture_item">
+          <div class="finiture_item_img_w">
+            <img class="finiture_item_img" src="/img/rovere.jpg">
+          </div>
+          <div class="finiture_item_title">ROVERE NATURALE</div>
+        </div>
+        <div class="finiture_item">
+          <div class="finiture_item_title">БЕЗ ОБРАЗЦА</div>
+        </div>
+      </div>
+      <div class="characteristics_tabs_finiture_block">
+        <div class="characteristics_tabs_finiture_title">TOP</div>
+        <div class="finiture_item">
+          <div class="finiture_item_img_w"><img src="/img/marmo.jpg"></div>
+          <div class="finiture_item_title">CALACATTA</div>
+        </div>
+      </div>"""
+    got = palette.from_html(one + one, "https://www.porada.it/prodotto/x")
+
+    checks = [
+        ("бренда без правила витрина не трогает",
+         palette.from_html(one, "https://example.com/x") is None),
+        ("правило есть, а разметки нет — пустой список, не молчание",
+         palette.from_html("<div></div>", "https://www.porada.it/x") == []),
+        ("отделок трое, повтор витрины схлопнут", len(got) == 3),
+        ("группы названы как у бренда",
+         [f["group"] for f in got] == ["BASE", "BASE", "TOP"]),
+        ("образец достаётся полным адресом",
+         got[0]["swatch"] == "https://www.porada.it/img/rovere.jpg"),
+        ("отделка без образца остаётся отделкой", got[1]["swatch"] == ""),
+        ("порядок групп — как на странице",
+         [f["material"] for f in got][:1] == ["ROVERE NATURALE"]),
+    ]
+
+    checks += [
+        ("STRUTTURA -> Каркас", palette.role_of("STRUTTURA") == "Каркас"),
+        ("BASE -> Основание", palette.role_of("BASE") == "Основание"),
+        ("двуязычный заголовок читается по знакомому слову",
+         palette.role_of("Essenze | Wood") == "Дерево"),
+        ("незнакомый заголовок молчит и даёт «Отделка»",
+         palette.role_of("QUALCOSA") == "Отделка"),
+    ]
+
+    # Витрину не сверяем с текстом страницы: она И ЕСТЬ текст страницы.
+    kept, dropped = pl._verify_finishes(
+        [{"material": "ROVERE NATURALE", "source": "палитра"},
+         {"material": "ВЫДУМКА"}], "на странице только про дуб")
+    checks += [
+        ("витрина не проходит сверку и не пропадает", len(kept) == 1),
+        ("а выдумка модели пропадает", dropped == ["ВЫДУМКА"]),
+    ]
+
+    # Экран: заголовки групп и плитки с образцами, галочек нет.
+    stored = {"brand": "PORADA", "model": "AMPHORA", "type_ru": "Стол",
+              "source_url": "https://www.porada.it/prodotto/amphora",
+              "finishes": got}
+    product = flask_app._as_product(stored)
+    with flask_app.app.test_request_context():
+        from flask import render_template
+        html = render_template("lookup.html", product=product, url="",
+                               description="", variants=[], types=pl.TYPES_RU,
+                               card_base=flask_app._card_base(product, ""),
+                               project_choices=[])
+    soup = BeautifulSoup(html, "html.parser")
+    base = flask_app._card_base(product, "")
+    checks += [
+        ("на экране заголовки групп",
+         [g.get_text(strip=True) for g in soup.select(".fingroup")] == ["BASE", "TOP"]),
+        ("витрина разбита по группам", len(soup.select(".fintiles")) == 2),
+        ("плиток столько же, сколько отделок",
+         len(soup.select(".fintile")) == 3),
+        ("образцы выведены картинками", len(soup.select(".fintile img")) == 2),
+        ("галочек заранее нет", not soup.select("input.finpick[checked]")),
+        ("образец переживает сохранение",
+         base["finishes"][0].get("swatch", "").endswith("rovere.jpg")),
+        ("и группа тоже", base["finishes"][2].get("group") == "TOP"),
+        ("правило описано данными, а не кодом",
+         os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                     "config", "finish_palette.json"))),
+    ]
+
+    good = 0
+    for label, hit in checks:
+        good += bool(hit)
+        print(f"  {OK if hit else BAD} {label}")
+    return good, len(checks)
+
+
 def check_photos() -> tuple[int, int]:
     """Отбор фотографий изделия среди всей галереи страницы.
 
@@ -2915,6 +3024,7 @@ def main() -> int:
     run("Правила галерей", check_gallery_rules)
     run("Вход", check_login)
     run("Фото", check_photos)
+    run("Витрина отделок", check_palette)
     run("Тип по адресу", check_url_types)
     run("Тип из извлечения", check_type_norm)
     run("Источник фото", check_shops)

@@ -211,6 +211,18 @@
     .empty { padding: 40px 0; text-align: center; color: #949598; }
 
     .actions { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; align-items: center; }
+
+    /* Сохранение проекта было восьмой кнопкой в ряду у самого низа
+       страницы — его искали глазами и не находили. */
+    .savedock {
+      position: fixed; right: 24px; bottom: 24px; z-index: 5;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .savedock__note {
+      max-width: 260px; padding: 6px 10px; background: #fff;
+      border: 1px solid #ececec; text-align: right;
+    }
+    .savedock__note:empty { display: none; }
     .actions a.back {
       display: inline-flex; align-items: center; height: 36px; padding: 0 16px;
       border: 1px solid #d9d9d9; color: #2d2d2d;
@@ -342,12 +354,19 @@
         <button type="button" class="ghost" id="copyall">Скопировать все строки</button>
         <button type="button" class="ghost" id="addroom">Добавить комнату</button>
         <button type="button" class="ghost" id="fromdefaults">Вставить из констант</button>
-        <button type="button" class="ghost" id="saveall">Сохранить</button>
+        <button type="button" class="ghost" id="saveall">Сохранить проект</button>
         <button type="button" class="ghost" id="tolibrary">Всё в каталог</button>
         <a class="back" href="{{ url_for('lookup') }}">Вернуться к парсеру</a>
         <button type="button" class="link" id="clear">Очистить проект</button>
       </div>
       <div class="hint" id="status"></div>
+
+      <!-- Своей записи не ведёт: нажимает настоящую, поэтому
+           сохранение остаётся одно. -->
+      <div class="savedock">
+        <div class="hint savedock__note" id="savedock_status"></div>
+        <button type="button" id="savedock">Сохранить проект</button>
+      </div>
     </div>
 
     <div class="card">
@@ -1006,19 +1025,52 @@
 
     document.getElementById('fromdefaults').addEventListener('click', async () => {
       if (!positions.length) return;
-      if (!confirm('Заменить скидку, наценку и сборку у всех позиций числами со страницы «Константы»?')) return;
+      if (!confirm('Взять со страницы «Константы» скидку, наценку, сборку и ставки расчёта и применить к этому проекту?')) return;
       const d = posDefaults();
+
+      // Считаем, что именно поменялось. Сообщение, которое одинаково при
+      // любом исходе, читать перестают: «подставлено» на неизменившихся
+      // числах выглядит ровно как несработавшая кнопка — с этого и
+      // начался разбор.
+      let changed = 0;
       for (const p of positions) {
-        for (const key of Object.keys(d)) p[key] = d[key];
+        for (const key of Object.keys(d)) {
+          if (p[key] !== d[key]) changed += 1;
+          p[key] = d[key];
+        }
       }
+
+      // Ставки расчёта у сохранённого проекта СВОИ: при первом сохранении
+      // в запись уходит снимок констант, и дальше проект за страницей
+      // «Константы» не следует — так и задумано, иначе готовое
+      // предложение меняло бы цены само. Эта кнопка — способ обновить их
+      // осознанно; без неё она правила три числа из десяти, а выглядела
+      // как «взять всё из констант».
+      const fresh = AURRUM.rates();
+      const wasOwn = !!state.rates;
+      state.rates = fresh ? { ...fresh } : null;
       save();
       // Сначала пересчёт, потом сообщение: recalc по успеху чистит статус,
       // и написанное до него исчезало, не успев показаться.
       await recalc();
-      document.getElementById('status').textContent =
-        'Подставлено из констант: скидка ' + Math.round(d.factory_discount * 100) + ' %' +
-        ', наценка ' + Math.round(d.dealer_markup * 100) + ' %, сборка ' + (Math.round((1 - d.assembly) * 1000) / 10) + ' % ' +
-        '. Ставки расчёта (РЕНТАБ, ТРАНШ и остальные) применяются пересчётом сами.';
+
+      const parts = [];
+      parts.push(changed
+        ? 'Позиции: скидка ' + Math.round(d.factory_discount * 100) + ' %'
+          + ', наценка ' + Math.round(d.dealer_markup * 100) + ' %'
+          + ', сборка ' + (Math.round((1 - d.assembly) * 1000) / 10) + ' %.'
+        : 'Позиции уже стояли на этих числах — скидка '
+          + Math.round(d.factory_discount * 100) + ' %, наценка '
+          + Math.round(d.dealer_markup * 100) + ' %, сборка '
+          + (Math.round((1 - d.assembly) * 1000) / 10) + ' %.');
+      if (!fresh) {
+        parts.push('Ставки расчёта на «Константах» не сохранены — считаем по заводским.');
+      } else if (wasOwn) {
+        parts.push('Ставки расчёта проекта заменены на те, что на «Константах».');
+      } else {
+        parts.push('Ставки расчёта берутся с «Констант».');
+      }
+      document.getElementById('status').textContent = parts.join(' ');
     });
 
     // Проект и шапка сохраняются сами на каждую правку. Кнопка нужна не
@@ -1027,7 +1079,14 @@
     // но сервер общий: пока не нажали, второй менеджер проекта не видит.
     async function saveToServer(overRev) {
       const btn = document.getElementById('saveall');
-      const out = document.getElementById('status');
+      const near = document.getElementById('status');
+      const dock = document.getElementById('savedock_status');
+      const out = {
+        set textContent(text) {
+          near.textContent = text;
+          if (dock) dock.textContent = text;
+        },
+      };
       btn.disabled = true;
       out.textContent = 'Сохраняю…';
       save();
@@ -1081,6 +1140,11 @@
     }
 
     document.getElementById('saveall').addEventListener('click', () => saveToServer(null));
+    // Угловая кнопка своей записи не ведёт — нажимает настоящую.
+    document.getElementById('savedock').addEventListener('click', () => {
+      const real = document.getElementById('saveall');
+      if (!real.disabled) real.click();
+    });
 
     document.getElementById('clear').addEventListener('click', () => {
       if (!confirm('Убрать все позиции из проекта?')) return;
