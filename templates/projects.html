@@ -158,8 +158,9 @@
       try {
         const r = await fetch('{{ url_for("project_save") }}', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: id, header: header, positions: [],
-                                 final: {}, rates: null, rev: 0 }),
+          body: JSON.stringify({ project: { id: id, header: header,
+                                 positions: [], final: {}, rates: null,
+                                 rev: 0 } }),
         });
         const data = await r.json();
         if (!r.ok) throw new Error(data.error || 'не удалось создать');

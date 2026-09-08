@@ -462,14 +462,27 @@ def source_text():
     if not url.lower().startswith(("http://", "https://")):
         return {"error": "Нужна ссылка на страницу товара."}, 400
     try:
-        text, _links, _html = product_lookup._scrape(url)
+        text, _links, html_src = product_lookup._scrape(url)
     except product_lookup.NoDelivery as exc:
         return {"error": str(exc)}, 502
     except Exception as exc:  # noqa: BLE001
         return {"error": f"Страница не открылась: {exc}"}, 502
+    # Одним абзацем на две тысячи знаков сверять нечего, поэтому текст
+    # разбиваем по блокам разметки. Слова остаются те же.
+    #
+    # Разбиваем не всегда: обычный запрос отдаёт текст, схлопнутый в одну
+    # строку, а Firecrawl — разметку, где переносы уже расставлены и
+    # ближе к странице, чем наши. Перенос в тексте и есть признак, какой
+    # это случай.
+    if "\n" in text:
+        shown = text
+    else:
+        shown = product_lookup.readable_text(html_src)
+        if len(shown) < product_lookup.MIN_PAGE_TEXT:
+            shown = text
     # Потолок на ответ: страницы брендов заметно короче, а огромный текст
     # только повесит вкладку.
-    return {"text": text[:200_000], "chars": len(text)}
+    return {"text": shown[:200_000], "chars": len(shown)}
 
 
 @app.route("/library/item/<item_id>")

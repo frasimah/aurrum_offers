@@ -17,6 +17,7 @@ from __future__ import annotations
 import math
 import os
 import re
+from html import unescape
 from urllib.parse import urljoin
 from dataclasses import dataclass, field
 
@@ -512,6 +513,29 @@ def _plain(url: str) -> tuple[str, list[str], str] | None:
         return None
     links = [urljoin(url, u) for u in _HREF.findall(html)]
     return text, links, html
+
+
+# Теги, которые на экране начинают новую строку. Нужны только для показа
+# текста человеку: разбор работает с плоской строкой, а читать её нельзя —
+# меню, описание и подписи сливаются в один ком.
+_BLOCK = re.compile(
+    r"</?(?:p|div|br|li|tr|td|th|section|article|header|footer|nav|main"
+    r"|aside|ul|ol|dl|dt|dd|table|h[1-6]|blockquote|figure|figcaption"
+    r"|form|label|option|hr|pre)\b[^>]*>", re.I)
+
+
+def readable_text(html: str) -> str:
+    """Текст страницы, разбитый по блокам разметки, — для сверки глазами.
+
+    Слова те же, что видит разбор; отличаются только переносы строк и
+    раскрытые мнемоники (`&amp;` -> `&`). Без этого сверять нечего:
+    страница приходит одним абзацем на две тысячи знаков.
+    """
+    s = _TAGS.sub(" ", html or "")
+    s = _BLOCK.sub("\n", s)
+    s = _ANY_TAG.sub(" ", s)
+    lines = (" ".join(unescape(ln).split()) for ln in s.split("\n"))
+    return "\n".join(ln for ln in lines if ln)
 
 
 def _scrape(url: str, fc=None, timeout_ms: int = 120_000) -> tuple[str, list[str], str]:

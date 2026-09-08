@@ -615,6 +615,30 @@ def check_page_contract() -> tuple[int, int]:
         ("«Пересобрать список» убрана", "reindex" not in projects_page),
     ]
 
+    # Знать адрес мало. Страница слала поля проекта верхним уровнем, а
+    # сервер ждёт их внутри «project» — и на «Создать» отвечал «Неверный
+    # запрос»: завести проект было нельзя вовсе. Поэтому проверяем не
+    # адрес, а само тело — тем же разбором, что стоит на сервере.
+    _, made_scripts, made_dom = _page("projects.html", _render=True, rows=[],
+                                      query="", total=0, error=None)
+    made = _run_page(
+        made_scripts, made_dom,
+        actions=["document.getElementById('newproj_name').value = '2078'",
+                 "document.getElementById('newproj').dispatchEvent("
+                 "{ type: 'submit', preventDefault() {} })",
+                 "await null"],
+        responses=[{"json": {"id": "x", "rev": 1}}])
+    sent = (made.get("fetches") or [{}])[0]
+    body = _json.loads(sent.get("body") or "{}")
+    accepted, refusal = flask_app._incoming_project(body)
+    checks += [
+        ("«Создать» уходит на сохранение проекта",
+         "/project/save" in (sent.get("url") or "")),
+        ("сервер принимает это тело", refusal is None),
+        ("и название доходит до записи",
+         ((accepted or {}).get("header") or {}).get("name") == "2078"),
+    ]
+
     # Бургер: полоскам нужна явная ширина — общее правило кнопок ставит
     # align-items: center, и без неё они схлопываются в ноль.
     nav = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
