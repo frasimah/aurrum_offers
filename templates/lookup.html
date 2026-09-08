@@ -670,7 +670,6 @@
             <button type="button" class="ghost" id="copy">Скопировать описание</button>
             {% if from_library %}
             <button type="button" class="ghost" id="refresh">Пересобрать с сайта</button>
-            <button type="button" class="danger" id="del">Удалить</button>
             {% endif %}
           </div>
           <div class="hint" id="library_status"></div>
@@ -681,6 +680,12 @@
                сохранение остаётся одно. -->
           <div class="savedock">
             <div class="hint savedock__note" id="savedock_status"></div>
+            {% if from_library %}
+            <!-- Удаление рядом с сохранением: оба действия над карточкой
+                 целиком, и искать их в разных концах длинной страницы
+                 было незачем. Красная обводка отделяет необратимое. -->
+            <button type="button" class="danger" id="del">Удалить</button>
+            {% endif %}
             <button type="button" id="savedock">{{ 'Сохранить' if from_library else 'В библиотеку' }}</button>
           </div>
 

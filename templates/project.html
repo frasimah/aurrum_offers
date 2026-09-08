@@ -318,15 +318,15 @@
               <th title="% от цены прайса">Скидка фабрики, %</th>
               <th title="Наценка дилера, % к цене со скидкой">Наценка, %</th>
               <th title="Надбавка за сборку. Работает делением, как в форме: 5 % превращает сумму в СУММА ÷ 0,95">Сборка, %</th>
-              <th>Закуп</th>
-              <th>Рентаб</th>
-              <th>Транш</th>
-              <th>SWIFT</th>
-              <th>Транспорт</th>
-              <th title="Растаможка этой позиции — только руками, в евро. Ставки у неё нет: зависит от кода ТН ВЭД и партии, а не от объёма и цены. Пусто значит ноль">Растаможка</th>
-              <th title="СУММА формы (AD) за одну штуку: закуп + рентаб + транш + SWIFT + транспорт + растаможка. Количество на неё не влияет">СУММА/шт</th>
-              <th title="Цена клиенту за штуку — со сборкой, округлена до десятков; правится карандашом">Цена</th>
-              <th title="Цена × количество — как колонка «Сумма» видимой части книги">Сумма</th>
+              <th>Закуп, €</th>
+              <th title="Рентабельность: % от закупа, в столбце — сумма">Рентаб, €</th>
+              <th title="Транш: % от цены со скидкой, в столбце — сумма">Транш, €</th>
+              <th title="SWIFT: ставка за позицию">SWIFT, €</th>
+              <th title="Транспорт: ставка за м³, в столбце — сумма за объём позиции">Транспорт, €</th>
+              <th title="Растаможка этой позиции — только руками, в евро. Ставки у неё нет: зависит от кода ТН ВЭД и партии, а не от объёма и цены. Пусто значит ноль">Растаможка, €</th>
+              <th title="СУММА формы (AD) за одну штуку: закуп + рентаб + транш + SWIFT + транспорт + растаможка. Количество на неё не влияет">СУММА/шт, €</th>
+              <th title="Цена клиенту за штуку — со сборкой, округлена до десятков; правится карандашом">Цена, €</th>
+              <th title="Цена × количество — как колонка «Сумма» видимой части книги">Сумма, €</th>
               <th></th>
             </tr>
           </thead>
@@ -343,7 +343,7 @@
 
       <div class="actions">
         <button type="button" id="export">Скачать файлом Excel</button>
-        <button type="button" id="printdoc">Сформировать компред</button>
+        <button type="button" id="printdoc">Вывести PDF</button>
         <button type="button" class="ghost" id="addroom">Добавить комнату</button>
         <button type="button" class="ghost" id="fromdefaults">Вставить из констант</button>
         <button type="button" class="ghost" id="saveall">Сохранить проект</button>
@@ -589,6 +589,30 @@
       if ((state.header || {})[key]) el.value = state.header[key];
       el.addEventListener('input', save);
     }
+
+    // Спецификация и договор чаще всего повторяют название проекта:
+    // менеджер набирал одно и то же трижды. Тянем их за названием, пока
+    // они пустые или пока в них стоит прежнее название, — и отпускаем
+    // навсегда, как только в поле напечатали своё.
+    (() => {
+      const name = document.getElementById('h_name');
+      const followers = ['number', 'contract'].map(k => document.getElementById('h_' + k));
+      let was = name.value;
+      for (const el of followers) {
+        // Своё значение, пришедшее с записью, трогать нельзя.
+        el.dataset.own = el.value && el.value !== was ? '1' : '';
+        el.addEventListener('input', () => { el.dataset.own = '1'; });
+      }
+      name.addEventListener('input', () => {
+        for (const el of followers) {
+          if (el.dataset.own === '1') continue;
+          if (el.value && el.value !== was) { el.dataset.own = '1'; continue; }
+          el.value = name.value;
+        }
+        was = name.value;
+        save();
+      });
+    })();
     applyFinal(state.final || {});
 
     // Позиции, сохранённые до появления начальных чисел, дополняем сразу
@@ -1161,32 +1185,29 @@
       btn.disabled = false;
     }
 
+    // Спор о правке: в хранилище запись НОВЕЕ нашей, то есть кто-то
+    // сохранил проект, пока мы его правили. Кнопок здесь больше нет —
+    // выход даёт повторное нажатие «Сохранить проект», а к списку ведёт
+    // ссылка в шапке страницы.
+    let overRev = null;
     function conflict(data) {
+      overRev = data.current ? (data.current.rev == null ? null : data.current.rev) : null;
       const out = document.getElementById('status');
-      out.textContent = '';
-      const text = document.createElement('span');
-      text.textContent = data.error + ' ';
-      const open = document.createElement('button');
-      open.type = 'button'; open.className = 'ghost';
-      open.textContent = 'К списку проектов';
-      // Черновик не трогаем: он остаётся под тем же именем и вернётся,
-      // если менеджер передумает.
-      open.addEventListener('click', () => { window.location = '{{ url_for("project_list") }}'; });
-      const over = document.createElement('button');
-      over.type = 'button'; over.className = 'ghost';
-      over.textContent = data.current ? 'Сохранить поверх' : 'Сохранить как новый';
-      over.addEventListener('click', () => {
-        if (data.current) { saveToServer(data.current.rev); return; }
-        const fresh = AURRUM.newId();
-        AURRUM.setCurrent(fresh);
-        AURRUM.saveDraft(fresh, { positions, header: header(), final: finParams(),
-                                  rates: state.rates, rev: 0, dirty: true });
-        window.location = '{{ url_for("project") }}';
-      });
-      out.append(text, open, document.createTextNode(' '), over);
+      const dock = document.getElementById('savedock_status');
+      const text = data.error + (overRev == null
+        ? ' Работа цела — она в этом браузере.'
+        : ' Нажмите «Сохранить проект» ещё раз, чтобы записать поверх.');
+      out.textContent = text;
+      if (dock) dock.textContent = text;
     }
 
-    document.getElementById('saveall').addEventListener('click', () => saveToServer(null));
+    document.getElementById('saveall').addEventListener('click', () => {
+      // Второе нажатие после спора пишет поверх — решение принимает
+      // человек, и принимает его тем же действием, а не отдельной кнопкой.
+      const over = overRev;
+      overRev = null;
+      saveToServer(over);
+    });
     // Угловая кнопка своей записи не ведёт — нажимает настоящую.
     document.getElementById('savedock').addEventListener('click', () => {
       const real = document.getElementById('saveall');
