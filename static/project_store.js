@@ -69,6 +69,19 @@ window.AURRUM = (function () {
     return state.positions.length;
   }
 
+  // Позиция, отложенная до открытия другого проекта. Класть её сразу в
+  // черновик нельзя: у проекта, который лежит на сервере и не открыт в
+  // этом браузере, черновика нет, и «добавить» создало бы пустой — а
+  // следующее «Сохранить» записало бы его поверх целого проекта.
+  // Поэтому позиция ждёт, пока страница проекта поднимет запись.
+  const PENDING = 'aurrum.pending';
+  const stash = position => write(PENDING, position);
+  function takeStash() {
+    const got = read(PENDING, null);
+    try { localStorage.removeItem(PENDING); } catch (e) { /* приватное окно */ }
+    return got;
+  }
+
   return { currentId, setCurrent, draft, saveDraft, dropDraft, newId,
-           rates, positionDefaults, addPosition, empty };
+           rates, positionDefaults, addPosition, empty, stash, takeStash };
 })();

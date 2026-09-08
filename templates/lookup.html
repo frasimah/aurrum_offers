@@ -182,6 +182,10 @@
 
     /* Свёрнутый блок второстепенного действия: заметен ровно настолько,
        чтобы его нашли, когда он понадобится. */
+    /* Выбор проекта стоит рядом с кнопкой и не растягивается на всю
+       ширину, как остальные поля. */
+    #project_pick { width: auto; max-width: 15rem; }
+
     .tuck { margin-top: 22px; border-top: 1px solid #ececec; padding-top: 14px; }
     .tuck > summary {
       cursor: pointer; color: #949598; font-size: 12.5px; list-style: none;
@@ -529,6 +533,13 @@
           <textarea id="f_desc">{{ description }}</textarea>
           <div class="actions">
             <button type="button" id="tolibrary">{{ 'Сохранить' if from_library else 'В библиотеку' }}</button>
+            <select id="project_pick" title="Куда положить позицию">
+              <option value="">Текущий проект</option>
+              {% for pr in project_choices or [] %}
+              <option value="{{ pr.id }}">{{ pr.name }}</option>
+              {% endfor %}
+              <option value="__new__">Новый проект</option>
+            </select>
             <button type="button" class="ghost" id="toproject">В проект</button>
             <button type="button" class="ghost" id="copy">Скопировать описание</button>
             {% if from_library %}
@@ -1066,9 +1077,24 @@
     const toproject = document.getElementById('toproject');
     if (toproject) {
       toproject.addEventListener('click', () => {
-        // Позиция уезжает в черновик текущего проекта — со скидкой,
-        // наценкой и сборкой из «Констант», а не пустой. Правило одно
-        // и живёт в static/project_store.js.
+        const pick = document.getElementById('project_pick');
+        const where = pick ? pick.value : '';
+
+        // В ЧУЖОЙ проект позицию кладём не сразу: у записи, которая лежит
+        // на сервере и не открыта в этом браузере, черновика нет — и
+        // «добавить» создало бы пустой, а «Сохранить» записало бы его
+        // поверх целого проекта. Откладываем и открываем проект: он
+        // поднимет серверную запись и допишет позицию к ней.
+        if (where && where !== '__new__') {
+          AURRUM.stash(card());
+          window.location = '/project/open/' + encodeURIComponent(where);
+          return;
+        }
+        if (where === '__new__') AURRUM.setCurrent(AURRUM.newId());
+
+        // Позиция уезжает в черновик со скидкой, наценкой и сборкой из
+        // «Констант», а не пустой. Правило одно и живёт в
+        // static/project_store.js.
         AURRUM.addPosition(card());
         window.location = '{{ url_for("project") }}';
       });

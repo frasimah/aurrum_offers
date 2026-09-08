@@ -1249,6 +1249,38 @@ def check_item_edit_mode() -> tuple[int, int]:
     checks.append(("отметка добавляет отделку в описание",
                    "Стекло - CRYSTAL" in (picked.get("f_desc", {}).get("value") or "")))
 
+    # Выбор проекта: позиция должна уметь уехать не только в текущий.
+    _, sc_pick, dom_pick = _page(
+        "lookup.html", _render=True, product=product, url=product.source_url,
+        description=stored["description"], variants=pl.variant_cards(product),
+        project_choices=[{"id": "prj-vladimir", "name": "Владимир"}],
+        types=pl.TYPES_RU, from_library=stored["id"])
+    pick = soup_lib.select_one("#project_pick")
+    checks.append(("выбор проекта есть у карточки", pick is not None))
+    with_list = _page("lookup.html", _render=True, product=product,
+                      url=product.source_url, description=stored["description"],
+                      variants=pl.variant_cards(product),
+                      project_choices=[{"id": "prj-vladimir", "name": "Владимир"}],
+                      types=pl.TYPES_RU, from_library=stored["id"])[0]
+    opts = [o.get("value") for o in with_list.select("#project_pick option")]
+    checks += [
+        ("в списке текущий, сохранённый и новый",
+         opts == ["", "prj-vladimir", "__new__"]),
+        ("по умолчанию — текущий", opts[0] == ""),
+    ]
+
+    # Чужой проект не должен затираться пустым черновиком: позиция
+    # откладывается, а дописывает её страница проекта, подняв запись.
+    stashed = _run_page(sc_pick, dom_pick, actions=[
+        "document.getElementById('project_pick').value = 'prj-vladimir'",
+        "document.getElementById('toproject').click()"])
+    checks += [
+        ("выбор чужого проекта откладывает позицию",
+         "aurrum.pending" in (stashed.get("storage") or {})),
+        ("и черновик текущего не трогает",
+         not any(k.startswith("aurrum.draft") for k in (stashed.get("storage") or {}))),
+    ]
+
     # Вставка строки в книгу Excel — второстепенное действие: свёрнуто и
     # стоит последним, чтобы не спорить с «Сохранить» и «В проект».
     tuck = soup_lib.select_one("details.tuck")

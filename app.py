@@ -207,6 +207,7 @@ def lookup():
         description=description,
         saved_id=saved,
         variants=product_lookup.variant_cards(product),
+        project_choices=_project_choices(),
         types=product_lookup.TYPES_RU,
     )
 
@@ -416,6 +417,7 @@ def library_item(item_id: str):
         "lookup.html", product=product, url=product.source_url,
         description=item.get("description") or "",
         variants=product_lookup.variant_cards(product),
+        project_choices=_project_choices(),
         types=product_lookup.TYPES_RU, from_library=item_id)
 
 
@@ -664,6 +666,19 @@ def project_list():
                                error=f"Список не открылся: {exc}")
     return render_template("projects.html", rows=projects.search(rows, query),
                            query=query, total=len(rows), error=None)
+
+
+def _project_choices() -> list[dict]:
+    """Список проектов для выбора «в какой положить позицию».
+
+    Сбой хранилища не повод отнимать кнопку: без списка остаётся текущий
+    черновик и новый проект, и это рабочий путь.
+    """
+    try:
+        return [{"id": r.get("id"), "name": r.get("name") or r.get("id")}
+                for r in projects.read_index() if r.get("id")]
+    except Exception:            # noqa: BLE001 — карточка важнее списка
+        return []
 
 
 @app.route("/project/open/<project_id>")
