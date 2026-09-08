@@ -729,12 +729,18 @@
           </div>
           <div class="fintiles">
           {% endif %}
-            <label class="fintile{% if not f.swatch %} fintile--bare{% endif %}">
+            <label class="fintile{% if not (f.swatch or f.swatch_ref) %} fintile--bare{% endif %}">
               <input type="checkbox" class="finpick check"
                      id="finpick_{{ loop.index0 }}"
                      data-role="{{ f.role_ru }}" data-mat="{{ f.material }}">
               {% if f.swatch %}
               <img src="{{ f.swatch }}" alt="" loading="lazy">
+              {%- elif f.swatch_ref %}
+              {#- Образец лежит внутри техлиста: отдаём его маршрутом,
+                  хранить отдельно незачем. -#}
+              <img src="{{ url_for('spec_image', doc=f.swatch_ref.doc,
+                                   page=f.swatch_ref.page, x=f.swatch_ref.x) }}"
+                   alt="" loading="lazy">
               {% endif %}
               <span class="fintile__name">{{ f.material }}{% if f.code %}<span class="badge">{{ f.code }}</span>{% endif %}</span>
             </label>
@@ -803,7 +809,10 @@
       <h2>Фото <span class="badge" id="photo_count">0</span></h2>
       <div class="photos" id="photos">
         {% for src in product.photo_urls %}
-        <div class="ph" data-src="{{ src }}">
+        <!-- Опознаватель нужен приёмке: заглушка находит элементы по id,
+             и без него правило «сохранение не теряет снимки» проверить
+             нечем — а непроверяемое правило однажды отваливается. -->
+        <div class="ph" id="ph_{{ loop.index0 }}" data-src="{{ src }}">
           <label><input type="checkbox"><img src="{{ src }}" alt="" loading="lazy"></label>
           <a class="ph__open" href="{{ src }}" target="_blank" rel="noopener" title="Открыть оригинал">↗</a>
           <button type="button" class="ph__del" title="Убрать фото">
@@ -1300,8 +1309,16 @@
         // в карточке остаётся всё, что нашёл разбор, вместе с артикулами.
         // Иначе правка описания снимала галочки и сохраняла finishes: [].
         finishes: CARD_BASE.finishes || [],
+        // Галочка у снимка говорит «этот идёт клиенту», а не «этот
+        // остаётся в карточке»: она отбирает, что скачать и что уйдёт в
+        // предложение. По умолчанию галочек нет — и сохранение уносило
+        // в каталог photos: [], стирая всю галерею с первого нажатия.
+        // Ровно тот же промах, что был с отделками строчкой выше.
+        //
+        // В карточке остаётся всё, что есть на экране; убранное корзиной
+        // исчезает вместе с плиткой, снимки с диска на сервер не уходят.
         photos: [...document.querySelectorAll('.ph')]
-          .filter(t => t.querySelector('input').checked && !t.dataset.local)
+          .filter(t => !t.dataset.local)
           .map(t => t.dataset.src),
       };
     }

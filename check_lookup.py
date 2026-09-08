@@ -1598,6 +1598,11 @@ def check_item_edit_mode() -> tuple[int, int]:
         ("и источник объёма", body.get("volume_source") == "производитель"),
         ("артикул отделки переживает сохранение",
          (body.get("finishes") or [{}])[0].get("code") == "AE"),
+        # Галочка у снимка отбирает, что уйдёт клиенту, а не что
+        # останется в карточке. Галочек по умолчанию нет — и сохранение
+        # уносило в каталог пустую галерею с первого нажатия.
+        ("снимки переживают сохранение без единой галочки",
+         body.get("photos") == prod_full.photo_urls),
         ("правка модели уходит", body.get("model") == "Aurora 2"),
     ]
 
@@ -2104,6 +2109,45 @@ def check_palette() -> tuple[int, int]:
         ("правило описано данными, а не кодом",
          os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                      "config", "finish_palette.json"))),
+    ]
+
+    # Образцы из техлиста. Пары ставятся по порядку чтения: и картинки,
+    # и подписи идут одним порядком, а координаты подписей PDF отдаёт с
+    # чужой системой координат — у Baxter две трети приходили с нулями.
+    import spec_images
+    images = [{"name": f"/X{i}", "x": 50.0 + 108 * (i % 3),
+               "y": 671.0 - 133 * (i // 3), "w": 80.0, "h": 80.0}
+              for i in range(6)]
+    order = [im["name"] for im in spec_images._reading_order(images)]
+    checks += [
+        ("порядок чтения: сверху вниз, слева направо",
+         order == ["/X0", "/X1", "/X2", "/X3", "/X4", "/X5"]),
+        ("ряд собирается с допуском — образцы стоят не идеально ровно",
+         [im["name"] for im in spec_images._reading_order(
+             [{"name": "/B", "x": 150.0, "y": 671.0, "w": 80.0, "h": 80.0},
+              {"name": "/A", "x": 50.0, "y": 673.5, "w": 80.0, "h": 80.0}])]
+         == ["/A", "/B"]),
+        ("лигатура в PDF не мешает узнать название",
+         spec_images._flat("Camou\ufb02age Gris") == spec_images._flat("Camouflage Gris")),
+    ]
+
+    # Маршрут образца: чужого не отдаёт и придуманного не рисует.
+    client = flask_app.app.test_client()
+    with client.session_transaction() as sess:
+        sess["authorized"] = True
+    checks += [
+        ("имя картинки с путём отвергается",
+         client.get("/spec-image", query_string={
+             "doc": "https://example.com/x.pdf", "page": 1,
+             "x": "../../etc/passwd"}).status_code == 400),
+        ("страница вне диапазона отвергается",
+         client.get("/spec-image", query_string={
+             "doc": "https://example.com/x.pdf", "page": -1,
+             "x": "/Im0"}).status_code == 400),
+        ("не ссылка — не документ",
+         client.get("/spec-image", query_string={
+             "doc": "file:///etc/passwd", "page": 1,
+             "x": "/Im0"}).status_code == 400),
     ]
 
     good = 0

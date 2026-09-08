@@ -34,7 +34,8 @@ import book_row  # noqa: E402
 import doc_parser  # noqa: E402
 import extract_agent  # noqa: E402
 import pricing  # noqa: E402
-import product_lookup  # noqa: E402
+import product_lookup
+import spec_images  # noqa: E402
 import projects  # noqa: E402 — после load_dotenv, читают переменные окружения
 import safe_fetch  # noqa: E402
 import spec_parser  # noqa: E402
@@ -1034,6 +1035,47 @@ def photo():
     return Response(got.content, mimetype=mime, headers={
         "Content-Disposition": f'attachment; filename="{name}"',
     })
+
+
+@app.route("/spec-image")
+def spec_image():
+    """Образец отделки из техлиста: одна картинка внутри PDF.
+
+    Хранить их отдельно незачем — они уже лежат в документе, ссылка на
+    который у карточки есть. Документ открывается один раз на процесс:
+    карточка просит по сотне образцов подряд, и качать под каждый по
+    семь мегабайт нельзя.
+    """
+    doc = (request.args.get("doc") or "").strip()
+    xobject = (request.args.get("x") or "").strip()
+    if not doc.lower().startswith(("http://", "https://")):
+        return "Нужна ссылка на документ.", 400
+    if not re.fullmatch(r"/?[A-Za-z0-9_.-]{1,64}", xobject):
+        return "Неверное имя картинки.", 400
+    try:
+        page = int(request.args.get("page") or -1)
+    except ValueError:
+        return "Неверная страница.", 400
+    if page < 0 or page > 999:
+        return "Неверная страница.", 400
+
+    try:
+        _raw, reader = spec_images.opened(
+            doc, lambda u: safe_fetch.get(
+                u, timeout=120,
+                headers={"User-Agent": "Mozilla/5.0"}).content)
+    except safe_fetch.UnsafeUrl as exc:
+        return str(exc), 400
+    except Exception as exc:  # noqa: BLE001
+        return f"Документ не открылся: {exc}", 502
+
+    got = spec_images.image_from(reader, page, xobject)
+    if not got:
+        return "Такой картинки в документе нет.", 404
+    data, mime = got
+    # Образец в документе не меняется — пусть браузер возьмёт его один раз.
+    return Response(data, mimetype=mime,
+                    headers={"Cache-Control": "public, max-age=86400"})
 
 
 @app.route("/project/print", methods=["POST"])

@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 import extract
 import gallery
 import palette
+import spec_images
 import safe_fetch
 import shopify
 
@@ -1060,6 +1061,27 @@ def _clean_photos(urls: list[str], model: str = "") -> list[str]:
     return matched or out
 
 
+def _attach_swatches(p: Product) -> None:
+    """Дописать отделкам ссылку на образец внутри техлиста.
+
+    Тихо: образец — украшение карточки, и его отсутствие не повод
+    ронять разбор. Не нашлось — поля просто нет.
+    """
+    try:
+        raw, _reader = spec_images.opened(
+            p.spec_pdf_url,
+            lambda u: safe_fetch.get(u, timeout=180, headers=BROWSER).content)
+        refs = spec_images.swatches(
+            raw, [str(f.get("material") or "") for f in p.finishes])
+    except Exception:            # noqa: BLE001 — карточка важнее образца
+        return
+    for f in p.finishes:
+        ref = refs.get(str(f.get("material") or ""))
+        if ref:
+            f["swatch_ref"] = {"doc": p.spec_pdf_url, "page": ref["page"],
+                               "x": ref["xobject"]}
+
+
 def _first_product(data: dict) -> dict:
     products = data.get("products") or []
     return _as_dict(products[0]) if products else {}
@@ -1250,6 +1272,13 @@ def lookup(url: str, progress=None) -> Product:
             p.finishes_from_spec = True
         if not p.tech_note:
             p.tech_note = str(pdf.get("tech_note") or "").strip()
+
+        # Образцы отделок из самого листа. Текстом оттуда достаются
+        # только названия, а показывают клиенту квадратик материала —
+        # он лежит внутри PDF, и его никто не видел. У Baxter Paris
+        # Slim это 123 образца на пяти страницах.
+        if p.finishes:
+            _attach_swatches(p)
     else:
         p.warnings.append(
             "Техлист (spec sheet) не найден — габариты и объём проверьте по источнику."
