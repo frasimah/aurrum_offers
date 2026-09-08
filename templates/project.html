@@ -158,11 +158,38 @@
     .totals div b { font-size: 17px; font-weight: 500; }
     /* Поле ставки в полосе итогов: тот же размер, что у чисел рядом,
        иначе оно читается как подпись, а не как то, что можно править. */
+    /* Переключатель. Обычная галочка здесь выглядела пустым полем:
+       общее правило input снимает системный вид (appearance: none) и
+       растягивает поле на всю ширину. Поэтому рисуем сами, а настоящий
+       input оставляем — с ним работают клавиатура и озвучка. */
     .t_toggle {
-      display: inline-flex; align-items: center; gap: 8px;
-      font-size: 17px; color: #2d2d2d; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 9px;
+      font-size: 15px; color: #2d2d2d; cursor: pointer; user-select: none;
+      height: 30px;
     }
-    .t_toggle input { width: 17px; height: 17px; accent-color: #2d2d2d; }
+    .t_toggle input {
+      position: absolute; width: 1px; height: 1px; min-width: 0;
+      padding: 0; margin: -1px; border: 0; overflow: hidden;
+      clip-path: inset(50%);
+    }
+    .switch {
+      position: relative; flex: none; width: 40px; height: 22px;
+      border-radius: 11px; background: #d9d9d9;
+      transition: background .18s ease;
+    }
+    .switch::after {
+      content: ''; position: absolute; top: 3px; left: 3px;
+      width: 16px; height: 16px; border-radius: 50%; background: #fff;
+      transition: transform .18s ease;
+    }
+    .t_toggle input:checked + .switch { background: #2d2d2d; }
+    .t_toggle input:checked + .switch::after { transform: translateX(18px); }
+    .t_toggle input:focus-visible + .switch {
+      outline: 2px solid #2d2d2d; outline-offset: 2px;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .switch, .switch::after { transition: none; }
+    }
 
     .totals input.t_rate {
       width: 72px; height: 30px; padding: 0 8px; font-size: 17px;
@@ -361,7 +388,7 @@
         <!-- НДС — не величина, а решение: облагается сделка или нет.
              Процентом его правили бы через ноль, а это ответ «да/нет»,
              и выглядеть он должен так же. -->
-        <div><span title="Облагается ли сделка НДС. Снятая галочка обнуляет шаг НДС (колонка $AH$1 книги) в этом проекте; поставленная берёт ставку со страницы «Константы»">НДС</span><label class="t_toggle"><input type="checkbox" id="t_vat" checked><span id="t_vat_word">да</span></label></div>
+        <div><span title="Облагается ли сделка НДС. Снятая галочка обнуляет шаг НДС (колонка $AH$1 книги) в этом проекте; поставленная берёт ставку со страницы «Константы»">НДС</span><label class="t_toggle"><input type="checkbox" id="t_vat" checked><span class="switch"></span><span id="t_vat_word">да</span></label></div>
       </div>
 
       <div class="actions">
