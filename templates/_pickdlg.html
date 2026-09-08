@@ -1,0 +1,23 @@
+{# Окно «в какой проект». Одно на карточку и на библиотеку: два
+   одинаковых окна разошлись бы на первой же правке. #}
+<dialog id="pickdlg" class="dlg">
+  <h3>В какой проект?</h3>
+  <div class="dlg__list" id="pickdlg_list">
+    <button type="button" class="pickrow" data-pick="">Текущий проект</button>
+    {% for pr in project_choices or [] %}
+    <button type="button" class="pickrow" data-pick="{{ pr.id }}"
+            id="pickrow_{{ loop.index0 }}">{{ pr.name }}</button>
+    {% endfor %}
+  </div>
+  <div class="dlg__new">
+    <label for="pickdlg_name">Новый проект</label>
+    <input id="pickdlg_name" placeholder="Как назвать">
+    <div class="actions">
+      <button type="button" id="pickdlg_create">Создать и положить</button>
+    </div>
+    <div class="hint">Имя попадёт в шапку предложения — его можно поменять на странице проекта.</div>
+  </div>
+  <div class="dlg__foot">
+    <button type="button" class="ghost" id="pickdlg_close">Отмена</button>
+  </div>
+</dialog>
