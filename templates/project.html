@@ -497,9 +497,41 @@
 
     // Черновик пишется на каждую правку — им и держится работа между
     // нажатиями «Сохранить».
-    const save = () => AURRUM.saveDraft(projectId, {
-      positions, rooms, header: header(), final: finParams(),
-      rates: state.rates, rev, dirty: true,
+    //
+    // Но черновик живёт ТОЛЬКО в этом браузере. Список проектов читает
+    // сервер, и позиции, добавленные и не сохранённые, там не видны:
+    // «я сохранил 2 позиции, а тут 0». Поэтому каждая правка поднимает
+    // отметку, а «Сохранить проект» её снимает.
+    const save = () => {
+      unsavedMark(true);
+      return AURRUM.saveDraft(projectId, {
+        positions, rooms, header: header(), final: finParams(),
+        rates: state.rates, rev, dirty: true,
+      });
+    };
+
+    let unsaved = false;
+    function unsavedMark(on) {
+      unsaved = !!on;
+      const dock = document.getElementById('savedock_status');
+      if (dock) {
+        dock.textContent = unsaved
+          ? 'Не сохранено на сервере — в списке проектов этих правок нет.'
+          : '';
+      }
+      for (const id of ['saveall', 'savedock']) {
+        const b = document.getElementById(id);
+        if (b) b.className = unsaved ? '' : 'btn ghost';
+      }
+    }
+
+    window.addEventListener('beforeunload', (e) => {
+      if (!unsaved) return;
+      // Своего окна тут не показать: браузер спрашивает сам и только
+      // своими словами. Наше дело — попросить его спросить.
+      e.preventDefault();
+      e.returnValue = '';
+      return '';
     });
 
     for (const el of document.querySelectorAll('[id^="fin_"][id$="_val"], [id^="fin_"][id$="_unit"]')) {
@@ -1106,6 +1138,7 @@
         rev = data.rev;
         AURRUM.saveDraft(projectId, { positions, header: header(), final: finParams(),
                                       rates: state.rates, rev, dirty: false });
+        unsavedMark(false);
         out.textContent = 'Сохранено на сервере: позиций ' + positions.length +
           ', правка № ' + rev + '.';
       } catch (e) {

@@ -361,6 +361,7 @@ def library_page():
         page = 1
 
     blank = {"items": [], "query": query, "brand": brand, "type_ru": type_ru,
+             "project_choices": [],
              "brands": [], "types": [], "total": 0, "found": 0,
              "page": 1, "pages": 1}
     try:
@@ -392,7 +393,7 @@ def library_page():
     return render_template(
         "library.html", items=found[start:start + PER_PAGE],
         query=query, brand=brand, type_ru=type_ru,
-        brands=brands, types=types,
+        brands=brands, types=types, project_choices=_project_choices(),
         total=len(items), found=len(found), page=page, pages=pages, error=None)
 
 

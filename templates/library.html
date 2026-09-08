@@ -125,6 +125,23 @@
       opacity: 0; transition: 0.3s; pointer-events: none; z-index: 30;
     }
     .status.on { opacity: 1; }
+    .dlg {
+      width: min(440px, calc(100vw - 32px));
+      border: 1px solid #2d2d2d; padding: 22px 24px; background: #fff;
+      font-family: inherit; color: #2d2d2d;
+    }
+    .dlg::backdrop { background: rgba(45, 45, 45, 0.35); }
+    .dlg h3 { margin: 0 0 14px; font-size: 15px; font-weight: 500; }
+    .dlg__list { display: flex; flex-direction: column; gap: 6px; max-height: 46vh; overflow: auto; }
+    .dlg .pickrow {
+      width: 100%; height: 36px; justify-content: flex-start; padding: 0 12px;
+      background: #fff; color: #2d2d2d; border-color: #d9d9d9; font-size: 13px;
+    }
+    .dlg .pickrow:hover { background: #2d2d2d; color: #fff; border-color: #2d2d2d; }
+    .dlg__new { margin-top: 18px; padding-top: 16px; border-top: 1px solid #ececec; }
+    .dlg__foot { margin-top: 16px; display: flex; justify-content: flex-end; }
+    .dlg .actions { display: flex; gap: 10px; margin-top: 10px; }
+
   </style>
 </head>
 
@@ -177,7 +194,8 @@
     <div class="grid">
       {% for it in items %}
       <div class="card">
-        <button type="button" class="card__del" data-del="{{ it.id }}"
+        <button type="button" class="card__del" id="carddel_{{ loop.index0 }}"
+                data-del="{{ it.id }}"
                 data-name="{{ it.brand }} {{ it.model }}" title="Удалить из каталога">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -201,7 +219,8 @@
           </a>
           <div class="card__acts">
             <a class="btn ghost" href="{{ url_for('library_item', item_id=it.id) }}">Редактировать</a>
-            <button type="button" class="toproject" data-id="{{ it.id }}">В проект</button>
+            <button type="button" class="toproject" id="toproject_{{ loop.index0 }}"
+                    data-id="{{ it.id }}">В проект</button>
           </div>
         </div>
       </div>
@@ -224,6 +243,8 @@
   </div>
 
   <div class="status" id="status"></div>
+
+  {% include "_pickdlg.html" %}
 
   <script src="{{ url_for('static', filename='project_store.js') }}"></script>
   <script>
@@ -259,21 +280,68 @@
         }
       }));
 
+    // «В проект» спрашивает, в какой именно. Раньше позиция молча
+    // уезжала в последний открытый черновик, и узнать об этом можно
+    // было, только открыв его.
+    const dlg = document.getElementById('pickdlg');
+    let waiting = null;                    // кнопка, которая ждёт выбора
+
     document.querySelectorAll('.toproject').forEach(btn =>
-      btn.addEventListener('click', async () => {
-        btn.disabled = true;
-        try {
-          const r = await fetch('/library/card/' + btn.dataset.id);
-          const it = await r.json();
-          if (!r.ok) throw new Error(it.error || 'карточка не открылась');
-          const count = AURRUM.addPosition(it);
-          btn.textContent = 'В проекте';
-          say('Добавлено в текущий проект. Позиций: ' + count);
-        } catch (e) {
-          say(e.message);
-          btn.disabled = false;
-        }
+      btn.addEventListener('click', () => {
+        waiting = btn;
+        if (dlg) dlg.showModal(); else putInto('', '');
       }));
+
+    // В ЧУЖОЙ проект позицию кладём не сразу: у записи, которая лежит на
+    // сервере и не открыта в этом браузере, черновика нет — «добавить»
+    // создало бы пустой, а «Сохранить» записало бы его поверх целого
+    // проекта. Откладываем и открываем проект: он поднимет серверную
+    // запись и допишет позицию к ней.
+    async function putInto(projectId, name) {
+      if (dlg) dlg.close();
+      const btn = waiting;
+      if (!btn) return;
+      btn.disabled = true;
+      try {
+        // За полной карточкой идём в файл: в индексе выжимка, без
+        // описания, отделок и остальных фотографий.
+        const r = await fetch('/library/card/' + btn.dataset.id);
+        const it = await r.json();
+        if (!r.ok) throw new Error(it.error || 'карточка не открылась');
+
+        if (projectId) {
+          AURRUM.stash(it);
+          window.location = '/project/open/' + encodeURIComponent(projectId);
+          return;
+        }
+        if (name) {
+          const fresh = AURRUM.newId();
+          AURRUM.setCurrent(fresh);
+          const state = AURRUM.draft(fresh);
+          state.header = { ...(state.header || {}), name: name };
+          AURRUM.saveDraft(fresh, state);
+        }
+        const count = AURRUM.addPosition(it);
+        btn.textContent = 'В проекте';
+        say((name ? 'Проект «' + name + '» создан. Позиций: '
+                  : 'Добавлено в текущий проект. Позиций: ') + count);
+      } catch (e) {
+        say(e.message);
+        btn.disabled = false;
+      }
+    }
+
+    if (dlg) {
+      document.getElementById('pickdlg_close')
+        .addEventListener('click', () => dlg.close());
+      document.querySelectorAll('.pickrow').forEach(row =>
+        row.addEventListener('click', () => putInto(row.dataset.pick, '')));
+      document.getElementById('pickdlg_create').addEventListener('click', () => {
+        const name = (document.getElementById('pickdlg_name').value || '').trim();
+        if (!name) { document.getElementById('pickdlg_name').focus(); return; }
+        putInto('', name);
+      });
+    }
   </script>
 </body>
 

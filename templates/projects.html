@@ -57,6 +57,8 @@
     }
     .row__main { flex: 1; min-width: 0; }
     .row__name { font-weight: 500; }
+    .row__unsaved { color: #d64545; }
+
     .row__meta { margin-top: 4px; color: #949598; font-size: 12.5px; }
     .row__sum { font-weight: 500; white-space: nowrap; }
 
@@ -108,10 +110,14 @@
     <div class="row">
       <div class="row__main">
         <div class="row__name">{{ r.title }}</div>
-        <div class="row__meta">
+        <div class="row__meta" data-meta="{{ r.id }}" data-count="{{ r.count }}">
           {% if r.contract %}договор {{ r.contract }} · {% endif %}
           {% if r.date %}{{ r.date }} · {% endif %}
-          позиций {{ r.count }} · правка № {{ r.rev }}
+          позиций {{ r.count }} · правка № {{ r.rev }}<!--
+          Место под отметку о несохранённом. Пустое место в разметке, а
+          не рождённый скриптом узел: заглушка приёмки находит элементы
+          по опознавателю, и иначе правило нельзя проверить.
+       --><span class="row__unsaved" id="unsaved_{{ r.id }}"></span>
         </div>
       </div>
       {% if r.sum %}<div class="row__sum">{{ r.sum | money }} €</div>{% endif %}
@@ -126,6 +132,21 @@
   <script src="{{ url_for('static', filename='project_store.js') }}"></script>
   <script>
     const status = document.getElementById('status');
+
+    // Список читает СЕРВЕР, а страница проекта — черновик в браузере.
+    // Позиции, добавленные и не сохранённые, живут только в черновике:
+    // на экране проекта они есть, а здесь строка говорила «позиций 0»,
+    // и это выглядело потерей работы. Показываем расхождение словами.
+    document.querySelectorAll('[data-meta]').forEach(meta => {
+      const local = AURRUM.draft(meta.dataset.meta);
+      if (!local || !local.dirty) return;
+      const mine = (local.positions || []).length;
+      if (mine === Number(meta.dataset.count)) return;
+      const note = document.getElementById('unsaved_' + meta.dataset.meta);
+      if (note) {
+        note.textContent = ' · в этом браузере не сохранено: позиций ' + mine;
+      }
+    });
 
     document.querySelectorAll('button[data-del]').forEach(btn =>
       btn.addEventListener('click', async () => {

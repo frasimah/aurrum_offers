@@ -521,7 +521,7 @@ def _page(name: str, **context) -> tuple[object, list[str], dict]:
     selectors: dict[str, list[str]] = {}
     for selector in ('[id^="fin_"][id$="_val"], [id^="fin_"][id$="_unit"]',
                      "input.finpick", ".ph", ".parse", "button[data-del]",
-                     "[data-meta]",
+                     "[data-meta]", ".toproject", ".card__del",
                      "input[data-k]", "td[data-edit]", ".diff",
                      "#parse_result button[data-f]", "#parse_result button[data-i]",
                      ".diff button.link", "button.usevariant", ".pickrow"):
@@ -1849,6 +1849,38 @@ def check_library_card() -> tuple[int, int]:
         ("корзина знает, что удаляет",
          bool(tile.select_one(".card__del"))
          and tile.select_one(".card__del").get("data-del") == item["id"]),
+    ]
+
+    # «В проект» спрашивает, в какой. Раньше позиция молча уезжала в
+    # последний открытый черновик, и узнать об этом можно было, только
+    # открыв его.
+    _, lib_scripts, lib_dom = _page(
+        "library.html", _render=True, items=[item], brands=[], types=[],
+        total=1, found=1, page=1, pages=1, query="", brand="", type_ru="",
+        error=None, project_choices=[{"id": "p9", "name": "Владимир"}])
+    asked = _run_page(lib_scripts, lib_dom,
+                      actions=["document.querySelectorAll('.toproject')[0].click()"])
+    chosen = _run_page(
+        lib_scripts, lib_dom,
+        actions=["document.querySelectorAll('.toproject')[0].click()",
+                 "document.getElementById('pickrow_0').click()",
+                 "await null", "await null"],
+        responses=[{"json": {"id": item["id"], "brand": "Barovier&Toso"}}])
+    checks += [
+        ("окно выбора проекта есть в библиотеке",
+         tile.select_one("#pickdlg") is not None),
+        ("и оно одно на карточку и на библиотеку",
+         '{% include "_pickdlg.html" %}' in open(_os.path.join(
+             _os.path.dirname(_os.path.abspath(__file__)),
+             "templates", "lookup.html"), encoding="utf-8").read()),
+        ("нажатие «В проект» открывает окно",
+         asked["ids"].get("pickdlg", {}).get("open") is True),
+        ("до выбора позиция никуда не уходит",
+         not asked.get("fetches")),
+        ("выбор чужого проекта откладывает позицию",
+         "aurrum.pending" in (chosen.get("storage") or {})),
+        ("за полной карточкой ходит в файл, а не берёт выжимку",
+         "/library/card/" in ((chosen.get("fetches") or [{}])[0].get("url") or "")),
     ]
     good = 0
     for label, hit in checks:

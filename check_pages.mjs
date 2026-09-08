@@ -179,6 +179,10 @@ const context = {
 // «не уходи, не сохранив» осталось бы непроверяемым.
 const windowListeners = {}
 context.addEventListener = (type, fn) => { (windowListeners[type] ||= []).push(fn) }
+// Прокрутка к началу после подстановки исполнения: страница длинная, и
+// правки происходят выше места нажатия. Заглушке довольно знать, что
+// такой вызов бывает.
+context.scrollTo = () => {}
 context.removeEventListener = () => {}
 context.dispatchEvent = (event) => {
   for (const fn of windowListeners[event.type] || []) fn(event)
