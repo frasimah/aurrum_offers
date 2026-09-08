@@ -379,11 +379,18 @@ def variant_cards(p: "Product") -> list[dict]:
     return cards
 
 
-def to_excel_description(p: Product) -> str:
+def to_excel_description(p: Product, with_finishes: bool = True) -> str:
     """Текст для колонки «Описание» — в том же формате, что в книге.
 
     Отделки с одной ролью книга пишет одной строкой через « + », а названия
     материалов — заглавными: «Отделка - Металл LIGHT BURNISHED BRASS + ...».
+
+    with_finishes=False — для экрана карточки. Разбор возвращает ВСЕ
+    исполнения отделки, какие есть у модели, и это часто альтернативы,
+    а не части одного предмета: у BAROVIER AURORA пять цветов стекла —
+    лампа продаётся с одним. Склеенные через « + », они уезжали в
+    предложение все разом. Экран поэтому начинает с пустого списка, а
+    менеджер отмечает то, что идёт клиенту.
 
     Хвоста «Фото из Каталога» здесь нет намеренно: в книге он встречается,
     но приписывать его каждой позиции не нужно — ставится по месту.
@@ -403,8 +410,9 @@ def to_excel_description(p: Product) -> str:
         by_role.setdefault(role, [])
         if material.upper() not in by_role[role]:
             by_role[role].append(material.upper())
-    for role, materials in by_role.items():
-        lines.append(f"{role} - {' + '.join(materials)}")
+    if with_finishes:
+        for role, materials in by_role.items():
+            lines.append(f"{role} - {' + '.join(materials)}")
 
     return "\n".join(lines).strip()
 

@@ -1223,6 +1223,28 @@ def check_item_edit_mode() -> tuple[int, int]:
          soup_lib.find(id="del") is not None and soup_new.find(id="del") is None),
     ]
 
+    # Отделки не отмечены заранее. Разбор возвращает ВСЕ исполнения,
+    # какие есть у модели, и это часто альтернативы: у BAROVIER AURORA
+    # пять цветов стекла, лампа продаётся с одним. Отмеченные разом,
+    # они склеивались через « + » и уезжали в предложение все пять.
+    checks += [
+        ("галочки отделок сняты по умолчанию",
+         not any(cb.has_attr("checked") for cb in soup_lib.select("input.finpick"))),
+        ("описание на экране без строки отделок",
+         "Стекло" not in (soup_lib.select_one("#f_desc").get_text() or "")),
+        ("формат книги не тронут",
+         "Стекло - CRYSTAL" in pl.to_excel_description(
+             pl.Product(model="X", finishes=[{"role_ru": "Стекло", "material": "Crystal"}]))),
+    ]
+
+    # Нажатие галочки собирает строку описания.
+    picked = _run_page(scripts_lib, dom_lib, actions=[
+        "document.getElementById('edit').click()",
+        "const cb = document.getElementById('finpick_0');"
+        " cb.checked = true; cb.dispatchEvent({ type: 'change', target: cb })"])["ids"]
+    checks.append(("отметка добавляет отделку в описание",
+                   "Стекло - CRYSTAL" in (picked.get("f_desc", {}).get("value") or "")))
+
     at_rest = _run_page(scripts_lib, dom_lib, actions=[])["ids"]
     checks += [
         ("из каталога открывается на чтение",

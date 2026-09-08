@@ -599,11 +599,12 @@
           {% endif %}
 
           {% if product.finishes %}
-          <label>Отделки — галочка держит отделку в описании</label>
+          <label>Отделки — отметьте те, что идут в предложение</label>
           {% for f in product.finishes %}
           <div class="fin">
             <label class="fin__pick">
-              <input type="checkbox" checked class="finpick check"
+              <input type="checkbox" class="finpick check"
+                     id="finpick_{{ loop.index0 }}"
                      data-role="{{ f.role_ru }}" data-mat="{{ f.material }}">
               <span class="hint" style="font-size:12.5px;color:#2d2d2d">
                 {{ f.role_ru }} — {{ f.material }}{% if f.code %}<span class="badge">{{ f.code }}</span>{% endif %}
@@ -612,9 +613,10 @@
           </div>
           {% endfor %}
           <div class="hint">
-            Снимите лишние — строка отделок в описании перестроится, и в
-            проект уйдёт только выбранное. Ручная правка описания двигает
-            галочки сама.
+            Разбор показывает все исполнения, какие есть у модели, — часто
+            это альтернативы, а не части одного предмета. Отмеченные
+            собираются в строку описания и уходят в проект. Ручная правка
+            описания двигает галочки сама.
           </div>
           {% endif %}
         </div>

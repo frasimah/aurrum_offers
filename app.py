@@ -194,7 +194,7 @@ def lookup():
     except Exception as exc:  # noqa: BLE001 — причину показываем пользователю
         return render_template("lookup.html", url=url, error=str(exc)), 502
 
-    description = product_lookup.to_excel_description(product)
+    description = product_lookup.to_excel_description(product, with_finishes=False)
     # Разбор стоит запроса Firecrawl и работы Gemini — терять его,
     # если менеджер закрыл вкладку, незачем. Кладём в каталог сразу,
     # ещё до того, как он что-то нажмёт.
@@ -516,7 +516,8 @@ def library_refresh():
         "height_cm": product.height_cm, "volume_m3": product.volume_m3,
         "volume_source": product.volume_source, "finishes": product.finishes,
         "note": product.tech_note, "summary_ru": product.summary_ru,
-        "description": product_lookup.to_excel_description(product),
+        # Без отделок: их отмечает менеджер, см. to_excel_description.
+        "description": product_lookup.to_excel_description(product, with_finishes=False),
         "photos": product.photo_urls, "doc_urls": product.doc_urls,
     }
     # False — законное значение флага, а не пустота: фильтр сравнивает
