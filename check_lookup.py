@@ -799,6 +799,20 @@ def check_variant_pick() -> tuple[int, int]:
 
     import app as flask_app
 
+    # Скрипт карточки не должен объявлять НИЧЕГО в общей области.
+    # Готовую карточку страница получает через document.write в уже живое
+    # окно, и объявления верхнего уровня остаются от предыдущей: вторая
+    # «const count» — и весь скрипт не разбирается, ни одна кнопка не
+    # подключается. Именно так «В библиотеку» перестала работать в проде.
+    body = [sc for sc in scripts if "AURRUM" not in sc[:200]][-1].strip()
+    # Комментарий-объяснение стоит до обёртки — он к делу не относится.
+    code = "\n".join(ln for ln in body.split("\n")
+                     if ln.strip() and not ln.strip().startswith("//")).strip()
+    checks += [
+        ("скрипт карточки живёт в своей области",
+         code.startswith("(function") and code.endswith("})();")),
+    ]
+
     # Исполнения с ОДНИМИ размерами и разными кодами: у Luxury Living
     # Group их три — 06E, 06M, 06E/SCZ. Размеры совпадают до знака,
     # поэтому подстановка не меняла ни поля, ни описание: кнопка
@@ -1044,7 +1058,12 @@ def check_page_logic() -> tuple[int, int]:
         "document.getElementById('f_desc').value = "
         "['M', 'Люстра', 'Стекло - CRYSTAL + CRYSTAL/GREY/OLIVE']"
         ".join(String.fromCharCode(10))",
-        "removeFinish('Стекло', 'Crystal')",
+        # Снимаем ГАЛОЧКОЙ, а не вызовом функции: скрипт карточки живёт
+        # в своей области (иначе document.write ломает его повторным
+        # объявлением), и звать его изнутри приёмки больше нельзя —
+        # да и менеджер жмёт именно галочку.
+        "const cb = document.getElementById('finpick_0');"
+        " cb.checked = false; cb.dispatchEvent({type: 'change', target: cb})",
         "document.getElementById('f_note').value = document.getElementById('f_desc').value",
     ])
     left = (fin["ids"].get("f_note") or {}).get("value", "")
