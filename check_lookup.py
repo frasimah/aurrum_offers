@@ -405,6 +405,7 @@ def _page(name: str, **context) -> tuple[object, list[str], dict]:
             spec["value"] = tag.get("value", "")
         spec["placeholder"] = tag.get("placeholder", "")
         spec["checked"] = tag.has_attr("checked")
+        spec["readOnly"] = tag.has_attr("readonly")
         spec["hidden"] = tag.has_attr("hidden")
         if tag.name not in ("input", "select", "textarea"):
             spec["text"] = tag.get_text(" ", strip=True)[:200]
@@ -1172,6 +1173,62 @@ def check_download_headers() -> tuple[int, int]:
     good = 0
     for label, hit in checks:
         good += hit
+        print(f"  {OK if hit else BAD} {label}")
+    return good, len(checks)
+
+
+def check_item_edit_mode() -> tuple[int, int]:
+    """Карточка каталога открывается на чтение, правка — по кнопке.
+
+    Раньше все поля были готовы к вводу с самого открытия, и об этом
+    нигде не говорилось: случайное нажатие меняло данные, а кнопки
+    «Редактировать» не было вовсе.
+    """
+    print("\n РЕЖИМ ПРАВКИ КАРТОЧКИ")
+    print(" " + "-" * 74)
+
+    item = {"id": "barovier-toso-aurora", "brand": "Barovier&Toso",
+            "model": "Aurora", "type_ru": "Настольная лампа",
+            "dims_raw": "H. 28 x 11 x 10 cm", "width_cm": 10.0,
+            "depth_cm": 10.0, "height_cm": 28.0, "volume_m3": 0.1,
+            "summary_ru": "Лампа.", "note": "", "description": "AURORA",
+            "photos": [], "finishes": [], "source_url": "https://www.barovier.com/x"}
+    _, scripts, dom = _page("library_item.html", _render=True, item=item,
+                            types=pl.TYPES_RU)
+
+    def state(after):
+        got = _run_page(scripts, dom, actions=after)["ids"]
+        return got
+
+    at_rest = state([])
+    checks = [
+        ("кнопка «Редактировать» есть", "edit" in at_rest),
+        ("на чтении она видна", at_rest.get("edit", {}).get("hidden") is False),
+        ("на чтении «Сохранить» спрятана", at_rest.get("save", {}).get("hidden") is True),
+        ("на чтении «Отмена» спрятана", at_rest.get("cancel", {}).get("hidden") is True),
+        ("поля заперты", at_rest.get("f_dims_raw", {}).get("readOnly") is True),
+        ("числа тоже заперты", at_rest.get("f_width_cm", {}).get("readOnly") is True),
+    ]
+
+    editing = state(["document.getElementById('edit').click()"])
+    checks += [
+        ("нажатие открывает поля", editing.get("f_dims_raw", {}).get("readOnly") is False),
+        ("появляется «Сохранить»", editing.get("save", {}).get("hidden") is False),
+        ("сама кнопка правки уходит", editing.get("edit", {}).get("hidden") is True),
+    ]
+
+    back = state(["document.getElementById('edit').click()",
+                  "document.getElementById('f_dims_raw').value = 'испорчено'",
+                  "document.getElementById('cancel').click()"])
+    checks += [
+        ("отмена возвращает сохранённое",
+         back.get("f_dims_raw", {}).get("value") == item["dims_raw"]),
+        ("и снова запирает поля", back.get("f_dims_raw", {}).get("readOnly") is True),
+    ]
+
+    good = 0
+    for label, hit in checks:
+        good += bool(hit)
         print(f"  {OK if hit else BAD} {label}")
     return good, len(checks)
 
@@ -2371,6 +2428,7 @@ def main() -> int:
     run("Источник фото", check_shops)
     run("Библиотека", check_library)
     run("Плитка каталога", check_library_card)
+    run("Режим правки", check_item_edit_mode)
     run("Проекты", check_projects)
     run("Контракт страниц", check_page_contract)
     run("Формулы страниц", check_page_formats)

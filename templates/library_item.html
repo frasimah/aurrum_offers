@@ -63,6 +63,12 @@
     input { height: 32px; }
     textarea { resize: vertical; line-height: 1.5; }
     input:focus, textarea:focus { outline: none; border-color: #2d2d2d; }
+    /* На чтении поле не должно выглядеть полем ввода: кремовая заливка
+       и рамка обещают правку, которой без нажатия «Редактировать» нет. */
+    input[readonly], textarea[readonly] {
+      background: #fafafa; border-color: #ececec; color: #4a4a4a; cursor: default;
+    }
+    input[readonly]:focus, textarea[readonly]:focus { border-color: #ececec; }
     label.label { display: block; cursor: pointer; }
     .four { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
     .diff {
@@ -172,7 +178,9 @@
           </div>
 
           <div class="acts">
+            <button type="button" id="edit">Редактировать</button>
             <button type="button" id="save">Сохранить</button>
+            <button type="button" id="cancel" class="btn ghost">Отмена</button>
             <button type="button" id="toproject" class="btn ghost">В проект</button>
             {% if item.source_url %}
             <button type="button" class="btn ghost" id="refresh">Пересобрать с сайта</button>
@@ -226,6 +234,44 @@
     // задержка хранилища съедала бы только что сделанную правку.
     const current = () => ({ ...ITEM, ...fields() });
 
+    // Карточка открывается НА ЧТЕНИЕ. В каталог чаще заглядывают, чем
+    // правят, а поля, молча готовые к вводу, означают, что случайное
+    // нажатие меняет данные и никто этого не замечает. Правка включается
+    // явно — и тогда же появляется «Сохранить».
+    const FIELD_IDS = TEXT.concat(NUM).map(key => 'f_' + key);
+    const editBtn = document.getElementById('edit');
+    const saveBtn = document.getElementById('save');
+    const cancelBtn = document.getElementById('cancel');
+
+    function setEditing(on) {
+      for (const id of FIELD_IDS) {
+        const el = document.getElementById(id);
+        if (el) el.readOnly = !on;
+      }
+      editBtn.hidden = on;
+      saveBtn.hidden = !on;
+      cancelBtn.hidden = !on;
+    }
+
+    editBtn.addEventListener('click', () => {
+      setEditing(true);
+      status.textContent = 'Правка включена — не забудьте сохранить.';
+      const first = document.getElementById(FIELD_IDS[0]);
+      if (first) first.focus();
+    });
+
+    // Отмена возвращает то, что сохранено, и убирает предложения
+    // пересборки: иначе на чтении остались бы кнопки «взять», которые
+    // пишут в заблокированное поле.
+    cancelBtn.addEventListener('click', () => {
+      fill(ITEM);
+      document.querySelectorAll('.diff').forEach(el => el.remove());
+      setEditing(false);
+      status.textContent = 'Правки отменены.';
+    });
+
+    setEditing(false);
+
     document.getElementById('save').addEventListener('click', async () => {
       const btn = document.getElementById('save');
       btn.disabled = true;
@@ -238,6 +284,7 @@
         const data = await r.json();
         if (!r.ok) throw new Error(data.error || 'не удалось сохранить');
         Object.assign(ITEM, fields());
+        setEditing(false);
         status.textContent = 'Сохранено в каталоге.';
       } catch (e) { status.textContent = e.message; }
       btn.disabled = false;
@@ -257,6 +304,9 @@
         if (!r.ok) throw new Error(data.error || 'не удалось пересобрать');
         Object.assign(ITEM, data.item);
         fill(data.item);
+        // Пересборка приносит новые значения и кнопки «взять» — смотреть
+        // и сохранять их можно только в режиме правки.
+        setEditing(true);
         showDiffs(data.differs || {});
         const parts = [];
         parts.push(data.filled && data.filled.length

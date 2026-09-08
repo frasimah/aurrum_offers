@@ -35,6 +35,10 @@ function element(id, spec) {
     checked: !!spec.checked,
     hidden: !!spec.hidden,
     disabled: false,
+    // Поле только для чтения. Правило 1: если страница им пользуется,
+    // а заглушка о нём не знает, снимок молча покажет прежнее — и
+    // проверка «поля заперты» пройдёт на неисправном коде.
+    readOnly: !!spec.readOnly,
     textContent: spec.text == null ? '' : String(spec.text),
     placeholder: spec.placeholder == null ? '' : String(spec.placeholder),
     dataset: { ...(spec.dataset || {}) },
@@ -179,6 +183,7 @@ const snapshot = {}
 for (const [id, node] of Object.entries(nodes)) {
   snapshot[id] = { value: node.value, checked: node.checked, hidden: node.hidden,
                    text: node.textContent, disabled: node.disabled,
+                   readOnly: node.readOnly,
                    html: node._html == null ? null : node._html.length }
 }
 
