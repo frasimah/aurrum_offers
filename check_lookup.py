@@ -518,20 +518,20 @@ def check_page_contract() -> tuple[int, int]:
     checks.append(("поля констант строятся шаблонной строкой",
                    'id="f_${key}"' in settings and 'id="p_${key}"' in settings))
 
-    # Редактор карточки: списки полей против того, что принимает сервер.
-    item = {"id": "x", "brand": "B", "model": "M", "type_ru": "Стол",
-            "photos": [], "finishes": []}
-    _, item_scripts, item_dom = _page("library_item.html", _render=True,
-                                      item=item, types=["Стол"])
-    editor = "\n".join(item_scripts)
-    text_keys = _re.search(r"const TEXT = \[([^\]]*)\]", editor)
-    num_keys = _re.search(r"const NUM = \[([^\]]*)\]", editor)
-    editable = set(_re.findall(r"'([a-z0-9_]+)'", text_keys.group(1) if text_keys else "")) \
-        | set(_re.findall(r"'([a-z0-9_]+)'", num_keys.group(1) if num_keys else ""))
-    checks.append(("поля редактора карточки совпадают с app.EDITABLE",
-                   editable == set(flask_app.EDITABLE)))
-    checks.append(("каждое поле редактора есть в разметке",
-                   all(f"f_{k}" in set(item_dom["ids"]) for k in editable)))
+    # Редактор карточки один на разбор и каталог. Всё, что слияние
+    # пересборки считает «правкой руками» (app.EDITABLE), обязано быть
+    # правимым на экране — иначе оно бережётся, но задать его негде.
+    lookup_src = open(os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "templates", "lookup.html"), encoding="utf-8").read()
+    card_js = _re.search(r"function card\(\) \{(.+?)\n    \}", lookup_src, _re.S)
+    # Ключи бывают и по нескольку в строке — ищем после начала строки
+    # ИЛИ после запятой, иначе теряются depth_cm и height_cm.
+    sent = set(_re.findall(r"(?:^\s*|,\s*)([a-z0-9_]+):",
+                           card_js.group(1), _re.M)) if card_js else set()
+    missing = sorted(set(flask_app.EDITABLE) - sent)
+    checks.append(("редактор шлёт всё, что app.EDITABLE считает правкой"
+                   + (f" — нет: {missing}" if missing else ""), not missing))
 
     good = 0
     for label, hit in checks:
@@ -1178,53 +1178,73 @@ def check_download_headers() -> tuple[int, int]:
 
 
 def check_item_edit_mode() -> tuple[int, int]:
-    """Карточка каталога открывается на чтение, правка — по кнопке.
+    """Редактор один на разбор и каталог, но ведёт себя по месту.
 
-    Раньше все поля были готовы к вводу с самого открытия, и об этом
-    нигде не говорилось: случайное нажатие меняло данные, а кнопки
-    «Редактировать» не было вовсе.
+    Пока их было два, они разошлись до того, что одно поле называлось
+    `f_type` на разборе и `f_type_ru` в каталоге. Каталожный был вдобавок
+    урезан: ни отделок с галочками, ни фотографий, ни производителя.
+
+    Из каталога карточка открывается на ЧТЕНИЕ — туда чаще заглядывают,
+    чем правят. После разбора по ссылке правка включена сразу: там её и
+    пришли делать.
     """
-    print("\n РЕЖИМ ПРАВКИ КАРТОЧКИ")
+    import app as flask_app
+    print("\n РЕДАКТОР КАРТОЧКИ")
     print(" " + "-" * 74)
 
-    item = {"id": "barovier-toso-aurora", "brand": "Barovier&Toso",
-            "model": "Aurora", "type_ru": "Настольная лампа",
-            "dims_raw": "H. 28 x 11 x 10 cm", "width_cm": 10.0,
-            "depth_cm": 10.0, "height_cm": 28.0, "volume_m3": 0.1,
-            "summary_ru": "Лампа.", "note": "", "description": "AURORA",
-            "photos": [], "finishes": [], "source_url": "https://www.barovier.com/x"}
-    _, scripts, dom = _page("library_item.html", _render=True, item=item,
-                            types=pl.TYPES_RU)
+    stored = {"id": "barovier-toso-aurora", "brand": "Barovier&Toso",
+              "model": "Aurora", "type_ru": "Настольная лампа",
+              "dims_raw": "H. 28 x 11 x 10 cm", "width_cm": 10.0,
+              "depth_cm": 10.0, "height_cm": 28.0, "volume_m3": 0.1,
+              "dims_confident": True, "summary_ru": "Лампа.", "note": "1,5 kg",
+              "description": "AURORA", "photos": ["https://x/a.jpg"],
+              "doc_urls": [], "source_url": "https://www.barovier.com/x",
+              "finishes": [{"role_ru": "Стекло", "material": "Crystal"}]}
+    product = flask_app._as_product(stored)
 
-    def state(after):
-        got = _run_page(scripts, dom, actions=after)["ids"]
-        return got
+    def screen(from_library):
+        return _page("lookup.html", _render=True, product=product,
+                     url=product.source_url, description=stored["description"],
+                     variants=pl.variant_cards(product), types=pl.TYPES_RU,
+                     from_library=from_library)
 
-    at_rest = state([])
+    soup_lib, scripts_lib, dom_lib = screen(stored["id"])
+    soup_new, _, _ = screen(None)
+
+    # Каталог получил всё, чего у него не было.
     checks = [
-        ("кнопка «Редактировать» есть", "edit" in at_rest),
-        ("на чтении она видна", at_rest.get("edit", {}).get("hidden") is False),
-        ("на чтении «Сохранить» спрятана", at_rest.get("save", {}).get("hidden") is True),
-        ("на чтении «Отмена» спрятана", at_rest.get("cancel", {}).get("hidden") is True),
-        ("поля заперты", at_rest.get("f_dims_raw", {}).get("readOnly") is True),
-        ("числа тоже заперты", at_rest.get("f_width_cm", {}).get("readOnly") is True),
+        ("в каталоге правится производитель", "f_brand" in dom_lib["ids"]),
+        ("в каталоге правится модель", "f_model" in dom_lib["ids"]),
+        ("отделки с галочками", len(soup_lib.select("input.finpick")) == 1),
+        ("отбор фотографий на месте", len(soup_lib.select(".ph")) == 1),
+        ("строки ввода ссылки из каталога нет", soup_lib.find(id="url") is None),
+        ("при разборе она есть", soup_new.find(id="url") is not None),
+        ("удаление только у сохранённой",
+         soup_lib.find(id="del") is not None and soup_new.find(id="del") is None),
     ]
 
-    editing = state(["document.getElementById('edit').click()"])
+    at_rest = _run_page(scripts_lib, dom_lib, actions=[])["ids"]
+    checks += [
+        ("из каталога открывается на чтение",
+         at_rest.get("f_dims_raw", {}).get("readOnly") is True),
+        ("производитель тоже заперт",
+         at_rest.get("f_brand", {}).get("readOnly") is True),
+        ("кнопка «Редактировать» видна", at_rest.get("edit", {}).get("hidden") is False),
+        ("«Сохранить» спрятана", at_rest.get("tolibrary", {}).get("hidden") is True),
+    ]
+
+    editing = _run_page(scripts_lib, dom_lib,
+                        actions=["document.getElementById('edit').click()"])["ids"]
     checks += [
         ("нажатие открывает поля", editing.get("f_dims_raw", {}).get("readOnly") is False),
-        ("появляется «Сохранить»", editing.get("save", {}).get("hidden") is False),
-        ("сама кнопка правки уходит", editing.get("edit", {}).get("hidden") is True),
+        ("появляется «Сохранить»", editing.get("tolibrary", {}).get("hidden") is False),
+        ("кнопка правки уходит", editing.get("edit", {}).get("hidden") is True),
     ]
 
-    back = state(["document.getElementById('edit').click()",
-                  "document.getElementById('f_dims_raw').value = 'испорчено'",
-                  "document.getElementById('cancel').click()"])
-    checks += [
-        ("отмена возвращает сохранённое",
-         back.get("f_dims_raw", {}).get("value") == item["dims_raw"]),
-        ("и снова запирает поля", back.get("f_dims_raw", {}).get("readOnly") is True),
-    ]
+    _, scripts_new, dom_new = screen(None)
+    fresh = _run_page(scripts_new, dom_new, actions=[])["ids"]
+    checks.append(("после разбора правка включена сразу",
+                   fresh.get("f_dims_raw", {}).get("readOnly") is False))
 
     good = 0
     for label, hit in checks:

@@ -180,6 +180,14 @@
       background-size: 13px 13px;
     }
 
+    /* На чтении поле не должно выглядеть полем ввода: рамка и заливка
+       обещают правку, которой без нажатия «Редактировать» нет. */
+    input[readonly], textarea[readonly] {
+      background: #fafafa; border-color: #ececec; color: #4a4a4a; cursor: default;
+    }
+    input[readonly]:focus, textarea[readonly]:focus { border-color: #ececec; }
+    input.finpick:disabled { opacity: 0.45; cursor: default; }
+
     button.ghost {
       background: #fff;
       color: #2d2d2d;
@@ -443,6 +451,7 @@
 
     {% if error %}<div class="error">{{ error }}</div>{% endif %}
 
+    {% if not from_library %}
     <div class="card">
       <form class="ask" method="post" id="form">
         <input type="url" name="url" id="url" value="{{ url or '' }}"
@@ -453,6 +462,7 @@
         Ссылка на страницу товара на сайте бренда. Габариты и объём берутся из техлиста (spec sheet), если он есть.
       </div>
     </div>
+    {% endif %}
 
     {% if product %}
     {% for w in product.warnings %}<div class="warn">{{ w }}</div>{% endfor %}
@@ -528,9 +538,18 @@
           <label>Описание — для колонки «Описание»</label>
           <textarea id="f_desc">{{ description }}</textarea>
           <div class="actions">
-            <button type="button" id="toproject">В проект</button>
-            <button type="button" class="ghost" id="tolibrary">В библиотеку</button>
+            {% if from_library %}
+            <button type="button" id="edit">Редактировать</button>
+            {% endif %}
+            <button type="button" id="toproject" class="{{ 'btn ghost' if from_library }}">В проект</button>
+            <button type="button" class="ghost" id="tolibrary">{{ 'Сохранить' if from_library else 'В библиотеку' }}</button>
+            {% if from_library %}
+            <button type="button" class="ghost" id="cancel">Отмена</button>
+            {% endif %}
             <button type="button" class="ghost" id="copy">Скопировать описание</button>
+            {% if from_library %}
+            <button type="button" class="link" id="del">Удалить</button>
+            {% endif %}
           </div>
           <div class="hint" id="library_status"></div>
 
@@ -653,11 +672,17 @@
 
   <script src="{{ url_for('static', filename='project_store.js') }}"></script>
   <script>
-    document.getElementById('form').addEventListener('submit', () => {
-      const b = document.getElementById('go');
-      b.disabled = true;
-      b.textContent = 'Ищу…';
-    });
+    // Формы ввода ссылки нет, когда карточка открыта из каталога, —
+    // безусловный обработчик убивал весь скрипт страницы на первой же
+    // строке, и карточка приезжала мёртвой.
+    const askForm = document.getElementById('form');
+    if (askForm) {
+      askForm.addEventListener('submit', () => {
+        const b = document.getElementById('go');
+        b.disabled = true;
+        b.textContent = 'Ищу…';
+      });
+    }
 
     // Разбор техлиста: показываем найденные исполнения и даём подставить
     // выбранное в поля карточки. Молча ничего не заменяем.
@@ -1004,12 +1029,73 @@
           });
           const data = await r.json();
           if (!r.ok) throw new Error(data.error || 'не удалось сохранить');
-          tolibrary.textContent = '✓ в библиотеке';
-          out.textContent = 'Карточка «' + data.id + '» сохранена. Она доступна всем и переживёт браузер.';
+          if (FROM_LIBRARY) {
+            setEditing(false);
+            out.textContent = 'Сохранено в каталоге.';
+          } else {
+            tolibrary.textContent = '✓ в библиотеке';
+            out.textContent = 'Карточка «' + data.id + '» сохранена. Она доступна всем и переживёт браузер.';
+          }
         } catch (e) {
           out.textContent = e.message;
         }
         tolibrary.disabled = false;
+      });
+    }
+
+    // Из КАТАЛОГА карточка открывается на чтение: туда чаще заглядывают,
+    // чем правят, и поля, молча готовые к вводу, значат, что случайное
+    // нажатие меняет данные незаметно. После разбора по ссылке правка
+    // включена сразу — там её и пришли делать.
+    const FROM_LIBRARY = {{ (from_library or '') | tojson }};
+    const editBtn = document.getElementById('edit');
+    const cancelBtn = document.getElementById('cancel');
+    const saveBtn = document.getElementById('tolibrary');
+
+    const EDITABLE = ['f_brand', 'f_model', 'f_type', 'f_dims_raw', 'f_d', 'f_g',
+                      'f_v', 'f_vol', 'f_note', 'f_summary', 'f_desc'];
+
+    function setEditing(on) {
+      for (const id of EDITABLE) {
+        const el = document.getElementById(id);
+        if (el) el.readOnly = !on;
+      }
+      document.querySelectorAll('input.finpick').forEach(cb => { cb.disabled = !on; });
+      if (editBtn) editBtn.hidden = on;
+      if (cancelBtn) cancelBtn.hidden = !on;
+      if (saveBtn && FROM_LIBRARY) saveBtn.hidden = !on;
+    }
+
+    if (editBtn) {
+      editBtn.addEventListener('click', () => {
+        setEditing(true);
+        const first = document.getElementById('f_brand');
+        if (first) first.focus();
+      });
+    }
+    if (cancelBtn) {
+      cancelBtn.addEventListener('click', () => window.location.reload());
+    }
+    if (FROM_LIBRARY) setEditing(false);
+
+    // Удаление есть только у сохранённой карточки: разобранной ещё
+    // нечего удалять.
+    const del = document.getElementById('del');
+    if (del) {
+      del.addEventListener('click', async () => {
+        if (!confirm('Удалить карточку из каталога? Это нельзя отменить.')) return;
+        del.disabled = true;
+        const out = document.getElementById('library_status');
+        out.textContent = 'Удаляю…';
+        try {
+          const r = await fetch('{{ url_for("library_delete") }}', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: FROM_LIBRARY }),
+          });
+          const data = await r.json();
+          if (!r.ok) throw new Error(data.error || 'не удалось удалить');
+          window.location = '{{ url_for("library_page") }}';
+        } catch (e) { out.textContent = e.message; del.disabled = false; }
       });
     }
 

@@ -360,6 +360,38 @@ def library_page():
         total=len(items), found=len(found), page=page, pages=pages, error=None)
 
 
+def _as_product(item: dict):
+    """Сохранённая карточка -> Product: редактор у каталога и разбора один.
+
+    Правят они одно и то же, поэтому и экран должен быть один. Пока их
+    было два, они разошлись до того, что одно поле называлось `f_type`
+    на разборе и `f_type_ru` в каталоге — на этом уже ломалось
+    сохранение. Каталожный редактор был к тому же урезан: ни отделок с
+    галочками, ни отбора фотографий, ни производителя с моделью.
+
+    Исполнений в каталоге не хранится — их и раньше там не было.
+    """
+    return product_lookup.Product(
+        source_url=item.get("source_url") or "",
+        brand=item.get("brand") or "",
+        model=item.get("model") or "",
+        collection=item.get("collection") or "",
+        type_ru=item.get("type_ru") or "",
+        dims_raw=item.get("dims_raw") or "",
+        width_cm=item.get("width_cm"),
+        depth_cm=item.get("depth_cm"),
+        height_cm=item.get("height_cm"),
+        dims_confident=bool(item.get("dims_confident", True)),
+        volume_m3=item.get("volume_m3"),
+        volume_source=item.get("volume_source") or "",
+        finishes=item.get("finishes") or [],
+        tech_note=item.get("note") or "",
+        summary_ru=item.get("summary_ru") or "",
+        photo_urls=item.get("photos") or [],
+        doc_urls=item.get("doc_urls") or [],
+    )
+
+
 @app.route("/library/item/<item_id>")
 def library_item(item_id: str):
     """Полная карточка: индекс её не хранит, лежит она в своём файле."""
@@ -377,8 +409,14 @@ def library_item(item_id: str):
                                page=1, pages=1), 502
     if not item:
         return redirect(url_for("library_page"))
-    return render_template("library_item.html", item=item,
-                           types=product_lookup.TYPES_RU)
+    # Описание берём сохранённое, а не собранное заново: в нём могли
+    # быть правки руками, и пересборка их бы стёрла.
+    product = _as_product(item)
+    return render_template(
+        "lookup.html", product=product, url=product.source_url,
+        description=item.get("description") or "",
+        variants=product_lookup.variant_cards(product),
+        types=product_lookup.TYPES_RU, from_library=item_id)
 
 
 @app.route("/library/card/<item_id>")
