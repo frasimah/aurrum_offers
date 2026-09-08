@@ -1159,9 +1159,13 @@ def check_projects() -> tuple[int, int]:
         else:
             store[pathname] = payload
 
+    # Запись читается прямым адресом, мимо списка: с этого и начинается
+    # правило «спорим только когда в хранилище новее нашего».
     real_put, real_index = projects._put, projects.read_index
+    real_get = projects.get
     projects._put = fake_put
     projects.read_index = lambda: [dict(r) for r in index]
+    projects.get = lambda pid: store.get(f"{projects.PREFIX}{pid}.json")
 
     checks: list[tuple[str, bool]] = []
     try:
@@ -1175,6 +1179,7 @@ def check_projects() -> tuple[int, int]:
         checks.append(("повторная запись поднимает правку", second["rev"] == 2))
         checks.append(("в списке число позиций", index[0]["count"] == 1))
 
+
         # Тот самый случай: двое открыли одно, один сохранил, второй пишет
         # поверх со старым номером.
         stale = False
@@ -1186,8 +1191,22 @@ def check_projects() -> tuple[int, int]:
         checks.append(("отклонённая запись ничего не изменила",
                        store["projects/p1.json"]["positions"][0]["brand"] == "X"))
 
-        # Проект удалён, а у менеджера открыт: сохранение не должно его воскрешать.
+        # Список — отдельный файл и пишется следом за записью; у хранилища
+        # с отложенной согласованностью он отстаёт. Менеджер получал «у вас
+        # правка № 3, в хранилище № 2» на СВОЁ ЖЕ сохранение и не мог
+        # записать проект вовсе.
+        index[0]["rev"] = 1
+        try:
+            behind = projects.save({**second, "positions": [{"brand": "Z"}]})
+            checks.append(("отставший список не мешает своей же записи",
+                           behind["rev"] == 3))
+        except projects.Conflict:
+            checks.append(("отставший список не мешает своей же записи", False))
+
+        # Проект удалён по-настоящему: нет ни записи, ни строки списка.
+        # Сохранение из открытой вкладки не должно его воскрешать.
         index.clear()
+        store.pop("projects/p1.json", None)
         gone = False
         try:
             projects.save({**second, "rev": 2})
@@ -1267,6 +1286,7 @@ def check_projects() -> tuple[int, int]:
                        page.status_code == 200 and "77/1" in page.get_data(as_text=True)))
     finally:
         projects._put, projects.read_index = real_put, real_index
+        projects.get = real_get
 
     good = 0
     for label, hit in checks:
@@ -1589,6 +1609,22 @@ def check_item_edit_mode() -> tuple[int, int]:
              _run_page(scripts_lib, dom_lib,
                        actions=["document.getElementById('savedock').click()",
                                 "await null"],
+                       responses=[{"json": {"id": "x"}}]))),
+        # Нажимают чаще угловую, а отвечала верхняя — с угла нажатие
+        # выглядело несработавшим.
+        ("после записи обе кнопки говорят «в библиотеке»",
+         (lambda r: all("в библиотеке" in (r["ids"].get(i, {}).get("text") or "")
+                        for i in ("tolibrary", "savedock")))(
+             _run_page(scripts_new, dom_new,
+                       actions=["document.getElementById('savedock').click()",
+                                "await null", "await null"],
+                       responses=[{"json": {"id": "x"}}]))),
+        ("и обе становятся тихими — белыми в обводке",
+         (lambda r: all(r["ids"].get(i, {}).get("className") == "btn ghost"
+                        for i in ("tolibrary", "savedock")))(
+             _run_page(scripts_new, dom_new,
+                       actions=["document.getElementById('savedock').click()",
+                                "await null", "await null"],
                        responses=[{"json": {"id": "x"}}]))),
         ("и о несохранённом говорит вместе с верхней",
          "несохранённые" in (_run_page(scripts_lib, dom_lib, actions=[
@@ -2364,39 +2400,59 @@ def check_position_constants() -> tuple[int, int]:
 
 
 def check_photos() -> tuple[int, int]:
-    """Отбор фотографий изделия среди всей галереи страницы.
+    """Порядок фотографий изделия среди всей галереи страницы.
 
-    У PORADA страница отдавала 72 снимка, к изделию относился 21.
-    У VENICEM среди восьми были образцы металла и три других светильника
-    той же серии — короткое «circle» захватило бы и их.
+    Название модели в имени файла отделяет изделие от галереи раздела:
+    у PORADA из 72 снимков к изделию относился 21, у VENICEM среди
+    восьми были образцы металла и другие светильники серии.
+
+    Но это ПОРЯДОК, а не отсев: снимок, добытый разбором, не выбрасываем
+    — под другую отделку понадобится другой кадр. Совпавшие идут
+    первыми, остальные ниже. Уходит только заведомый мусор: значки,
+    распорки, чертежи и тот же файл в меньшем размере.
+
+    Поэтому сверяем список целиком, а не его длину: длина не показала бы,
+    что обложкой встал чужой товар.
     """
     print("\n ОТБОР ФОТОГРАФИЙ")
     print(" " + "-" * 74)
     cases = [
         (["https://x/infinity-01-Infinity.jpg", "https://x/podi-cover.jpg",
-          "https://x/02-Infinity.jpg"], "INFINITY", 2, "чужие изделия раздела"),
-        (["https://x/circle-floor-1.jpg", "https://x/circle_ceiling_1.jpg",
+          "https://x/02-Infinity.jpg"], "INFINITY",
+         ["https://x/infinity-01-Infinity.jpg", "https://x/02-Infinity.jpg",
+          "https://x/podi-cover.jpg"], "чужие изделия раздела — ниже, но целы"),
+        (["https://x/circle_ceiling_1.jpg", "https://x/circle-floor-1.jpg",
           "https://x/circle_table_3.jpg", "https://x/materials_metals_M11-1.jpg"],
-         "Circle Floor", 1, "другие светильники серии и образцы металла"),
+         "Circle Floor",
+         ["https://x/circle-floor-1.jpg", "https://x/circle_ceiling_1.jpg",
+          "https://x/circle_table_3.jpg", "https://x/materials_metals_M11-1.jpg"],
+         "напольный встал первым, остальные серии за ним"),
         (["https://x/mere.jpg?width=1946", "https://x/mere.jpg?width=54",
-          "https://x/mere-detail.jpg?width=1946"], "Mere", 2, "тот же файл разного размера"),
-        (["https://x/a.jpg", "https://x/b.jpg"], "Zeta", 2,
-         "по названию не нашлось — отдаём всё"),
-        (["https://x/a.jpg", "https://x/logo.png"], "Pin", 1,
-         "короткое название не фильтр, логотип отсеян"),
+          "https://x/mere-detail.jpg?width=1946"], "Mere",
+         ["https://x/mere.jpg?width=1946", "https://x/mere-detail.jpg?width=1946"],
+         "тот же файл в меньшем размере уходит"),
+        (["https://x/a.jpg", "https://x/b.jpg"], "Zeta",
+         ["https://x/a.jpg", "https://x/b.jpg"], "по названию не нашлось — порядок как был"),
+        (["https://x/a.jpg", "https://x/logo.png"], "Pin",
+         ["https://x/a.jpg"], "короткое название не фильтр, логотип отсеян"),
         # Служебные слова сравниваются целиком: подстрока отбрасывала
         # «iconic-collection» из-за «icon», а это частое слово в каталогах.
         (["https://x/iconic-collection/sofa-01.jpg", "https://x/spinello-table.jpg",
-          "https://x/avatar-lounge-chair.jpg"], "", 3, "слова внутри других слов"),
+          "https://x/avatar-lounge-chair.jpg"], "",
+         ["https://x/iconic-collection/sofa-01.jpg", "https://x/spinello-table.jpg",
+          "https://x/avatar-lounge-chair.jpg"], "слова внутри других слов"),
         (["https://x/icons/arrow.png", "https://x/img/logo.png",
-          "https://x/real-photo.jpg"], "", 1, "каталог icons и файл logo целиком"),
+          "https://x/real-photo.jpg"], "",
+         ["https://x/real-photo.jpg"], "каталог icons и файл logo целиком"),
     ]
     good = 0
     for urls, model, want, note in cases:
         got = pl._clean_photos(urls, model)
-        hit = len(got) == want
+        hit = got == want
         good += hit
-        print(f"  {OK if hit else BAD} {model:14} {len(urls)} -> {len(got):2} (ждали {want})  {note}")
+        first = (got[0].rsplit("/", 1)[-1][:22] if got else "—")
+        print(f"  {OK if hit else BAD} {model:14} {len(urls)} -> {len(got):2}"
+              f"  первым «{first}»  {note}")
     return good, len(cases)
 
 
@@ -2508,6 +2564,27 @@ def check_final_block() -> tuple[int, int]:
          round((f["всего"] + 4) * 0.7 - 75, 2) == 44299.75),
         ("доп.скидка 4300 доводит до книжных 39999.75",
          round((f["всего"] + 4) * 0.7 - 75 - 4300, 2) == 39999.75),
+    ]
+
+    # Спецификация и договор тянутся за названием, пока их не тронули.
+    _, hd_scripts, hd_dom = _page("project.html", _url="/project")
+    typed = ("const n = document.getElementById('h_name');"
+             " n.value = '2901'; n.dispatchEvent({type:'input', target: n});")
+    followed = _run_page(hd_scripts, hd_dom, responses=[{"notJson": True}],
+                         actions=[typed])
+    own = _run_page(hd_scripts, hd_dom, responses=[{"notJson": True}],
+                    actions=["const c = document.getElementById('h_contract');"
+                             " c.value = 'своё'; c.dispatchEvent({type:'input', target: c});",
+                             typed])
+    checks += [
+        ("спецификация тянется за названием",
+         followed["ids"].get("h_number", {}).get("value") == "2901"),
+        ("и договор тоже",
+         followed["ids"].get("h_contract", {}).get("value") == "2901"),
+        ("но набранное руками не перебивается",
+         own["ids"].get("h_contract", {}).get("value") == "своё"),
+        ("а нетронутое поле всё равно следует",
+         own["ids"].get("h_number", {}).get("value") == "2901"),
     ]
 
     # Единицы по умолчанию. Услуги и доставка — суммы, а не доли: их

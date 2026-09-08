@@ -1040,8 +1040,10 @@ def _clean_photos(urls: list[str], model: str = "") -> list[str]:
     важно — короткое «circle» захватило бы потолочный, настольный и
     настенный светильники, а «circle-floor» оставляет только напольный.
 
-    Если по названию не нашлось ничего, отдаём всё: лучше показать
-    лишнее, чем пустой блок.
+    Но это ПОРЯДОК, а не отсев. Снимок, добытый разбором, выбрасывать
+    нельзя: под другую отделку понадобится другой кадр, а вернуть его
+    можно будет только повторным разбором страницы. Совпавшие по модели
+    идут первыми — первый из них и станет обложкой, — остальные ниже.
     """
     out, seen = [], set()
     for url in urls:
@@ -1061,7 +1063,10 @@ def _clean_photos(urls: list[str], model: str = "") -> list[str]:
     if len(slug) < 4:
         return out
     matched = [u for u in out if slug in _slug(u.rsplit("/", 1)[-1])]
-    return matched or out
+    if not matched:
+        return out
+    rest = [u for u in out if u not in set(matched)]
+    return matched + rest
 
 
 def _attach_swatches(p: Product) -> None:
@@ -1196,11 +1201,16 @@ def lookup(url: str, progress=None) -> Product:
         # Отбираем фото по названию модели: оно в имени файла отделяет
         # изделие от остальной галереи раздела.
         p.photo_urls = _clean_photos(photo_candidates, p.model)
-        if photo_candidates and len(p.photo_urls) < len(photo_candidates):
+        # Тревога — только о ПОТЕРЕ. Отбор по названию модели теперь
+        # задаёт порядок, а не выбрасывает: снимки, снятые под другую
+        # отделку, остаются в карточке и ждут своего часа. Уходит из
+        # списка лишь заведомый мусор — значки, распорки, схемы.
+        lost = len(photo_candidates) - len(p.photo_urls)
+        if lost > 0:
             p.warnings.append(
-                f"Из {len(photo_candidates)} снимков на странице оставлено "
-                f"{len(p.photo_urls)} — с названием модели в имени файла. "
-                "Если нужного нет, проверьте страницу."
+                f"Из {len(photo_candidates)} снимков на странице отброшено "
+                f"{lost}: значки, распорки и чертежи. Остальные в карточке — "
+                "галерея раздела внизу, отметьте нужные."
             )
 
     p.tech_note = str(page.get("tech_note") or "").strip()

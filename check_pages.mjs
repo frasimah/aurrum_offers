@@ -214,6 +214,10 @@ for (const [id, node] of Object.entries(nodes)) {
   snapshot[id] = { value: node.value, checked: node.checked, hidden: node.hidden,
                    text: node.textContent, disabled: node.disabled,
                    readOnly: node.readOnly, open: node.open,
+                   // Класс решает вид кнопки: «тихая» — белая в обводке,
+                   // главная — залитая. Правило про вид без него
+                   // проверить нечем.
+                   className: node.className || '',
                    style: node._style,
                    html: node._html == null ? null : node._html.length }
 }

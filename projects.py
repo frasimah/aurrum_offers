@@ -149,15 +149,28 @@ def save(project: dict) -> dict:
     rows = read_index()
     known = next((r for r in rows if r.get("id") == project_id), None)
 
-    if known is not None and int(known.get("rev") or 0) != rev:
+    # Номер правки берём У ЗАПИСИ, а не у строки списка. Список — отдельный
+    # файл, он пишется следом за записью и у хранилища с отложенной
+    # согласованностью отстаёт: менеджер получал «у вас правка № 3, в
+    # хранилище № 2» на СВОЁ ЖЕ сохранение и не мог записать проект вовсе.
+    record = get(project_id)
+    if record is not None:
+        stored_rev = int(record.get("rev") or 0)
+    elif known is not None:
+        stored_rev = int(known.get("rev") or 0)
+    else:
+        stored_rev = None
+
+    # Спорим только когда в хранилище НОВЕЕ нашего: это чужая правка, и
+    # молча затирать её нельзя. Если там старее — это наша собственная
+    # запись, ещё не разошедшаяся по хранилищу, и спорить не с чем.
+    if stored_rev is not None and stored_rev > rev:
         raise Conflict(
             f"Проект успели изменить: у вас правка № {rev}, "
-            f"в хранилище № {known.get('rev')}.", known)
-    if known is None and rev > 0:
-        # Либо проект удалили, либо список отстал. Разница для менеджера
-        # существенная, поэтому не пишем, а спрашиваем.
-        raise Conflict("Проекта нет в списке: его удалили, "
-                       "либо список ещё не догнал запись.", None)
+            f"в хранилище № {stored_rev}.", known or record)
+    if stored_rev is None and rev > 0:
+        raise Conflict("Проекта нет в хранилище: его удалили, "
+                       "либо запись ещё не дошла.", None)
 
     saved = {**project, "rev": rev + 1,
              "saved_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
