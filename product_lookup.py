@@ -379,6 +379,30 @@ def variant_cards(p: "Product") -> list[dict]:
     return cards
 
 
+def book_dims(p: Product) -> str:
+    """Размеры в нотации рабочей книги: «130x47x45Н».
+
+    Строка источника остаётся в карточке уликой — по ней сверяют разбор,
+    и без неё знак «!» не с чем сопоставить. А в описание, которое видит
+    клиент и которое уезжает в колонку C, идёт та запись, что человек
+    писал руками: в книге стоит «130x47x45Н», а не «Height 28 cm Depth
+    11 cm Minimum diameter 6 cm Maximum diameter 10 cm».
+
+    Буква «Н» помечает высоту — ставим её только когда высота найдена по
+    пометке в источнике. Если оси расставлены по порядку и карточка
+    несёт «!», утверждать, какое из чисел высота, мы не вправе.
+
+    Диапазоны книга сохраняет («D25/31x125Н», «202x241x36/92Н»), а три
+    оси их не держат: разбор берёт наибольший диаметр и одну высоту.
+    Пока чисел три, собрать можно только три.
+    """
+    nums = (p.width_cm, p.depth_cm, p.height_cm)
+    if not all(isinstance(n, (int, float)) and n for n in nums):
+        # Собирать не из чего — оставляем то, что сказал источник.
+        return p.dims_raw
+    return "x".join(f"{n:g}" for n in nums) + ("Н" if p.dims_confident else "")
+
+
 def to_excel_description(p: Product, with_finishes: bool = True) -> str:
     """Текст для колонки «Описание» — в том же формате, что в книге.
 
@@ -400,8 +424,9 @@ def to_excel_description(p: Product, with_finishes: bool = True) -> str:
     lines = [p.model.upper()] if p.model else []
     if p.type_ru:
         lines.append(p.type_ru)
-    if p.dims_raw:
-        lines.append(p.dims_raw)
+    dims = book_dims(p)
+    if dims:
+        lines.append(dims)
     # Аннотация — часть описания, а не отдельное поле. Модель пересказывает
     # по-русски конкретику со страницы бренда, и место этому тексту в той
     # же колонке «Описание», куда он раньше переносился кнопкой руками.

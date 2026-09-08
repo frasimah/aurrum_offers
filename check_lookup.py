@@ -194,6 +194,56 @@ def check_dims() -> tuple[int, int]:
     return good, len(DIMS_CASES)
 
 
+def check_book_dims() -> tuple[int, int]:
+    """В описание идёт нотация книги, а не строка источника.
+
+    Поле и описание делают разную работу. Строка источника — улика: по
+    ней сверяют разбор, и без неё знак «!» не с чем сопоставить. А в
+    колонку C книги человек пишет «130x47x45Н», и клиент видит именно
+    это, а не «Height 28 cm Depth 11 cm Minimum diameter 6 cm…».
+    """
+    print("\n НОТАЦИЯ РАЗМЕРОВ")
+    print(" " + "-" * 74)
+
+    def card(raw, type_ru=""):
+        w, d, h, sure = pl.parse_dims(raw, type_ru)
+        return pl.Product(model="X", dims_raw=raw, width_cm=w, depth_cm=d,
+                          height_cm=h, dims_confident=sure)
+
+    cases = [
+        # Пометка высоты в источнике есть — ставим «Н», как в книге.
+        ("130x47x45Н", "130x47x45Н", "книга, R16"),
+        ("Height 28 cm Depth 11 cm Minimum diameter 6 cm Maximum diameter 10 cm",
+         "10x10x28Н", "BAROVIER AURORA"),
+        ("300x90x75h cm", "300x90x75Н", "HENGE SISMA"),
+        ("L2415 D780 H2685 мм", "241.5x78x268.5Н", "MODULNOVA, миллиметры"),
+        # Пометки нет — оси расставлены по порядку, «Н» утверждать нельзя.
+        ("145 x 45 x 47", "145x45x47", "LONGHI, оси по порядку"),
+        ("125 cm (49”) / Ø 25 cm (9”8) / 31 cm", "31x31x125", "VENICEM"),
+        # Собирать не из чего — остаётся то, что сказал источник.
+        ("200x300", "200x300", "ковёр, высоты нет"),
+    ]
+    checks = []
+    for raw, want, who in cases:
+        got = pl.book_dims(card(raw))
+        checks.append((f"{raw[:34]:36} -> {got:16} {who}", got == want))
+
+    # Строка источника остаётся в карточке нетронутой.
+    p = card("Height 28 cm Depth 11 cm Minimum diameter 6 cm Maximum diameter 10 cm")
+    checks.append(("строка источника в карточке цела",
+                   p.dims_raw.startswith("Height 28 cm")))
+    checks.append(("а в описание ушла нотация",
+                   "10x10x28Н" in pl.to_excel_description(p)))
+    checks.append(("строки источника в описании нет",
+                   "Minimum diameter" not in pl.to_excel_description(p)))
+
+    good = 0
+    for label, hit in checks:
+        good += bool(hit)
+        print(f"  {OK if hit else BAD} {label}")
+    return good, len(checks)
+
+
 def check_units() -> tuple[int, int]:
     """Единица измерения не должна зависеть от слова в ответе модели.
 
@@ -2538,6 +2588,7 @@ def main() -> int:
         checks.append((label, good, total))
 
     run("Размеры", check_dims)
+    run("Нотация размеров", check_book_dims)
     run("Единица", check_units)
     run("Объём", check_volume)
     run("Сверка", check_dims_grounding)
