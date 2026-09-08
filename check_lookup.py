@@ -1882,6 +1882,27 @@ def check_library_card() -> tuple[int, int]:
         ("за полной карточкой ходит в файл, а не берёт выжимку",
          "/library/card/" in ((chosen.get("fetches") or [{}])[0].get("url") or "")),
     ]
+
+    # Позиция в УЖЕ СОХРАНЁННЫЙ проект. Добавление не помечало черновик,
+    # а страница проекта при равных номерах правки берёт серверную
+    # запись — и позиция пропадала молча: в списке «позиций 2», и после
+    # перезагрузки на экране тоже 2.
+    saved_draft = _json.dumps({"positions": [{"model": "1"}, {"model": "2"}],
+                               "header": {}, "final": {}, "rates": None,
+                               "rev": 3, "dirty": False})
+    added = _run_page(
+        lib_scripts, lib_dom,
+        storage={"aurrum.current": "p1", "aurrum.draft.p1": saved_draft},
+        responses=[{"json": {"id": item["id"], "brand": "Barovier&Toso"}}],
+        actions=["document.querySelectorAll('.toproject')[0].click()",
+                 "document.getElementById('pickrow_current').click()",
+                 "await null", "await null"])
+    after = _json.loads((added.get("storage") or {}).get("aurrum.draft.p1") or "{}")
+    checks += [
+        ("позиция ложится в текущий проект", len(after.get("positions") or []) == 3),
+        ("и черновик помечен несохранённым — иначе позиция пропадёт",
+         after.get("dirty") is True),
+    ]
     good = 0
     for label, hit in checks:
         good += bool(hit)
@@ -2373,6 +2394,19 @@ def check_final_block() -> tuple[int, int]:
          round((f["всего"] + 4) * 0.7 - 75, 2) == 44299.75),
         ("доп.скидка 4300 доводит до книжных 39999.75",
          round((f["всего"] + 4) * 0.7 - 75 - 4300, 2) == 39999.75),
+    ]
+
+    # Единицы по умолчанию. Услуги и доставка — суммы, а не доли: их
+    # называют в евро, и переключатель приходилось трогать каждый раз.
+    # Скидки и сборка — наоборот, всегда проценты.
+    soup_fin, _, dom_fin = _page("project.html", _url="/project")
+    unit = lambda key: dom_fin["ids"].get(f"fin_{key}_unit", {}).get("value")
+    checks += [
+        ("услуги по умолчанию в евро", unit("services") == "eur"),
+        ("доставка по умолчанию в евро", unit("delivery") == "eur"),
+        ("сборка остаётся процентом", unit("assembly") == "pct"),
+        ("персональная скидка остаётся процентом", unit("personal") == "pct"),
+        ("дополнительная скидка остаётся процентом", unit("extra") == "pct"),
     ]
     good = 0
     for label, hit in checks:

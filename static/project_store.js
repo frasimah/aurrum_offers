@@ -65,6 +65,11 @@ window.AURRUM = (function () {
     state.positions = (state.positions || []).concat([
       { ...position, qty: 1, ...positionDefaults() },
     ]);
+    // Черновик разошёлся с сервером — и это надо ЗАПИСАТЬ. Страница
+    // проекта при равных номерах правки берёт серверную запись, и
+    // позиция, добавленная в уже сохранённый проект, пропадала молча:
+    // в списке «позиций 2», на экране после перезагрузки тоже 2.
+    state.dirty = true;
     saveDraft(id, state);
     return state.positions.length;
   }

@@ -223,12 +223,6 @@
       border: 1px solid #ececec; text-align: right;
     }
     .savedock__note:empty { display: none; }
-    .actions a.back {
-      display: inline-flex; align-items: center; height: 36px; padding: 0 16px;
-      border: 1px solid #d9d9d9; color: #2d2d2d;
-      font-size: 13px; text-decoration: none; transition: 0.3s;
-    }
-    .actions a.back:hover { border-color: #2d2d2d; background: #2d2d2d; color: #fff; }
 
     /* Шапка предложения: четыре подписанных поля в ряд, на узком окне
        переносятся. Ввод текстовый, поэтому по левому краю, а не по правому,
@@ -348,15 +342,12 @@
       </div>
 
       <div class="actions">
-        <button type="button" class="ghost" id="recalc">Пересчитать</button>
         <button type="button" id="export">Скачать файлом Excel</button>
         <button type="button" id="printdoc">Сформировать компред</button>
-        <button type="button" class="ghost" id="copyall">Скопировать все строки</button>
         <button type="button" class="ghost" id="addroom">Добавить комнату</button>
         <button type="button" class="ghost" id="fromdefaults">Вставить из констант</button>
         <button type="button" class="ghost" id="saveall">Сохранить проект</button>
         <button type="button" class="ghost" id="tolibrary">Всё в каталог</button>
-        <a class="back" href="{{ url_for('lookup') }}">Вернуться к парсеру</a>
         <button type="button" class="link" id="clear">Очистить проект</button>
       </div>
       <div class="hint" id="status"></div>
@@ -381,11 +372,15 @@
           <tr><td class="name">Сумма позиций</td><td class="field"></td><td class="fnum" id="fin_sum">0</td></tr>
 <tr><td class="name">Дополнительные услуги</td>
               <td class="field"><input class="manual" id="fin_services_val" value="0">
-                <select class="unit" id="fin_services_unit"><option value="pct">%</option><option value="eur">€</option></select></td>
+                <!-- Услуги и доставка — суммы, а не доли: их называют в евро,
+                     и переключать вручную каждый раз приходилось всегда. -->
+                <select class="unit" id="fin_services_unit"><option value="pct">%</option><option value="eur" selected>€</option></select></td>
               <td class="fnum" id="fin_services">0</td></tr>
           <tr><td class="name">Доставка по Москве/МО</td>
               <td class="field"><input class="manual" id="fin_delivery_val" value="0">
-                <select class="unit" id="fin_delivery_unit"><option value="pct">%</option><option value="eur">€</option></select></td>
+                <!-- Услуги и доставка — суммы, а не доли: их называют в евро,
+                     и переключать вручную каждый раз приходилось всегда. -->
+                <select class="unit" id="fin_delivery_unit"><option value="pct">%</option><option value="eur" selected>€</option></select></td>
               <td class="fnum" id="fin_delivery">0</td></tr>
           <tr><td class="name">Сборка/Монтаж</td>
               <td class="field"><input class="manual" id="fin_assembly_val" value="5">
@@ -985,11 +980,9 @@
       } catch (e) {
         render(null);
         document.getElementById('status').textContent =
-          'Расчёт не ответил — позиции показаны без цен. Перезайдите и нажмите «Пересчитать».';
+          'Расчёт не ответил — позиции показаны без цен. Перезайдите и обновите страницу.';
       }
     }
-
-    document.getElementById('recalc').addEventListener('click', recalc);
 
     // Компред в фирменном дизайне: та же книга, что уходит файлом,
     // но отданная печати. Обычная форма, а не fetch: страница должна
@@ -1225,24 +1218,6 @@
       }
       button.disabled = false;
       button.textContent = label;
-    });
-
-    document.getElementById('copyall').addEventListener('click', async () => {
-      const start = parseInt(prompt('С какой строки книги вставлять?', '16'), 10);
-      if (!start) return;
-      const out = [];
-      for (let i = 0; i < positions.length; i++) {
-        const p = positions[i];
-        const r = await fetch('{{ url_for("book_row_route") }}', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...p, row: start + i, with_pricing: false }),
-        });
-        if (!r.ok) return;
-        out.push((await r.json()).tsv);
-      }
-      await navigator.clipboard.writeText(out.join('\n'));
-      document.getElementById('status').textContent =
-        'Скопировано строк: ' + out.length + '. Вставлять начиная со строки ' + start + '.';
     });
 
     recalc();
