@@ -238,6 +238,19 @@
     }
     .savedock__note:empty { display: none; }
 
+    .run { margin-top: 14px; }
+    .run__bar { height: 4px; background: #ececec; overflow: hidden; }
+    .run__fill {
+      height: 100%; width: 0; background: #2d2d2d;
+      transition: width .35s ease;
+    }
+    .run__now { margin-top: 10px; font-size: 13px; color: #2d2d2d; }
+    .run__log {
+      max-height: 150px; overflow: auto; margin: 8px 0 0;
+      font-family: ui-monospace, Menlo, monospace; font-size: 11.5px;
+      line-height: 1.7; color: #949598; white-space: pre-wrap;
+    }
+
     .verify__text {
       max-height: 320px; overflow: auto; margin: 8px 0 0;
       padding: 10px 12px; border: 1px solid #ececec; background: #fafafa;
@@ -573,6 +586,15 @@
       <div class="hint">
         Ссылка на страницу товара на сайте бренда. Габариты и объём берутся из техлиста (spec sheet), если он есть.
       </div>
+
+      <!-- Ход разбора. Полминуты и дольше экран был пуст, и отличить
+           работу от зависания было нельзя. Строки настоящие: это то,
+           что только что произошло, а не отсчёт времени. -->
+      <div class="run" id="run" hidden>
+        <div class="run__bar"><div class="run__fill" id="run_fill"></div></div>
+        <div class="run__now" id="run_now">Открываю страницу…</div>
+        <pre class="run__log" id="run_log"></pre>
+      </div>
     </div>
     {% endif %}
 
@@ -855,10 +877,89 @@
     // строке, и карточка приезжала мёртвой.
     const askForm = document.getElementById('form');
     if (askForm) {
-      askForm.addEventListener('submit', () => {
-        const b = document.getElementById('go');
-        b.disabled = true;
-        b.textContent = 'Ищу…';
+      askForm.addEventListener('submit', async (e) => {
+        const field = document.getElementById('url');
+        const link = ((field || {}).value || '').trim();
+        if (!link) return;                 // пустое поле сторожит браузер
+        e.preventDefault();
+
+        const go = document.getElementById('go');
+        const run = document.getElementById('run');
+        const fill = document.getElementById('run_fill');
+        const now = document.getElementById('run_now');
+        const log = document.getElementById('run_log');
+        go.disabled = true;
+        go.textContent = 'Ищу…';
+        run.hidden = false;
+        log.textContent = '';
+
+        const line = (data) => {
+          if (data.share != null) {
+            fill.style.width = Math.round(data.share * 100) + '%';
+          }
+          if (data.line) {
+            now.textContent = data.line;
+            log.textContent += (log.textContent ? String.fromCharCode(10) : '')
+              + data.line;
+          }
+        };
+
+        // Готовая страница приходит последней строкой потока: разбирать
+        // второй раз ради неё значит платить за модель дважды.
+        const show = (html) => {
+          document.open();
+          document.write(html);
+          document.close();
+        };
+
+        const fail = (text) => {
+          go.disabled = false;
+          go.textContent = 'Найти';
+          now.textContent = text;
+          fill.style.width = '100%';
+        };
+
+        // Разбираем поток построчно. Каждая строка — отдельный JSON:
+        // так кусок, пришедший разрезанным посередине, ждёт продолжения,
+        // а не роняет разбор.
+        let tail = '';
+        const feed = (chunk, last) => {
+          tail += chunk;
+          const rows = tail.split(String.fromCharCode(10));
+          tail = last ? '' : rows.pop();
+          for (const row of rows) {
+            if (!row.trim()) continue;
+            let data;
+            try { data = JSON.parse(row); } catch (err) { continue; }
+            if (data.error) { fail(data.error); return true; }
+            if (data.html) { show(data.html); return true; }
+            line(data);
+          }
+          return false;
+        };
+
+        try {
+          const r = await fetch('{{ url_for("lookup_stream") }}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'url=' + encodeURIComponent(link),
+          });
+          // Посредник может отдать ответ целиком, а не по мере готовности.
+          // Тогда полоса просто прыгнет в конец — но карточка придёт.
+          const reader = r.body && r.body.getReader ? r.body.getReader() : null;
+          if (!reader) {
+            feed(await r.text(), true);
+            return;
+          }
+          const decoder = new TextDecoder();
+          for (;;) {
+            const piece = await reader.read();
+            if (piece.done) { feed('', true); break; }
+            if (feed(decoder.decode(piece.value, { stream: true }), false)) break;
+          }
+        } catch (err) {
+          fail('Разбор не ответил: ' + err.message);
+        }
       });
     }
 

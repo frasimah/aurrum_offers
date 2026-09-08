@@ -76,7 +76,11 @@ function element(id, spec) {
     get classList() {
       return { add() {}, remove() {}, toggle() {}, contains() { return false } }
     },
-    get style() { return {} },
+    // Стиль хранится, а не выдаётся новым объектом каждый раз: полоса
+    // хода работы задаётся шириной, и на выброшенном объекте правило
+    // «полоса дошла до конца» нельзя было бы проверить.
+    _style: {},
+    get style() { return this._style },
   }
   return node
 }
@@ -127,7 +131,13 @@ async function fakeFetch(url, opts) {
   }
 }
 
+// Замена документа целиком: готовая карточка приходит последней строкой
+// потока разбора и выводится через document.write.
+let written = ''
 const document = {
+  open() { written = '' },
+  write(html) { written += String(html) },
+  close() {},
   getElementById: (id) => nodes[id] || null,
   querySelector: (sel) => (selectors[sel] || [])[0] || null,
   querySelectorAll: (sel) => {
@@ -200,7 +210,9 @@ for (const [id, node] of Object.entries(nodes)) {
   snapshot[id] = { value: node.value, checked: node.checked, hidden: node.hidden,
                    text: node.textContent, disabled: node.disabled,
                    readOnly: node.readOnly, open: node.open,
+                   style: node._style,
                    html: node._html == null ? null : node._html.length }
 }
 
-process.stdout.write(JSON.stringify({ storage, fetches, ids: snapshot, throws, error }))
+process.stdout.write(JSON.stringify({ storage, fetches, ids: snapshot, throws, error,
+                                      written }))
