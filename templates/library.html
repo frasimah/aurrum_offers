@@ -87,6 +87,11 @@
     .card__acts button, .card__acts .btn {
       width: 100%; height: 32px; padding: 0 8px; font-size: 12.5px;
     }
+    /* Обе кнопки одного веса: светлая «ghost» рядом с чёрной читалась
+       как подпись, а не как действие, — правку на плитке не находили.
+       Тёмная рамка и тёмный текст делают её кнопкой, но не отнимают
+       главенства у «В проект», которая осталась залитой. */
+    .card__acts .btn.ghost { border-color: #2d2d2d; color: #2d2d2d; }
 
     .empty-state { padding: 60px 0; text-align: center; color: #949598; }
 
