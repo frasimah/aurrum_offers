@@ -1365,8 +1365,18 @@
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(card()),
           });
-          const data = await r.json();
-          if (!r.ok) throw new Error(data.error || 'не удалось сохранить');
+          // Ответ читаем текстом, а потом уже разбираем. Сервер не
+          // всегда отвечает JSON: при отказе платформы приходит её
+          // страница, и разбор падал с «Unexpected token '<'» — менеджер
+          // видел эту строку вместо причины и сказать о ней ничего не мог.
+          const body = await r.text();
+          let data = {};
+          try { data = JSON.parse(body); } catch (bad) { data = {}; }
+          if (!r.ok) {
+            throw new Error(data.error
+              || ('сервер ответил ' + r.status + ': '
+                  + body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160)));
+          }
           if (FROM_LIBRARY) {
             out.textContent = 'Сохранено в каталоге.';
           } else {
