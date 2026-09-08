@@ -1196,11 +1196,12 @@ def check_item_edit_mode() -> tuple[int, int]:
               "model": "Aurora", "type_ru": "Настольная лампа",
               "dims_raw": "H. 28 x 11 x 10 cm", "width_cm": 10.0,
               "depth_cm": 10.0, "height_cm": 28.0, "volume_m3": 0.1,
-              "dims_confident": True, "summary_ru": "Лампа.", "note": "1,5 kg",
-              "description": "AURORA", "photos": ["https://x/a.jpg"],
+              "dims_confident": True, "note": "1,5 kg",
+              "summary_ru": "Лампа из выдувного муранского стекла.", "photos": ["https://x/a.jpg"],
               "doc_urls": [], "source_url": "https://www.barovier.com/x",
               "finishes": [{"role_ru": "Стекло", "material": "Crystal"}]}
     product = flask_app._as_product(stored)
+    stored["description"] = pl.to_excel_description(product, with_finishes=False)
 
     def screen(from_library):
         return _page("lookup.html", _render=True, product=product,
@@ -1228,6 +1229,10 @@ def check_item_edit_mode() -> tuple[int, int]:
     # пять цветов стекла, лампа продаётся с одним. Отмеченные разом,
     # они склеивались через « + » и уезжали в предложение все пять.
     checks += [
+        ("поля аннотации на экране нет", soup_lib.find(id="f_summary") is None),
+        ("и при разборе тоже нет", soup_new.find(id="f_summary") is None),
+        ("текст аннотации стоит в описании",
+         stored["summary_ru"] in (soup_lib.select_one("#f_desc").get_text() or "")),
         ("галочки отделок сняты по умолчанию",
          not any(cb.has_attr("checked") for cb in soup_lib.select("input.finpick"))),
         ("описание на экране без строки отделок",
@@ -1239,34 +1244,47 @@ def check_item_edit_mode() -> tuple[int, int]:
 
     # Нажатие галочки собирает строку описания.
     picked = _run_page(scripts_lib, dom_lib, actions=[
-        "document.getElementById('edit').click()",
         "const cb = document.getElementById('finpick_0');"
         " cb.checked = true; cb.dispatchEvent({ type: 'change', target: cb })"])["ids"]
     checks.append(("отметка добавляет отделку в описание",
                    "Стекло - CRYSTAL" in (picked.get("f_desc", {}).get("value") or "")))
 
+    # Вставка строки в книгу Excel — второстепенное действие: свёрнуто и
+    # стоит последним, чтобы не спорить с «Сохранить» и «В проект».
+    tuck = soup_lib.select_one("details.tuck")
+    checks += [
+        ("вставка строки свёрнута в отдельный блок", tuck is not None),
+        ("блок закрыт по умолчанию", bool(tuck) and not tuck.has_attr("open")),
+        ("в нём и номер строки, и скрытый расчёт",
+         bool(tuck) and tuck.find(id="f_row") is not None
+         and tuck.find(id="f_pricing") is not None),
+        ("он стоит после отделок",
+         bool(tuck) and bool(soup_lib.select("input.finpick"))
+         and tuck.sourceline > soup_lib.select("input.finpick")[-1].sourceline),
+    ]
+
+    # Экран один и правится всегда: отдельного режима чтения нет.
+    checks += [
+        ("кнопки «Редактировать» нет", soup_lib.find(id="edit") is None),
+        ("кнопки «Отмена» нет", soup_lib.find(id="cancel") is None),
+    ]
     at_rest = _run_page(scripts_lib, dom_lib, actions=[])["ids"]
     checks += [
-        ("из каталога открывается на чтение",
-         at_rest.get("f_dims_raw", {}).get("readOnly") is True),
-        ("производитель тоже заперт",
-         at_rest.get("f_brand", {}).get("readOnly") is True),
-        ("кнопка «Редактировать» видна", at_rest.get("edit", {}).get("hidden") is False),
-        ("«Сохранить» спрятана", at_rest.get("tolibrary", {}).get("hidden") is True),
+        ("поля правятся сразу", at_rest.get("f_dims_raw", {}).get("readOnly") is False),
+        ("«Сохранить» видна сразу", at_rest.get("tolibrary", {}).get("hidden") is False),
     ]
 
-    editing = _run_page(scripts_lib, dom_lib,
-                        actions=["document.getElementById('edit').click()"])["ids"]
-    checks += [
-        ("нажатие открывает поля", editing.get("f_dims_raw", {}).get("readOnly") is False),
-        ("появляется «Сохранить»", editing.get("tolibrary", {}).get("hidden") is False),
-        ("кнопка правки уходит", editing.get("edit", {}).get("hidden") is True),
-    ]
-
-    _, scripts_new, dom_new = screen(None)
-    fresh = _run_page(scripts_new, dom_new, actions=[])["ids"]
-    checks.append(("после разбора правка включена сразу",
-                   fresh.get("f_dims_raw", {}).get("readOnly") is False))
+    # Галочки сверяются с описанием при открытии: у сохранённой карточки
+    # отмечено то, что менеджер выбрал раньше, а не пусто.
+    picked_stored = dict(stored)
+    picked_stored["description"] = pl.to_excel_description(product)
+    _, scripts_saved, dom_saved = _page(
+        "lookup.html", _render=True, product=product, url=product.source_url,
+        description=picked_stored["description"], variants=pl.variant_cards(product),
+        types=pl.TYPES_RU, from_library=stored["id"])
+    saved = _run_page(scripts_saved, dom_saved, actions=[])["ids"]
+    checks.append(("отделка из описания отмечена при открытии",
+                   saved.get("finpick_0", {}).get("checked") is True))
 
     good = 0
     for label, hit in checks:

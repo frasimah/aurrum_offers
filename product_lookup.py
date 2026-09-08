@@ -385,6 +385,8 @@ def to_excel_description(p: Product, with_finishes: bool = True) -> str:
     Отделки с одной ролью книга пишет одной строкой через « + », а названия
     материалов — заглавными: «Отделка - Металл LIGHT BURNISHED BRASS + ...».
 
+    Аннотация входит в текст всегда: отдельного поля под неё больше нет.
+
     with_finishes=False — для экрана карточки. Разбор возвращает ВСЕ
     исполнения отделки, какие есть у модели, и это часто альтернативы,
     а не части одного предмета: у BAROVIER AURORA пять цветов стекла —
@@ -400,6 +402,11 @@ def to_excel_description(p: Product, with_finishes: bool = True) -> str:
         lines.append(p.type_ru)
     if p.dims_raw:
         lines.append(p.dims_raw)
+    # Аннотация — часть описания, а не отдельное поле. Модель пересказывает
+    # по-русски конкретику со страницы бренда, и место этому тексту в той
+    # же колонке «Описание», куда он раньше переносился кнопкой руками.
+    if p.summary_ru:
+        lines.append(p.summary_ru.strip())
 
     by_role: dict[str, list[str]] = {}
     for f in p.finishes:

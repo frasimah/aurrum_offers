@@ -180,13 +180,17 @@
       background-size: 13px 13px;
     }
 
-    /* На чтении поле не должно выглядеть полем ввода: рамка и заливка
-       обещают правку, которой без нажатия «Редактировать» нет. */
-    input[readonly], textarea[readonly] {
-      background: #fafafa; border-color: #ececec; color: #4a4a4a; cursor: default;
+    /* Свёрнутый блок второстепенного действия: заметен ровно настолько,
+       чтобы его нашли, когда он понадобится. */
+    .tuck { margin-top: 22px; border-top: 1px solid #ececec; padding-top: 14px; }
+    .tuck > summary {
+      cursor: pointer; color: #949598; font-size: 12.5px; list-style: none;
+      display: inline-flex; align-items: center; gap: 6px;
     }
-    input[readonly]:focus, textarea[readonly]:focus { border-color: #ececec; }
-    input.finpick:disabled { opacity: 0.45; cursor: default; }
+    .tuck > summary::-webkit-details-marker { display: none; }
+    .tuck > summary::before { content: "▸"; font-size: 10px; }
+    .tuck[open] > summary::before { content: "▾"; }
+    .tuck > summary:hover { color: #2d2d2d; }
 
     button.ghost {
       background: #fff;
@@ -518,59 +522,20 @@
           <label for="f_note">Примечание</label>
           <input id="f_note" value="{{ product.tech_note }}">
 
-          <label for="f_summary">Аннотация — факты по-русски
-            <span class="muted" id="summary_count"></span></label>
-          <textarea id="f_summary" rows="4"
-            placeholder="Появится, если на странице есть описание">{{ product.summary_ru }}</textarea>
-          <div class="actions" style="margin-top:6px">
-            <button type="button" class="ghost" id="summary_to_desc">В описание</button>
-          </div>
-          <div class="hint">
-            Модель выбирает из описания бренда конкретику — материалы,
-            конструкцию, механизмы — и пересказывает по-русски, до 400 знаков.
-            Названия отделок остаются на языке оригинала. Это единственное
-            поле, которое пишет модель, а не источник, — прочитайте перед
-            вставкой.
-          </div>
         </div>
 
         <div>
           <label>Описание — для колонки «Описание»</label>
           <textarea id="f_desc">{{ description }}</textarea>
           <div class="actions">
-            {% if from_library %}
-            <button type="button" id="edit">Редактировать</button>
-            {% endif %}
-            <button type="button" id="toproject" class="{{ 'btn ghost' if from_library }}">В проект</button>
-            <button type="button" class="ghost" id="tolibrary">{{ 'Сохранить' if from_library else 'В библиотеку' }}</button>
-            {% if from_library %}
-            <button type="button" class="ghost" id="cancel">Отмена</button>
-            {% endif %}
+            <button type="button" id="tolibrary">{{ 'Сохранить' if from_library else 'В библиотеку' }}</button>
+            <button type="button" class="ghost" id="toproject">В проект</button>
             <button type="button" class="ghost" id="copy">Скопировать описание</button>
             {% if from_library %}
             <button type="button" class="link" id="del">Удалить</button>
             {% endif %}
           </div>
           <div class="hint" id="library_status"></div>
-
-          <label for="f_row">Строка в книге</label>
-          <div class="grid3">
-            <input id="f_row" type="number" min="2" max="10000" value="16">
-            <input id="f_qty" type="number" min="1" value="1" title="Количество">
-            <button type="button" id="rowcopy">Скопировать строку</button>
-          </div>
-          <div class="hint">
-            Вставлять строго в указанную строку: формулы ссылаются на её номер.
-            Вставка в другую уведёт ссылки на соседние позиции.
-          </div>
-          <label style="display:flex;align-items:center;gap:8px;margin-top:10px">
-            <input type="checkbox" id="f_pricing" class="check">
-            <span>со скрытым расчётом (T…AI)</span>
-          </label>
-          <div class="hint">
-            По умолчанию только видимая часть A…S. Скрытый расчёт затрёт формулы книги,
-            включая коэффициент сборки, который у каждой позиции свой.
-          </div>
 
           {% if variants and variants|length > 1 %}
           <label>Исполнения — выберите то, что в заказе</label>
@@ -619,6 +584,31 @@
             описания двигает галочки сама.
           </div>
           {% endif %}
+
+          <!-- Ручная вставка строки в книгу Excel: нужна редко, поэтому
+               свёрнута и стоит последней. Основной путь — «В проект» и
+               выгрузка книги оттуда. -->
+          <details class="tuck">
+            <summary>Вставить строку в книгу Excel вручную</summary>
+            <label for="f_row">Строка в книге</label>
+            <div class="grid3">
+              <input id="f_row" type="number" min="2" max="10000" value="16">
+              <input id="f_qty" type="number" min="1" value="1" title="Количество">
+              <button type="button" id="rowcopy">Скопировать строку</button>
+            </div>
+            <div class="hint">
+              Вставлять строго в указанную строку: формулы ссылаются на её номер.
+              Вставка в другую уведёт ссылки на соседние позиции.
+            </div>
+            <label style="display:flex;align-items:center;gap:8px;margin-top:10px">
+              <input type="checkbox" id="f_pricing" class="check">
+              <span>со скрытым расчётом (T…AI)</span>
+            </label>
+            <div class="hint">
+              По умолчанию только видимая часть A…S. Скрытый расчёт затрёт формулы
+              книги, включая коэффициент сборки, который у каждой позиции свой.
+            </div>
+          </details>
         </div>
       </div>
     </div>
@@ -1005,7 +995,10 @@
         dims_raw: val('f_dims_raw'),
         dims_confident: dimsConfident,
         description: val('f_desc'),
-        summary_ru: val('f_summary'),
+        // Поля аннотации на экране нет: её текст входит в описание.
+        // Само значение храним — из него описание и собирается заново
+        // при пересборке.
+        summary_ru: {{ (product.summary_ru if product else '') | tojson }},
         note: val('f_note'),
         width_cm: val('f_d'), depth_cm: val('f_g'), height_cm: val('f_v'),
         volume_m3: val('f_vol'),
@@ -1032,7 +1025,6 @@
           const data = await r.json();
           if (!r.ok) throw new Error(data.error || 'не удалось сохранить');
           if (FROM_LIBRARY) {
-            setEditing(false);
             out.textContent = 'Сохранено в каталоге.';
           } else {
             tolibrary.textContent = '✓ в библиотеке';
@@ -1045,40 +1037,10 @@
       });
     }
 
-    // Из КАТАЛОГА карточка открывается на чтение: туда чаще заглядывают,
-    // чем правят, и поля, молча готовые к вводу, значат, что случайное
-    // нажатие меняет данные незаметно. После разбора по ссылке правка
-    // включена сразу — там её и пришли делать.
+    // Экран один на разбор и каталог, и правится он всегда: отдельный
+    // режим чтения с кнопкой «Редактировать» был нужен, пока экранов
+    // было два и каталожный выглядел нередактируемым.
     const FROM_LIBRARY = {{ (from_library or '') | tojson }};
-    const editBtn = document.getElementById('edit');
-    const cancelBtn = document.getElementById('cancel');
-    const saveBtn = document.getElementById('tolibrary');
-
-    const EDITABLE = ['f_brand', 'f_model', 'f_type', 'f_dims_raw', 'f_d', 'f_g',
-                      'f_v', 'f_vol', 'f_note', 'f_summary', 'f_desc'];
-
-    function setEditing(on) {
-      for (const id of EDITABLE) {
-        const el = document.getElementById(id);
-        if (el) el.readOnly = !on;
-      }
-      document.querySelectorAll('input.finpick').forEach(cb => { cb.disabled = !on; });
-      if (editBtn) editBtn.hidden = on;
-      if (cancelBtn) cancelBtn.hidden = !on;
-      if (saveBtn && FROM_LIBRARY) saveBtn.hidden = !on;
-    }
-
-    if (editBtn) {
-      editBtn.addEventListener('click', () => {
-        setEditing(true);
-        const first = document.getElementById('f_brand');
-        if (first) first.focus();
-      });
-    }
-    if (cancelBtn) {
-      cancelBtn.addEventListener('click', () => window.location.reload());
-    }
-    if (FROM_LIBRARY) setEditing(false);
 
     // Удаление есть только у сохранённой карточки: разобранной ещё
     // нечего удалять.
@@ -1158,33 +1120,16 @@
       });
     }
 
-    // Аннотация: счётчик и вставка в описание отдельным абзацем.
-    const summaryField = document.getElementById('f_summary');
-    if (summaryField) {
-      const counter = document.getElementById('summary_count');
-      const count = () => {
-        counter.textContent = summaryField.value.trim()
-          ? summaryField.value.trim().length + ' / 400' : '';
-      };
-      summaryField.addEventListener('input', count);
-      count();
-      document.getElementById('summary_to_desc').addEventListener('click', () => {
-        const desc = document.getElementById('f_desc');
-        const text = summaryField.value.trim();
-        const btn = document.getElementById('summary_to_desc');
-        if (!desc || !text) return;
-        if (desc.value.includes(text)) { btn.textContent = '✓ в описании'; return; }
-        desc.value = desc.value.trimEnd() + '\n\n' + text;
-        btn.textContent = '✓ в описании';
-        setTimeout(() => (btn.textContent = 'В описание'), 2500);
-      });
-    }
-
     const descField = document.getElementById('f_desc');
     if (descField) descField.addEventListener('input', () => {
       syncFinishButtons();
       syncFinishChecks();
     });
+    // И при открытии тоже: описание — источник правды, галочки его
+    // показывают. У свежего разбора отделок в описании нет, значит и
+    // галочек нет; у сохранённой карточки отмечено то, что менеджер
+    // выбрал раньше. Без этой строки они расходились.
+    syncFinishChecks();
 
     const copy = document.getElementById('copy');
     if (copy) {
