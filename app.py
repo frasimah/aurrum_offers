@@ -425,6 +425,32 @@ def _as_product(item: dict):
     )
 
 
+@app.route("/source-text")
+def source_text():
+    """Текст страницы бренда дословно — для сверки карточки с источником.
+
+    Карточка говорит, что нашла, но проверить это можно было только уйдя
+    на сайт и вычитав страницу глазами. Здесь тот же текст, по которому
+    работало извлечение, — и в нём подсвечивается то, что попало в поля.
+    Значение, которого в тексте нет, видно сразу: именно так выглядит
+    выдумка.
+
+    Ссылку проверяет safe_fetch: публичный адрес и на каждом редиректе.
+    """
+    url = (request.args.get("url") or "").strip()
+    if not url.lower().startswith(("http://", "https://")):
+        return {"error": "Нужна ссылка на страницу товара."}, 400
+    try:
+        text, _links, _html = product_lookup._scrape(url)
+    except product_lookup.NoDelivery as exc:
+        return {"error": str(exc)}, 502
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"Страница не открылась: {exc}"}, 502
+    # Потолок на ответ: страницы брендов заметно короче, а огромный текст
+    # только повесит вкладку.
+    return {"text": text[:200_000], "chars": len(text)}
+
+
 @app.route("/library/item/<item_id>")
 def library_item(item_id: str):
     """Полная карточка: индекс её не хранит, лежит она в своём файле."""

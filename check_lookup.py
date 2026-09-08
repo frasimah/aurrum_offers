@@ -486,7 +486,7 @@ def _page(name: str, **context) -> tuple[object, list[str], dict]:
                      "input.finpick", ".ph", ".parse", "button[data-del]",
                      "input[data-k]", "td[data-edit]", ".diff",
                      "#parse_result button[data-f]", "#parse_result button[data-i]",
-                     ".diff button.link", "button.usevariant"):
+                     ".diff button.link", "button.usevariant", ".pickrow"):
         try:
             selectors[selector] = [t["id"] for t in soup.select(selector) if t.get("id")]
         except Exception:        # noqa: BLE001 — сложный селектор не беда
@@ -851,7 +851,14 @@ def check_page_logic() -> tuple[int, int]:
     _, look_scripts, look_dom = _page(
         "lookup.html", _render=True, product=product, types=pl.TYPES_RU,
         description="M\nЛюстра\nСтекло - CRYSTAL + CRYSTAL/GREY/OLIVE", error=None)
+    # Строку кладём ДЕЙСТВИЕМ, а не начальным описанием: при открытии
+    # карточка, где отмечено всё до единой отделки, считается заполненной
+    # разбором, и строка убирается. Здесь же проверяется точность снятия
+    # одного материала, а не то правило.
     fin = _run_page(look_scripts, look_dom, actions=[
+        "document.getElementById('f_desc').value = "
+        "['M', 'Люстра', 'Стекло - CRYSTAL + CRYSTAL/GREY/OLIVE']"
+        ".join(String.fromCharCode(10))",
         "removeFinish('Стекло', 'Crystal')",
         "document.getElementById('f_note').value = document.getElementById('f_desc').value",
     ])
@@ -1359,25 +1366,43 @@ def check_item_edit_mode() -> tuple[int, int]:
         description=stored["description"], variants=pl.variant_cards(product),
         project_choices=[{"id": "prj-vladimir", "name": "Владимир"}],
         types=pl.TYPES_RU, from_library=stored["id"])
-    pick = soup_lib.select_one("#project_pick")
-    checks.append(("выбор проекта есть у карточки", pick is not None))
     with_list = _page("lookup.html", _render=True, product=product,
                       url=product.source_url, description=stored["description"],
                       variants=pl.variant_cards(product),
+                      card_base=base,
                       project_choices=[{"id": "prj-vladimir", "name": "Владимир"}],
                       types=pl.TYPES_RU, from_library=stored["id"])[0]
-    opts = [o.get("value") for o in with_list.select("#project_pick option")]
+    rows = [b.get("data-pick") for b in with_list.select(".pickrow")]
     checks += [
-        ("в списке текущий, сохранённый и новый",
-         opts == ["", "prj-vladimir", "__new__"]),
-        ("по умолчанию — текущий", opts[0] == ""),
+        ("выбор проекта открывается окном",
+         with_list.select_one("#pickdlg") is not None),
+        ("в окне текущий и сохранённый", rows == ["", "prj-vladimir"]),
+        ("и поле для нового проекта",
+         with_list.select_one("#pickdlg_name") is not None
+         and with_list.select_one("#pickdlg_create") is not None),
     ]
 
     # Чужой проект не должен затираться пустым черновиком: позиция
     # откладывается, а дописывает её страница проекта, подняв запись.
     stashed = _run_page(sc_pick, dom_pick, actions=[
-        "document.getElementById('project_pick').value = 'prj-vladimir'",
-        "document.getElementById('toproject').click()"])
+        "document.getElementById('toproject').click()",
+        "document.getElementById('pickrow_0').click()"])
+    opened = _run_page(sc_pick, dom_pick, actions=[
+        "document.getElementById('toproject').click()"])["ids"]
+    checks.append(("нажатие открывает окно",
+                   opened.get("pickdlg", {}).get("open") is True))
+
+    named = _run_page(sc_pick, dom_pick, actions=[
+        "document.getElementById('toproject').click()",
+        "document.getElementById('pickdlg_name').value = 'Владимир'",
+        "document.getElementById('pickdlg_create').click()"])
+    drafts = [k for k in (named.get("storage") or {}) if k.startswith("aurrum.draft")]
+    checks += [
+        ("новый проект создаётся по имени", bool(drafts)),
+        ("имя попадает в шапку проекта",
+         any("Владимир" in str(v) for v in (named.get("storage") or {}).values())),
+    ]
+
     checks += [
         ("выбор чужого проекта откладывает позицию",
          "aurrum.pending" in (stashed.get("storage") or {})),
@@ -1421,6 +1446,31 @@ def check_item_edit_mode() -> tuple[int, int]:
     saved = _run_page(scripts_saved, dom_saved, actions=[])["ids"]
     checks.append(("отделка из описания отмечена при открытии",
                    saved.get("finpick_0", {}).get("checked") is True))
+
+    # А карточка, сохранённая до ручного выбора, несёт в описании ВСЕ
+    # отделки — их клал разбор. Такую строку убираем: выбор за менеджером.
+    legacy = dict(stored)
+    legacy["finishes"] = [{"role_ru": "Стекло", "material": "Light Pink"},
+                          {"role_ru": "Стекло", "material": "Grey"},
+                          {"role_ru": "Металл", "material": "Chrome"}]
+    prod_legacy = flask_app._as_product(legacy)
+    legacy_desc = pl.to_excel_description(prod_legacy)
+    _, sc_leg, dom_leg = _page(
+        "lookup.html", _render=True, product=prod_legacy, url=prod_legacy.source_url,
+        description=legacy_desc, variants=pl.variant_cards(prod_legacy),
+        card_base=flask_app._card_base(prod_legacy, legacy_desc, legacy),
+        project_choices=[], types=pl.TYPES_RU, from_library=legacy["id"])
+    old_card = _run_page(sc_leg, dom_leg, actions=[])["ids"]
+    checks += [
+        ("у старой карточки галочки сняты",
+         all(old_card.get(f"finpick_{i}", {}).get("checked") is False
+             for i in range(3))),
+        ("и строка отделок из описания убрана",
+         "Стекло" not in (old_card.get("f_desc", {}).get("value") or "")),
+        ("остальное описание цело",
+         "AURORA" in (old_card.get("f_desc", {}).get("value") or "")
+         or prod_legacy.model.upper() in (old_card.get("f_desc", {}).get("value") or "")),
+    ]
 
     good = 0
     for label, hit in checks:

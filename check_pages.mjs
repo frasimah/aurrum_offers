@@ -51,6 +51,11 @@ function element(id, spec) {
       return true
     },
     click() { this.dispatchEvent({ type: 'click', target: this }) },
+    // <dialog>: окно выбора проекта открывается и закрывается этими
+    // двумя. Заглушка держит только состояние — рисовать ей нечего.
+    open: !!spec.open,
+    showModal() { this.open = true },
+    close() { this.open = false },
     focus() {}, select() {}, blur() {},
     remove() {},
     setAttribute() {}, getAttribute() { return null },
@@ -183,7 +188,7 @@ const snapshot = {}
 for (const [id, node] of Object.entries(nodes)) {
   snapshot[id] = { value: node.value, checked: node.checked, hidden: node.hidden,
                    text: node.textContent, disabled: node.disabled,
-                   readOnly: node.readOnly,
+                   readOnly: node.readOnly, open: node.open,
                    html: node._html == null ? null : node._html.length }
 }
 

@@ -191,6 +191,22 @@
     .diff button.link { font-size: 11.5px; color: #2d2d2d; }
     .diff button.link:hover { color: #b58900; }
 
+    .dlg {
+      width: min(440px, calc(100vw - 32px));
+      border: 1px solid #2d2d2d; padding: 22px 24px; background: #fff;
+      font-family: inherit; color: #2d2d2d;
+    }
+    .dlg::backdrop { background: rgba(45, 45, 45, 0.35); }
+    .dlg h3 { margin: 0 0 14px; font-size: 15px; font-weight: 500; }
+    .dlg__list { display: flex; flex-direction: column; gap: 6px; max-height: 46vh; overflow: auto; }
+    .dlg .pickrow {
+      width: 100%; height: 36px; justify-content: flex-start; padding: 0 12px;
+      background: #fff; color: #2d2d2d; border-color: #d9d9d9; font-size: 13px;
+    }
+    .dlg .pickrow:hover { background: #2d2d2d; color: #fff; border-color: #2d2d2d; }
+    .dlg__new { margin-top: 18px; padding-top: 16px; border-top: 1px solid #ececec; }
+    .dlg__foot { margin-top: 16px; display: flex; justify-content: flex-end; }
+
     /* Выбор проекта стоит рядом с кнопкой и не растягивается на всю
        ширину, как остальные поля. */
     #project_pick { width: auto; max-width: 15rem; }
@@ -557,14 +573,7 @@
           <textarea id="f_desc">{{ description }}</textarea>
           <div class="actions">
             <button type="button" id="tolibrary">{{ 'Сохранить' if from_library else 'В библиотеку' }}</button>
-            <select id="project_pick" title="Куда положить позицию">
-              <option value="">Текущий проект</option>
-              {% for pr in project_choices or [] %}
-              <option value="{{ pr.id }}">{{ pr.name }}</option>
-              {% endfor %}
-              <option value="__new__">Новый проект</option>
-            </select>
-            <button type="button" class="ghost" id="toproject">В проект</button>
+            <button type="button" class="ghost" id="toproject">В проект…</button>
             <button type="button" class="ghost" id="copy">Скопировать описание</button>
             {% if from_library %}
             <button type="button" class="ghost" id="refresh">Пересобрать с сайта</button>
@@ -697,6 +706,28 @@
     {% endif %}
     {% endif %}
   </div>
+
+  <dialog id="pickdlg" class="dlg">
+    <h3>В какой проект?</h3>
+    <div class="dlg__list" id="pickdlg_list">
+      <button type="button" class="pickrow" data-pick="">Текущий проект</button>
+      {% for pr in project_choices or [] %}
+      <button type="button" class="pickrow" data-pick="{{ pr.id }}"
+              id="pickrow_{{ loop.index0 }}">{{ pr.name }}</button>
+      {% endfor %}
+    </div>
+    <div class="dlg__new">
+      <label for="pickdlg_name">Новый проект</label>
+      <div class="grid3">
+        <input id="pickdlg_name" placeholder="Как назвать" style="grid-column: span 2">
+        <button type="button" id="pickdlg_create">Создать и положить</button>
+      </div>
+      <div class="hint">Имя попадёт в шапку предложения — его можно поменять на странице проекта.</div>
+    </div>
+    <div class="dlg__foot">
+      <button type="button" class="ghost" id="pickdlg_close">Отмена</button>
+    </div>
+  </dialog>
 
   <script src="{{ url_for('static', filename='project_store.js') }}"></script>
   <script>
@@ -1173,30 +1204,49 @@
       });
     }
 
+    // Выбор проекта: окно со списком и полем для нового. Раньше позиция
+    // всегда уезжала в черновик последнего открытого проекта, и выбрать
+    // другой было нельзя.
+    const dlg = document.getElementById('pickdlg');
+
+    // В ЧУЖОЙ проект позицию кладём не сразу: у записи, которая лежит на
+    // сервере и не открыта в этом браузере, черновика нет — «добавить»
+    // создало бы пустой, а «Сохранить» записало бы его поверх целого
+    // проекта. Откладываем и открываем проект: он поднимет серверную
+    // запись и допишет позицию к ней.
+    function putInto(projectId, name) {
+      if (projectId) {
+        AURRUM.stash(card());
+        window.location = '/project/open/' + encodeURIComponent(projectId);
+        return;
+      }
+      if (name) {
+        const fresh = AURRUM.newId();
+        AURRUM.setCurrent(fresh);
+        const state = AURRUM.draft(fresh);
+        state.header = { ...(state.header || {}), name: name };
+        AURRUM.saveDraft(fresh, state);
+      }
+      AURRUM.addPosition(card());
+      window.location = '{{ url_for("project") }}';
+    }
+
     const toproject = document.getElementById('toproject');
-    if (toproject) {
-      toproject.addEventListener('click', () => {
-        const pick = document.getElementById('project_pick');
-        const where = pick ? pick.value : '';
-
-        // В ЧУЖОЙ проект позицию кладём не сразу: у записи, которая лежит
-        // на сервере и не открыта в этом браузере, черновика нет — и
-        // «добавить» создало бы пустой, а «Сохранить» записало бы его
-        // поверх целого проекта. Откладываем и открываем проект: он
-        // поднимет серверную запись и допишет позицию к ней.
-        if (where && where !== '__new__') {
-          AURRUM.stash(card());
-          window.location = '/project/open/' + encodeURIComponent(where);
-          return;
-        }
-        if (where === '__new__') AURRUM.setCurrent(AURRUM.newId());
-
-        // Позиция уезжает в черновик со скидкой, наценкой и сборкой из
-        // «Констант», а не пустой. Правило одно и живёт в
-        // static/project_store.js.
-        AURRUM.addPosition(card());
-        window.location = '{{ url_for("project") }}';
+    if (toproject && dlg) {
+      toproject.addEventListener('click', () => dlg.showModal());
+      document.getElementById('pickdlg_close')
+        .addEventListener('click', () => dlg.close());
+      document.querySelectorAll('.pickrow').forEach(row =>
+        row.addEventListener('click', () => putInto(row.dataset.pick, '')));
+      document.getElementById('pickdlg_create').addEventListener('click', () => {
+        const field = document.getElementById('pickdlg_name');
+        const name = (field.value || '').trim();
+        if (!name) { field.focus(); return; }
+        putInto('', name);
       });
+    } else if (toproject) {
+      // Окна нет — путь остаётся прежним, кнопка не отнимается.
+      toproject.addEventListener('click', () => putInto('', ''));
     }
 
     // Строка для книги. Собирает сервер: формулы привязаны к номеру строки,
@@ -1250,11 +1300,26 @@
       syncFinishButtons();
       syncFinishChecks();
     });
-    // И при открытии тоже: описание — источник правды, галочки его
-    // показывают. У свежего разбора отделок в описании нет, значит и
-    // галочек нет; у сохранённой карточки отмечено то, что менеджер
-    // выбрал раньше. Без этой строки они расходились.
-    syncFinishChecks();
+    // При открытии галочки показывают описание: у свежего разбора отделок
+    // в описании нет, значит и галочек нет; у сохранённой карточки
+    // отмечено то, что менеджер выбрал раньше.
+    //
+    // Кроме одного случая. Карточки, сохранённые до того, как выбор стал
+    // ручным, несут в описании ВСЕ найденные отделки разом — их туда
+    // клал разбор, а не человек. Отличить просто: выбран весь список без
+    // единого исключения. У BAROVIER AURORA это пять цветов стекла,
+    // склеенных через « + », хотя лампа продаётся с одним. Такую строку
+    // убираем и начинаем с чистого листа — как и задумано: отделки
+    // выбирает менеджер.
+    (function () {
+      const boxes = [...document.querySelectorAll('input.finpick')];
+      if (!boxes.length) return;
+      const all = boxes.every(cb => finishInDesc(cb.dataset.role, cb.dataset.mat));
+      if (all && boxes.length > 1) {
+        for (const cb of boxes) removeFinish(cb.dataset.role, cb.dataset.mat);
+      }
+      syncFinishChecks();
+    })();
 
     const copy = document.getElementById('copy');
     if (copy) {
