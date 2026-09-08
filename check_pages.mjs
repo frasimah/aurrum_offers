@@ -164,6 +164,17 @@ const context = {
   Event: class { constructor(t) { this.type = t } },
   DataTransfer: class { constructor() { this.items = { add() {} }; this.files = [] } },
 }
+// Окно как слушатель: на нём висит предупреждение об уходе со
+// страницы. Без этого страница падала бы на addEventListener, а правило
+// «не уходи, не сохранив» осталось бы непроверяемым.
+const windowListeners = {}
+context.addEventListener = (type, fn) => { (windowListeners[type] ||= []).push(fn) }
+context.removeEventListener = () => {}
+context.dispatchEvent = (event) => {
+  for (const fn of windowListeners[event.type] || []) fn(event)
+  return true
+}
+
 context.window = context
 context.globalThis = context
 context.self = context

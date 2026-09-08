@@ -508,6 +508,14 @@
     }
     button.link:hover { background: none; color: #d64545; }
     .actions button.link { margin-left: auto; }
+
+    /* Удаление видно, но красным: обводка отделяет его от остальных
+       кнопок, а заливка сделала бы его главным действием. */
+    button.danger {
+      background: none; border: 1px solid #d64545; color: #d64545;
+    }
+    button.danger:hover { background: #d64545; color: #fff; }
+    .actions button.danger { margin-left: auto; }
   </style>
 </head>
 
@@ -608,7 +616,7 @@
             <button type="button" class="ghost" id="copy">Скопировать описание</button>
             {% if from_library %}
             <button type="button" class="ghost" id="refresh">Пересобрать с сайта</button>
-            <button type="button" class="link" id="del">Удалить</button>
+            <button type="button" class="danger" id="del">Удалить</button>
             {% endif %}
           </div>
           <div class="hint" id="library_status"></div>
@@ -684,6 +692,8 @@
               карточки. Ненайденное названо отдельной строкой: его в источнике нет.
               {% if product.dims_from_spec %}Размеры сюда не входят — они из техлиста,
               и в тексте страницы их быть не должно.{% endif %}
+              {% if product.finishes_from_spec %}Отделки тоже из техлиста — сверяйте их
+              по документу.{% endif %}
             </div>
             <div class="hint" id="verify_status">Открываю…</div>
             <div class="hint verify__miss" id="verify_miss" hidden></div>
@@ -1315,13 +1325,18 @@
       // размеры чертежом, — а это семь брендов из восьми проверенных.
       const DIMS_FROM_SPEC =
         {{ (product.dims_from_spec if product else False) | default(false, true) | tojson }};
+      // То же и с отделками: у Baxter их 136, и все — из техлиста.
+      const FINISHES_FROM_SPEC =
+        {{ (product.finishes_from_spec if product else False) | default(false, true) | tojson }};
 
       function wanted() {
         const val = id => ((document.getElementById(id) || {}).value || '').trim();
         const out = [['Примечание', val('f_note')], ['Модель', val('f_model')]];
         if (!DIMS_FROM_SPEC) out.unshift(['Размеры', val('f_dims_raw')]);
-        document.querySelectorAll('input.finpick').forEach(cb =>
-          out.push(['Отделка', cb.dataset.mat || '']));
+        if (!FINISHES_FROM_SPEC) {
+          document.querySelectorAll('input.finpick').forEach(cb =>
+            out.push(['Отделка', cb.dataset.mat || '']));
+        }
         return out.filter(([, v]) => v.length > 2);
       }
 
@@ -1394,6 +1409,7 @@
     // проекта. Откладываем и открываем проект: он поднимет серверную
     // запись и допишет позицию к ней.
     function putInto(projectId, name) {
+      LEAVING.settled();       // карточка уезжает в проект, а не теряется
       if (projectId) {
         AURRUM.stash(card());
         window.location = '/project/open/' + encodeURIComponent(projectId);
@@ -1426,6 +1442,7 @@
       let dirty = false;
 
       function touched() {
+        LEAVING.touched();
         if (dirty) return;
         dirty = true;
         for (const b of twins) b.className = '';
@@ -1447,8 +1464,31 @@
         // Отметку снимает сам обработчик сохранения — по успеху; здесь
         // только возвращаем вид, чтобы не оставалась «главной» навсегда.
         dirty = false;
-        save.className = quiet;
+        for (const b of twins) b.className = quiet;
+        LEAVING.settled();
       });
+    })();
+
+    // Уход со страницы с несохранённой работой. Раньше разбор клали в
+    // каталог сами, ещё до нажатия, — и библиотека наполнялась тем,
+    // чего никто не добавлял. Теперь не кладём, а предупреждаем.
+    //
+    // Свежий разбор не лежит НИГДЕ: любой уход теряет его целиком,
+    // поэтому он «несохранён» с самого начала. Карточка из каталога —
+    // только после первой правки.
+    const LEAVING = (function () {
+      let unsaved = !FROM_LIBRARY && !!document.getElementById('tolibrary');
+      const on = () => { unsaved = true; };
+      const off = () => { unsaved = false; };
+      window.addEventListener('beforeunload', (e) => {
+        if (!unsaved) return;
+        // Своего окна тут не показать: браузер спрашивает сам и только
+        // своими словами. Наше дело — попросить его спросить.
+        e.preventDefault();
+        e.returnValue = '';
+        return '';
+      });
+      return { touched: on, settled: off };
     })();
 
     const toproject = document.getElementById('toproject');

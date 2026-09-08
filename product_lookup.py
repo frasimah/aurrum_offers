@@ -107,6 +107,7 @@ class Product:
     # на странице — значит кричать «нет в источнике» на каждом бренде,
     # который публикует размеры чертежом.
     dims_from_spec: bool = False
+    finishes_from_spec: bool = False
     warnings: list[str] = field(default_factory=list)
 
 
@@ -511,7 +512,10 @@ def _plain(url: str) -> tuple[str, list[str], str] | None:
     text = " ".join(_ANY_TAG.sub(" ", _TAGS.sub(" ", html)).split())
     if len(text) < MIN_PAGE_TEXT:
         return None
-    links = [urljoin(url, u) for u in _HREF.findall(html)]
+    # Мнемоники раскрываем: у Baxter ссылка на техлист написана как
+    # «?code=PARISL&amp;lang=deu», и без этого по ней приходит страница
+    # ошибки вместо PDF — карточка оставалась без габаритов и отделок.
+    links = [urljoin(url, unescape(u)) for u in _HREF.findall(html)]
     return text, links, html
 
 
@@ -1203,6 +1207,11 @@ def lookup(url: str) -> Product:
                     + ("страница склеила таблицу исполнений в одну строку."
                        if page_glued else "в техлисте их больше."))
             p.finishes = pdf_finishes
+            # Помечаем источник: сверять их с текстом СТРАНИЦЫ нельзя, их
+            # там нет и быть не должно. У Baxter Paris Slim так молча
+            # улетали все 136 обивок из техлиста — карточка оставалась с
+            # одной, а менеджер читал тревогу на три тысячи знаков.
+            p.finishes_from_spec = True
         if not p.tech_note:
             p.tech_note = str(pdf.get("tech_note") or "").strip()
     else:
@@ -1273,7 +1282,11 @@ def lookup(url: str) -> Product:
     p.finishes = unique
 
     # Сверка с первоисточником: выдуманные отделки убираем, а не показываем.
-    p.finishes, invented = _verify_finishes(p.finishes, page_md)
+    # Отделки из техлиста через эту сверку не идут: их текст — документ,
+    # а не страница, и требовать их на странице значит стирать верное.
+    invented: list[str] = []
+    if not p.finishes_from_spec:
+        p.finishes, invented = _verify_finishes(p.finishes, page_md)
     if invented:
         p.warnings.append(
             "Не найдены в источнике и убраны из карточки: "

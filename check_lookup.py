@@ -1397,7 +1397,7 @@ def check_item_edit_mode() -> tuple[int, int]:
                      from_library=from_library)
 
     soup_lib, scripts_lib, dom_lib = screen(stored["id"])
-    soup_new, _, _ = screen(None)
+    soup_new, scripts_new, dom_new = screen(None)
 
     # Каталог получил всё, чего у него не было.
     checks = [
@@ -1433,6 +1433,36 @@ def check_item_edit_mode() -> tuple[int, int]:
         ("удаление только у сохранённой",
          soup_lib.find(id="del") is not None and soup_new.find(id="del") is None),
     ]
+
+    # Уход с несохранённой работой. Разбор больше не кладут в каталог за
+    # спиной — «я не добавлял товар, а он появился», — значит уход со
+    # свежей карточки теряет её целиком, и браузер обязан спросить.
+    leave = ("const e = { type: 'beforeunload', returnValue: null,"
+             " preventDefault() { this.held = true } };"
+             " window.dispatchEvent(e);"
+             " document.getElementById('library_status').textContent ="
+             " e.held ? 'держит' : 'отпускает'")
+    asked = lambda r: r["ids"].get("library_status", {}).get("text") == "держит"
+    checks += [
+        ("разбор не сохраняется сам",
+         "_remember" not in open(os.path.join(
+             os.path.dirname(os.path.abspath(__file__)), "app.py"),
+             encoding="utf-8").read()),
+        ("уход со свежего разбора спрашивает",
+         asked(_run_page(scripts_new, dom_new, actions=[leave]))),
+        ("после сохранения не спрашивает",
+         not asked(_run_page(scripts_new, dom_new,
+                             actions=["document.getElementById('tolibrary').click()",
+                                      "await null", leave],
+                             responses=[{"json": {"id": "x"}}]))),
+        ("карточку из каталога отпускает нетронутой",
+         not asked(_run_page(scripts_lib, dom_lib, actions=[leave]))),
+        ("а после правки — держит",
+         asked(_run_page(scripts_lib, dom_lib, actions=[
+             "const f = document.getElementById('f_note'); f.value = 'правка';"
+             " f.dispatchEvent({type:'input', target: f})", leave]))),
+    ]
+
 
     # Отделки не отмечены заранее. Разбор возвращает ВСЕ исполнения,
     # какие есть у модели, и это часто альтернативы: у BAROVIER AURORA

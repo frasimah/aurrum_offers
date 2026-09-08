@@ -195,49 +195,21 @@ def lookup():
         return render_template("lookup.html", url=url, error=str(exc)), 502
 
     description = product_lookup.to_excel_description(product, with_finishes=False)
-    # Разбор стоит запроса Firecrawl и работы Gemini — терять его,
-    # если менеджер закрыл вкладку, незачем. Кладём в каталог сразу,
-    # ещё до того, как он что-то нажмёт.
-    saved = _remember(product, description)
+    # В каталог карточка попадает ТОЛЬКО по кнопке. Раньше разбор клал её
+    # туда сам — «чтобы не терять работу», — и библиотека наполнялась
+    # тем, чего никто не добавлял. Работу бережёт предупреждение при
+    # уходе со страницы, а не запись за спиной.
 
     return render_template(
         "lookup.html",
         url=url,
         product=product,
         description=description,
-        saved_id=saved,
         variants=product_lookup.variant_cards(product),
         card_base=_card_base(product, description),
         project_choices=_project_choices(),
         types=product_lookup.TYPES_RU,
     )
-
-
-def _remember(product, description: str) -> str | None:
-    """Разобранную карточку — в каталог. Тихо: сбой хранилища не повод
-    отнимать у менеджера уже собранную карточку на экране.
-
-    Существующую не затираем: в ней могли быть правки руками, а свежий
-    разбор их не знает. Обновление — по кнопке в редакторе карточки.
-    """
-    try:
-        item_id = library.slug(product.brand, product.model)
-        if library.get(item_id):
-            return item_id
-        return library.save({
-            "source_url": product.source_url,
-            "brand": product.brand, "model": product.model,
-            "type_ru": product.type_ru, "collection": product.collection,
-            "dims_raw": product.dims_raw, "dims_confident": product.dims_confident,
-            "width_cm": product.width_cm, "depth_cm": product.depth_cm,
-            "height_cm": product.height_cm, "volume_m3": product.volume_m3,
-            "volume_source": product.volume_source,
-            "finishes": product.finishes, "note": product.tech_note,
-            "summary_ru": product.summary_ru, "description": description,
-            "photos": product.photo_urls, "doc_urls": product.doc_urls,
-        })["id"]
-    except Exception:            # noqa: BLE001 — карточка на экране важнее
-        return None
 
 
 @app.route("/parse-doc", methods=["POST"])
@@ -389,6 +361,7 @@ def _card_base(product, description: str, item: dict | None = None) -> dict:
         "note": product.tech_note, "summary_ru": product.summary_ru,
         "description": description, "photos": product.photo_urls,
         "doc_urls": product.doc_urls, "dims_from_spec": product.dims_from_spec,
+        "finishes_from_spec": product.finishes_from_spec,
     })
     return base
 
@@ -435,6 +408,7 @@ def _as_product(item: dict):
         height_cm=item.get("height_cm"),
         dims_confident=bool(item.get("dims_confident", True)),
         dims_from_spec=bool(item.get("dims_from_spec")),
+        finishes_from_spec=bool(item.get("finishes_from_spec")),
         volume_m3=item.get("volume_m3"),
         volume_source=(item.get("volume_source")
                        or _volume_source_of(item)),
