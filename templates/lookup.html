@@ -38,7 +38,9 @@
     }
 
     .wrap {
-      max-width: 1000px;
+      /* Как у каталога: это теперь один и тот же экран, и он держит две
+         плотные колонки, фотографии и документы. */
+      max-width: 1360px;
       margin: 24px auto;
       padding: 0 24px;
     }
@@ -214,7 +216,10 @@
 
     .grid2 {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      /* 40 / 60. minmax(0, …), а не голые доли: у «fr» нижняя граница —
+         ширина содержимого, и ряд кнопок, который не переносится,
+         распирал правую колонку, сжимая левую до переноса подписей. */
+      grid-template-columns: minmax(0, 40fr) minmax(0, 60fr);
       gap: 20px;
     }
 
@@ -441,9 +446,21 @@
 
     .actions {
       display: flex;
+      flex-wrap: wrap;      /* иначе ряд кнопок задаёт ширину колонки */
+      align-items: center;
       gap: 10px;
       margin-top: 12px;
     }
+
+    /* Удаление необратимо и не должно выглядеть как «Сохранить».
+       Класс был проставлен в разметке, но не описан — и кнопка красилась
+       главной, вплотную к ней. */
+    button.link {
+      height: auto; padding: 0; border: 0; background: none;
+      color: #949598; font-size: 12.5px; text-decoration: underline;
+    }
+    button.link:hover { background: none; color: #d64545; }
+    .actions button.link { margin-left: auto; }
   </style>
 </head>
 
