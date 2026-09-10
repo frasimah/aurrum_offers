@@ -213,9 +213,30 @@ DEFAULT_FINAL = {
 }
 
 
+def quantity(p: dict) -> int:
+    """Количество позиции: целое, не меньше одного.
+
+    Одно правило на экран и на файл. Раньше экран отбрасывал дробь
+    (2,5 -> 2), а в книгу уходило 2,5 как есть — и файл считал на
+    3750 € больше, чем показывал экран.
+    """
+    return max(1, int(_num(p.get("qty"), 1)))
+
+
+def final_params(fin: dict | None) -> dict:
+    """Параметры итога поверх заводских — числами, откуда бы ни пришли.
+
+    Файл отбирал только int и float, и параметр, пришедший строкой
+    («25»), молча заменялся заводским: экран считал скидку 25 %, файл
+    писал 30 %. Правило одно: как читает экран, так читает и файл.
+    """
+    return {**DEFAULT_FINAL,
+            **{k: _num(v) for k, v in (fin or {}).items() if k in DEFAULT_FINAL}}
+
+
 def final_block(items_sum: float, fin: dict | None = None) -> dict:
     """Сумма позиций -> итог компреда по цепочке книги."""
-    f = {**DEFAULT_FINAL, **{k: _num(v) for k, v in (fin or {}).items()}}
+    f = final_params(fin)
 
     def part(key: str, base: float) -> float:
         return f[f"{key}_eur"] or base * f[f"{key}_pct"] / 100
@@ -275,7 +296,7 @@ def project(positions: list[dict], rates: dict | None = None,
     lines, total_sum, total_volume = [], 0.0, 0.0
     levels_sum: dict[str, float] = {}
     for p in positions:
-        qty = max(1, int(_num(p.get("qty"), 1)))
+        qty = quantity(p)
         computed = for_position(p, rates)
         price = _num(p.get("price")) or computed.price
         lines.append({

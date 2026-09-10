@@ -140,11 +140,24 @@ def _header(ws, head: dict) -> None:
         ws[f"N{HEAD_TITLE_ROW}"] = day
 
 
+def _geometric(position: dict) -> float:
+    """Объём, который посчитала бы формула книги: ROUNDUP(Д×Г×В×1,5/1e6; 0,1)."""
+    import math
+
+    axes = [pricing._num(position.get(k)) for k in ("width_cm", "depth_cm", "height_cm")]
+    if not all(axes):
+        return 0.0
+    exact = round(axes[0] * axes[1] * axes[2] * 1.5 / 1_000_000, 6)
+    return math.ceil(exact * 10) / 10
+
+
 def _write_position(ws, row: int, number: int, position: dict,
                     r: dict, values: bool) -> None:
     """Одна позиция в свою строку книги."""
     computed = pricing.for_position(position, r)
     fields = {**position, "number": number,
+              # Количество — то же целое, что считает экран.
+              "qty": pricing.quantity(position),
               # Ручной закуп первичен: в T уходит выведенная цена
               # прайса, и формулы книги воспроизводят тот же закуп.
               "list_price": (computed.list_price
@@ -157,10 +170,18 @@ def _write_position(ws, row: int, number: int, position: dict,
               "price": position.get("price") or computed.price or ""}
 
     cells = book_row.visible_row(fields, row) + book_row.pricing_row(fields, row)
+    # Объём. Книга выводит его формулой из габаритов, и это верно ровно
+    # до тех пор, пока объём ИЗ НИХ и выведен. Объём от производителя,
+    # из техлиста или правленный руками формула молча заменяла своим:
+    # экран считал 4,5 м³ и перевозку 2250 €, файл — 3,1 м³ и 1550 €,
+    # клиент получал цену на 700 € ниже названной. Такой объём уходит
+    # числом, и вся цепочка книги (R, S, AC) считает от него.
+    volume = pricing._num(position.get("volume_m3"))
+    if volume and abs(volume - _geometric(position)) > 0.005:
+        cells[20] = volume                                       # U  м3
     if values:
-        qty = max(1, int(pricing._num(position.get("qty"), 1)))
+        qty = pricing.quantity(position)
         price = pricing._num(fields.get("price"))
-        volume = pricing._num(position.get("volume_m3"))
         cells[5] = round(price * qty, 2) if price else ""      # F  Сумма
         cells[17] = volume or ""                                # R  м3
         cells[18] = round(volume * qty, 2) if volume else ""    # S  м3 всего
@@ -263,16 +284,17 @@ def build(positions: list[dict], rates: dict | None = None,
     # (=M17*0.05), поэтому файл пересчитывается в Excel без нас.
     totals_row = last + 2
     if positions:
-        f = {**pricing.DEFAULT_FINAL,
-             **{k: v for k, v in (final or {}).items() if isinstance(v, (int, float))}}
+        f = pricing.final_params(final)
         t = totals_row
         if values:
-            items_sum = sum(
-                pricing._num(p.get("price")) * max(1, int(pricing._num(p.get("qty"), 1)))
-                for p in positions) or sum(
-                pricing.for_position(p, r).price
-                * max(1, int(pricing._num(p.get("qty"), 1))) for p in positions)
-            fb = pricing.final_block(items_sum, f)
+            # Тот же расчёт, что на экране: у каждой позиции своя цена —
+            # ручная, иначе расчётная. Раньше сумма бралась по ручным
+            # ценам, а позиции без ручной давали в неё ноль, хотя в своей
+            # строке стояли с ценой: печать показывала строки на 14 500 и
+            # «Сумму» 7000, итог выходил вдвое меньше экранного.
+            totals = pricing.project(positions, r, f)
+            items_sum = totals["sum"]
+            fb = totals["final"]
             rows = [
                 ("Сумма, Евро", round(items_sum, 2), True),
                 ("Дополнительные услуги, Евро", fb["услуги"], False),

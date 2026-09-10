@@ -2893,6 +2893,124 @@ def check_export_matches_screen() -> tuple[int, int]:
     return good, len(checks)
 
 
+def check_book_formulas() -> tuple[int, int]:
+    """Формулы книги против экрана — то, что посчитает Excel.
+
+    Файл — второй калькулятор: те же деньги, но формулами. Проверка
+    «Файл против экрана» сравнивала Python с Python; сами формулы, что
+    уезжают клиенту, не считал никто. Здесь они вычисляются так, как их
+    вычислит Excel, и сверяются с pricing. Так нашлись потерянный объём
+    производителя (−700 € перевозки) и итог печати вдвое меньше экрана.
+    """
+    import io as _io
+    import math
+    import re as _re
+
+    import openpyxl
+
+    import book_export
+    import pricing
+    print("\n ФОРМУЛЫ КНИГИ ПРОТИВ ЭКРАНА")
+    print(" " + "-" * 74)
+
+    rates = dict(pricing.DEFAULT_RATES)
+
+    def excel(ws, row):
+        """Цепочка T..AI по написанным ячейкам — как её посчитает Excel."""
+        g = lambda c: ws[f"{c}{row}"].value
+        num = lambda v: float(v) if isinstance(v, (int, float)) else 0.0
+        fu = g("U")
+        U = (float(fu) if isinstance(fu, (int, float))
+             else math.ceil(num(g("J")) * num(g("K")) * num(g("L")) * 1.5 / 1e6 * 10) / 10)
+        W = num(g("T")) * (1 - num(g("V")))
+        Y = W * (1 + num(g("X")))
+
+        def part(cell, base, key):
+            f = g(cell)
+            if isinstance(f, (int, float)):
+                return float(f)
+            m = _re.search(r"\*(\d+(?:\.\d+)?)/100", str(f))
+            return base * float(m.group(1)) / 100 if m else base * rates[key] / 100
+
+        fc = g("AC")
+        if isinstance(fc, (int, float)):
+            AC = float(fc)
+        else:
+            m = _re.search(r"U\d+\*(\d+(?:\.\d+)?)", str(fc))
+            AC = U * float(m.group(1)) if m else U * rates["freight"]
+        AD = Y + part("Z", Y, "margin") + part("AA", W, "transfer") + num(g("AB")) + AC + num(g("AJ"))
+        AE = AD / float(_re.search(r"/([\d.]+)$", str(g("AE"))).group(1))
+        level = AE
+        for key in ("designer", "usno", "vat", "finserv"):
+            level = level / (1 - rates[key] / 100)
+        return {"объём": round(U, 3), "закуп": round(Y, 2), "перевозка": round(AC, 2),
+                "сумма": round(AD, 2), "со сборкой": round(AE, 2), "безнал": round(level, 2)}
+
+    def screen(pos):
+        c = pricing.for_position(pos, rates)
+        return {"объём": pricing._num(pos.get("volume_m3")), "закуп": c.purchase,
+                "перевозка": c.freight, "сумма": c.total, "со сборкой": c.with_assembly,
+                "безнал": c.levels["finserv"]}
+
+    def sheet(positions, **kw):
+        return openpyxl.load_workbook(_io.BytesIO(book_export.build(positions, **kw))).active
+
+    big = {"brand": "X", "description": "Y", "qty": 1, "factory_discount": 0.5,
+           "width_cm": 300, "depth_cm": 90, "height_cm": 75}
+    small = {**big, "width_cm": 100, "depth_cm": 50, "height_cm": 80, "volume_m3": 0.6}
+    cases = {
+        "обычная позиция": {**big, "list_price": 10000, "volume_m3": 3.1},
+        "объём от производителя, не из габаритов": {**big, "list_price": 10000, "volume_m3": 4.5},
+        "ручной закуп": {**small, "purchase": 6000},
+        "рентабельность в евро": {**small, "list_price": 8000, "margin_eur": 1500},
+        "сборка 0,95": {**small, "list_price": 8000, "assembly": 0.95},
+        "растаможка": {**small, "list_price": 8000, "customs": 900},
+        "дробное количество": {**small, "list_price": 8000, "qty": "2.5"},
+    }
+    checks = []
+    for label, pos in cases.items():
+        ws = sheet([pos])
+        book, mine = excel(ws, 14), screen(pos)
+        off = [k for k in mine if abs(mine[k] - book[k]) > 0.02]
+        checks.append((f"{label}: файл считает как экран",
+                       not off))
+        if off:
+            print(f"    расходится {label}: " + ", ".join(
+                f"{k} экран {mine[k]} / файл {book[k]}" for k in off))
+
+    # Количество: одно целое и на экране, и в колонке D.
+    ws = sheet([cases["дробное количество"]])
+    checks.append(("дробное количество в файле то же, что на экране",
+                   ws.cell(14, 4).value == pricing.project(
+                       [cases["дробное количество"]])["lines"][0]["qty"] == 2))
+
+    # Печать: у каждой позиции своя цена, ручная или расчётная, и итог
+    # сходится со строками. Раньше сумма бралась по ручным, а позиции
+    # без ручной давали ноль — строки на 14 500, «Сумма» 7000.
+    mixed = [{**small, "list_price": 10000, "price": 7000},
+             {**small, "list_price": 10000}]
+    ws = sheet(mixed, values=True)
+    rows_sum = sum(ws.cell(r, 5).value for r in (14, 15))
+    want = pricing.project(mixed)
+    checks += [
+        ("печать: «Сумма» равна сумме строк", ws.cell(17, 6).value == rows_sum),
+        ("печать: «Сумма» равна экрану", ws.cell(17, 6).value == want["sum"]),
+        ("печать: «Итого» равно экрану",
+         ws.cell(25, 6).value == want["final"]["к_оплате"]),
+    ]
+
+    # Параметр итога строкой — как его читает экран, так и файл.
+    ws = sheet([cases["обычная позиция"]], final={"personal_pct": "25"})
+    checks.append(("скидка строкой «25» в файле стала 25 %, а не заводскими 30",
+                   str(ws.cell(21, 6).value).endswith("*0.25")))
+
+    good = 0
+    for label, hit in checks:
+        good += bool(hit)
+        print(f"  {OK if hit else BAD} {label}")
+    return good, len(checks)
+
+
 def check_columns() -> tuple[int, int]:
     """Колонки книги ищутся по подписям, а не по буквам.
 
@@ -3604,6 +3722,7 @@ def main() -> int:
     run("Строка", check_book_row)
     run("Колонки", check_columns)
     run("Файл против экрана", check_export_matches_screen)
+    run("Формулы книги", check_book_formulas)
     run("Расчёт", check_pricing)
     run("Начальные числа", check_position_defaults)
     run("Итог", check_final_block)
