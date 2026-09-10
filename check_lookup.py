@@ -3355,6 +3355,77 @@ def _raises_on_answer(extract, payload, whole: bool = False) -> bool:
             os.environ["GOOGLE_API_KEY"] = real_key
 
 
+def check_blocked_docs() -> tuple[int, int]:
+    """Техлист за щитом: не PDF — идём к доставщику, а не молчим.
+
+    VENICEM закрыл сайт проверкой на робота: и страница, и техлист
+    отвечают 202 и заглушкой. Страницу выручал доставщик, документ шёл
+    только обычным запросом — и карточка выходила вовсе без габаритов и
+    объёма, хотя у этого бренда объём печатает производитель и взять
+    его больше неоткуда.
+    """
+    import extract
+    print("\n ДОКУМЕНТ ЗА ЩИТОМ")
+    print(" " + "-" * 74)
+
+    real, calls = extract.safe_fetch.get, []
+    shield = type("R", (), {"content": b"<html><head><meta http-equiv=\"refresh\"",
+                            "headers": {}})()
+
+    def fake(url, **kw):
+        calls.append(url)
+        return shield
+
+    delivered, asked = [], []
+
+    def deliver(url):
+        asked.append(url)
+        return delivered[0] if delivered else ""
+
+    real_deliver = extract._delivered_text
+    extract.safe_fetch.get = fake
+    extract._delivered_text = deliver
+    try:
+        # Доставщик отдал текст — разбираем его, а не роняем карточку.
+        delivered.append("РАЗМЕРЫ Ø 25 cm 31 cm ОБЪЁМ 0,23 m3 " + "детали листа " * 40)
+        real_from_text, seen = extract.llama_extract.from_text, []
+        extract.llama_extract.from_text = lambda t: (seen.append(t) or {"products": [{}]})
+        try:
+            # Отказ — это тоже ответ: без правки разбор доходит до
+            # читателя с заглушкой вместо PDF и падает. Ловим, чтобы
+            # покраснела строка, а не рухнул весь прогон.
+            got = extract.from_url("https://venicem.com/лист.pdf")
+        except Exception as failed:      # noqa: BLE001
+            got = {"ошибка": str(failed)[:80]}
+        finally:
+            extract.llama_extract.from_text = real_from_text
+        checks = [
+            ("не PDF — спросили доставщика", asked == ["https://venicem.com/лист.pdf"]),
+            ("текст доставщика ушёл в разбор", bool(seen) and "0,23" in seen[0]),
+            ("источник назван честно",
+             "доставщик" in str(got.get(extract.SOURCE_KEY, ""))),
+        ]
+
+        # Доставщик тоже не смог — говорим причину, а не «invalid pdf header».
+        delivered.clear()
+        asked.clear()
+        try:
+            extract.from_url("https://venicem.com/лист.pdf")
+            checks.append(("пустой ответ доставщика — отказ с причиной", False))
+        except RuntimeError as exc:
+            checks.append(("пустой ответ доставщика — отказ с причиной",
+                           "проверкой на робота" in str(exc)))
+    finally:
+        extract.safe_fetch.get = real
+        extract._delivered_text = real_deliver
+
+    good = 0
+    for label, hit in checks:
+        good += bool(hit)
+        print(f"  {OK if hit else BAD} {label}")
+    return good, len(checks)
+
+
 def check_delivery() -> tuple[int, int]:
     """Порядок доставки страницы: сначала обычный запрос.
 
@@ -3718,6 +3789,7 @@ def main() -> int:
     run("Документы", check_docs_list)
     run("Извлекатели", check_extractors)
     run("Доставка", check_delivery)
+    run("Документ за щитом", check_blocked_docs)
     run("Техлист и исполнения", check_spec_choice)
     run("Строка", check_book_row)
     run("Колонки", check_columns)

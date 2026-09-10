@@ -1079,6 +1079,10 @@ def _attach_swatches(p: Product) -> None:
         raw, _reader = spec_images.opened(
             p.spec_pdf_url,
             lambda u: safe_fetch.get(u, timeout=180, headers=BROWSER).content)
+        # Не PDF — значит за адресом щит и отдал заглушку. Образцов там
+        # нет, а читатель на такое ругается в вывод.
+        if not raw.startswith(b"%PDF"):
+            return
         refs = spec_images.swatches(
             raw, [str(f.get("material") or "") for f in p.finishes])
     except Exception:            # noqa: BLE001 — карточка важнее образца
@@ -1301,7 +1305,10 @@ def lookup(url: str, progress=None) -> Product:
     # а раскладывает их нестабильно от запроса к запросу.
     if p.variants:
         first = p.variants[0]
-        p.dims_raw = str(first.get("dims_raw") or "").strip()
+        # Пробелы схлопываем: у техлиста, прочитанного доставщиком,
+        # строка приходит с переносами («Ø 25 cm\n\n31 cm»), и в поле
+        # карточки это выглядит поломкой. Числа и порядок те же.
+        p.dims_raw = " ".join(str(first.get("dims_raw") or "").split())
         m = measure(p.dims_raw, p.type_ru, first.get("packed_volume_m3"))
         p.width_cm, p.depth_cm, p.height_cm = m.width_cm, m.depth_cm, m.height_cm
         p.dims_confident = m.confident

@@ -289,6 +289,30 @@ def from_text(text: str, known_types: tuple | list = (),
         return got
 
 
+def _delivered_text(url: str) -> str:
+    """Текст документа через доставщика. Пусто — не вышло или не настроен.
+
+    Тот же запасной путь, что у страницы. VENICEM закрыл сайт щитом
+    SiteGround: и страница, и техлист отвечают 202 и страницей-заглушкой
+    с переходом на проверку. Страницу это не роняло — её берёт
+    доставщик, — а документ шёл только обычным запросом, и карточка
+    оставалась вовсе без габаритов и объёма, хотя у этого бренда объём
+    печатает производитель и взять его больше неоткуда.
+    """
+    key = os.environ.get("FIRECRAWL_API_KEY", "").strip()
+    if not key:
+        return ""
+    try:
+        from firecrawl import Firecrawl
+
+        doc = Firecrawl(api_key=key).scrape(
+            url, formats=["markdown"], only_main_content=False, timeout=120_000)
+        data = doc if isinstance(doc, dict) else getattr(doc, "model_dump", dict)()
+        return str((data or {}).get("markdown") or "")
+    except Exception:            # noqa: BLE001 — запасной путь не обязан выходить
+        return ""
+
+
 def from_url(url: str, known_types: tuple | list = (),
              known_roles: tuple | list = (), source: str = "") -> dict:
     """Ссылка на техлист -> извлечённые данные."""
@@ -296,6 +320,20 @@ def from_url(url: str, known_types: tuple | list = (),
     data = got.content
     if len(data) > MAX_PDF_MB * 1024 * 1024:
         raise RuntimeError(f"Документ больше {MAX_PDF_MB} МБ — не разбираю.")
+
+    # Пришёл не PDF: за адресом стоит щит и отдал страницу-заглушку.
+    # Отдавать такое читателю бессмысленно — он ответит «invalid pdf
+    # header». Пробуем доставщика, как со страницей.
+    if not data.startswith(b"%PDF"):
+        text = _delivered_text(url)
+        if len(text.strip()) >= MIN_PDF_TEXT:
+            out = llama_extract.from_text(text)
+            out[SOURCE_KEY] = "LlamaExtract по тексту от доставщика"
+            return out
+        raise RuntimeError(
+            "По адресу техлиста пришёл не PDF — похоже, сайт закрыт "
+            "проверкой на робота, а доставщик её не прошёл."
+        )
 
     try:
         got = _gemini(data=data, known_types=known_types,
